@@ -107,7 +107,8 @@ RESEARCH_MODEL = "claude-opus-4-8"
 
 @app.command()
 def run(
-    task: str = typer.Option(..., "--task", "-t", help="Descripción de la tarea a resolver."),
+    task: Optional[str] = typer.Option(None, "--task", "-t", help="Descripción de la tarea a resolver."),
+    task_file: Optional[str] = typer.Option(None, "--task-file", "-f", help="Archivo de texto con la tarea (alternativa a --task)."),
     project: str = typer.Option(..., "--project", "-p", help="Alias del proyecto registrado."),
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help=f"Forzar un proveedor específico ({', '.join(PROVIDERS)}), sin pasar por el router."
@@ -118,6 +119,11 @@ def run(
     show_reason: bool = typer.Option(True, "--show-reason/--no-show-reason", help="Mostrar la justificación del ruteo."),
 ):
     """Ejecuta una tarea: resuelve el contexto del proyecto, rutea y llama al provider."""
+    if task_file:
+        task = Path(task_file).read_text(encoding="utf-8")
+    if not task:
+        console.print("[red]✗[/red] Debés pasar --task o --task-file.")
+        raise typer.Exit(code=1)
     if research and model:
         console.print("[red]✗[/red] --research y --model no pueden usarse juntos.")
         raise typer.Exit(code=1)
