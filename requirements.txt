@@ -2,5 +2,4 @@ typer[all]>=0.12.0
 pyyaml>=6.0
 httpx>=0.27.0
 rich>=13.0.0
-# Opcional: habilita búsqueda vectorial semántica en el router
-# pip install chromadb>=0.4.0
+chromadb>=0.4.0

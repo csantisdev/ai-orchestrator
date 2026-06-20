@@ -1,4 +1,4 @@
-"""Migraciones one-shot: JSONL → SQLite."""
+"""Migraciones one-shot: JSONL → SQLite, indexado en ChromaDB."""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-from orchestrator.paths import HOME_DIR
-
-_RUNS_JSONL = HOME_DIR / "runs.jsonl"
+import orchestrator.paths as _paths
 _migration_lock = threading.Lock()
+
+
+def _runs_jsonl():
+    return _paths.HOME_DIR / "runs.jsonl"
 
 
 def _already_applied(conn: sqlite3.Connection, name: str) -> bool:
@@ -28,11 +30,12 @@ def _mark_applied(conn: sqlite3.Connection, name: str) -> None:
 
 
 def _migrate_jsonl(conn: sqlite3.Connection) -> int:
-    if not _RUNS_JSONL.exists():
+    runs_jsonl = _runs_jsonl()
+    if not runs_jsonl.exists():
         return 0
 
     count = 0
-    for line in _RUNS_JSONL.read_text(encoding="utf-8").splitlines():
+    for line in runs_jsonl.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -65,10 +68,27 @@ def _migrate_jsonl(conn: sqlite3.Connection) -> int:
         count += 1
 
     if count:
-        migrated = _RUNS_JSONL.with_suffix(".jsonl.migrated")
-        _RUNS_JSONL.rename(migrated)
+        runs_jsonl = _runs_jsonl()
+        migrated = runs_jsonl.with_suffix(".jsonl.migrated")
+        runs_jsonl.rename(migrated)
 
     return count
+
+
+def _index_existing_runs(conn: sqlite3.Connection) -> int:
+    try:
+        from orchestrator.similarity import get_backend
+        backend = get_backend()
+        rows = conn.execute(
+            "SELECT id, task FROM runs WHERE status='done' AND task != '' ORDER BY id"
+        ).fetchall()
+        count = 0
+        for row in rows:
+            backend.upsert(row[0], row[1])
+            count += 1
+        return count
+    except Exception:
+        return 0
 
 
 def run_migrations() -> None:
@@ -85,3 +105,9 @@ def run_migrations() -> None:
                     logging.getLogger(__name__).info(
                         "Migración JSONL→SQLite: %d runs importados.", n
                     )
+
+        if not _already_applied(conn, "index_chroma"):
+            n = _index_existing_runs(conn)
+            with _write_lock:
+                _mark_applied(conn, "index_chroma")
+                conn.commit()
