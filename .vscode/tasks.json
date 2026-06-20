@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Orchestrator: Dashboard",
+      "type": "shell",
+      "command": ".venv\\Scripts\\ai-orchestrator.exe serve --port 8080 --no-open",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Dashboard en",
+          "endsPattern": "auto-refresh"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "label": "Orchestrator Dashboard",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Orchestrator: History",
+      "type": "shell",
+      "command": ".venv\\Scripts\\ai-orchestrator.exe history --last 30",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      }
+    }
+  ]
+}
