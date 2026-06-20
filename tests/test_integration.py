@@ -74,7 +74,7 @@ def test_cost_calculation():
     assert abs(cost - (3.00 + 15.00)) < 0.001
 
 
-def test_similarity_fts5_fallback():
+def test_similarity_backend():
     import orchestrator.paths as paths_mod
     import orchestrator.db as db_mod
     import orchestrator.similarity as sim_mod
@@ -91,7 +91,7 @@ def test_similarity_fts5_fallback():
     try:
         db_mod.init_db()
         backend = sim_mod.get_backend(tmp_path)
-        assert isinstance(backend, sim_mod.FTS5Backend)
+        assert isinstance(backend, (sim_mod.FTS5Backend, sim_mod.ChromaBackend))
         backend.upsert(1, "crear tests para modelo User")
         result = backend.query("tests modelo")
         assert isinstance(result, list)

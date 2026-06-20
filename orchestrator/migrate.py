@@ -106,6 +106,33 @@ def run_migrations() -> None:
                         "Migración JSONL→SQLite: %d runs importados.", n
                     )
 
+        with _write_lock:
+            if not _already_applied(conn, "add_session_id_column"):
+                try:
+                    conn.execute("ALTER TABLE runs ADD COLUMN session_id TEXT")
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_session_id_column")
+                conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_session_id_v2"):
+                cols = [r[1] for r in conn.execute("PRAGMA table_info(runs)").fetchall()]
+                if "session_id" not in cols:
+                    try:
+                        conn.execute("ALTER TABLE runs ADD COLUMN session_id TEXT")
+                    except Exception:
+                        pass
+                try:
+                    conn.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_session_id"
+                        " ON runs(session_id) WHERE session_id IS NOT NULL"
+                    )
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_session_id_v2")
+                conn.commit()
+
         if not _already_applied(conn, "index_chroma"):
             n = _index_existing_runs(conn)
             with _write_lock:

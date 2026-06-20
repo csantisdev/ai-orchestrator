@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS runs (
     cache_read_tokens     INTEGER DEFAULT 0,
     cost_usd              REAL,
     routing_reason        TEXT    NOT NULL DEFAULT '',
-    parent_run_id         INTEGER REFERENCES runs(id)
+    parent_run_id         INTEGER REFERENCES runs(id),
+    session_id            TEXT    UNIQUE
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project);

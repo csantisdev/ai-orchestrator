@@ -238,6 +238,49 @@ def run(
         console.print(f"[{style}]⚠  Presupuesto diario: ${spent:.4f} / ${limit:.2f} ({pct}%)[/{style}]")
 
 
+@app.command(name="sync-cc")
+def sync_cc(
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Silenciar salida detallada."),
+):
+    """Importa sesiones de Claude Code al historial del orquestador."""
+    _ensure_db()
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+
+    from orchestrator.watcher import scan_and_import
+    imported = scan_and_import(config, quiet=quiet)
+
+    if not imported:
+        if not quiet:
+            console.print("[dim]No hay sesiones nuevas de Claude Code para importar.[/dim]")
+        return
+
+    table = Table(title=f"Claude Code — {len(imported)} sesión(es) importada(s)", show_lines=False)
+    table.add_column("Proyecto", style="cyan")
+    table.add_column("Session", style="dim")
+    table.add_column("Modelo", style="dim")
+    table.add_column("Tokens In", justify="right")
+    table.add_column("Tokens Out", justify="right")
+    table.add_column("Costo", justify="right")
+    table.add_column("Tarea", max_width=50)
+
+    from orchestrator.dashboard import _fmt_cost
+    for s in imported:
+        table.add_row(
+            s["project"],
+            s["session_id"],
+            s["model"].split("/")[-1],
+            str(s["input_tokens"]),
+            str(s["output_tokens"]),
+            _fmt_cost(s["cost_usd"]),
+            s["task_preview"],
+        )
+
+    console.print(table)
+
+
 @app.command(name="history")
 def history_command(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Filtrar por proyecto."),
