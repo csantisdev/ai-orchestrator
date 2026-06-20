@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -15,12 +16,14 @@ from rich.console import Console
 from rich.table import Table
 
 from orchestrator import context as context_module
+from orchestrator import history as history_module
 from orchestrator import index as index_module
 from orchestrator import router as router_module
 from orchestrator.config import ConfigError, load_config
 from orchestrator.context import ContextNotFoundError
+from orchestrator.dashboard import build_html
 from orchestrator.index import ProjectNotFoundError
-from orchestrator.paths import PROVIDERS
+from orchestrator.paths import HOME_DIR, PROVIDERS
 from orchestrator.providers.factory import build_provider
 
 app = typer.Typer(
@@ -182,12 +185,109 @@ def run(
         f"Convenciones: {', '.join(ctx.conventions) if ctx.conventions else 'ninguna registrada'}\n"
     )
 
+    t0 = time.monotonic()
     with console.status(f"[bold cyan]Ejecutando en {decision.provider}..."):
         result = provider.complete(prompt=task, system=system_prompt)
+    duration_ms = int((time.monotonic() - t0) * 1000)
 
     console.print()
     console.print(f"[bold green]── Respuesta ({result.provider}/{result.model}) ──[/bold green]")
     console.print(result.text)
+
+    history_module.log_run(
+        project=project,
+        task=task,
+        result=result,
+        duration_ms=duration_ms,
+        routing_reason=decision.reason,
+    )
+
+
+@app.command(name="history")
+def history_command(
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Filtrar por proyecto."),
+    last: int = typer.Option(20, "--last", "-n", help="Cantidad de runs a mostrar."),
+):
+    """Muestra el historial de runs en la terminal."""
+    runs = history_module.read_runs(project=project, last=last)
+
+    if not runs:
+        msg = f"No hay runs para '{project}'." if project else "No hay runs registrados aún."
+        console.print(f"[yellow]{msg}[/yellow]")
+        return
+
+    table = Table(title=f"Historial ({len(runs)} runs)", show_lines=False)
+    table.add_column("Fecha", style="dim", min_width=12)
+    table.add_column("Proyecto", style="cyan")
+    table.add_column("Proveedor", min_width=10)
+    table.add_column("Modelo", style="dim")
+    table.add_column("Dur.", justify="right")
+    table.add_column("Tokens", justify="right")
+    table.add_column("Tarea", max_width=50)
+
+    PROV_STYLE = {"claude": "orange1", "deepseek": "green", "openai": "blue"}
+
+    for r in reversed(runs):
+        from orchestrator.dashboard import _fmt_ms, _fmt_tokens, _fmt_ts
+        prov = r.get("provider", "?")
+        style = PROV_STYLE.get(prov, "white")
+        table.add_row(
+            _fmt_ts(r.get("ts", "")),
+            r.get("project", "—"),
+            f"[{style}]{prov}[/{style}]",
+            r.get("model", "—").split("/")[-1],
+            _fmt_ms(r.get("duration_ms")),
+            _fmt_tokens(r.get("input_tokens"), r.get("output_tokens")),
+            (r.get("task_preview", "")[:48] + "…") if len(r.get("task_preview", "")) > 48 else r.get("task_preview", ""),
+        )
+
+    console.print(table)
+    console.print(f"[dim]Log en: {history_module.RUNS_PATH}[/dim]")
+
+
+@app.command()
+def serve(
+    port: int = typer.Option(8080, "--port", help="Puerto HTTP para el dashboard."),
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Proyecto por defecto al abrir."),
+):
+    """Inicia el dashboard web del orquestador en http://localhost:<port>"""
+    import http.server
+    import urllib.parse
+
+    runs_path = history_module.RUNS_PATH
+
+    class DashboardHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            pass
+
+        def do_GET(self):
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
+            sel_project = params.get("project", [""])[0]
+
+            runs = history_module.read_runs(last=200)
+            html = build_html(runs, selected_project=sel_project)
+            body = html.encode("utf-8")
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    url = f"http://localhost:{port}"
+    console.print(f"[bold green]✓[/bold green] Dashboard en [cyan]{url}[/cyan]")
+    console.print(f"[dim]  Log: {runs_path}[/dim]")
+    console.print(f"[dim]  Ctrl+C para detener · auto-refresh cada 15s[/dim]")
+
+    if not runs_path.exists():
+        console.print("[yellow]ℹ[/yellow] Aún no hay runs registrados. Ejecutá un 'run' para ver datos.")
+
+    server = http.server.HTTPServer(("localhost", port), DashboardHandler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Dashboard detenido.[/dim]")
 
 
 if __name__ == "__main__":
