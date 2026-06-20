@@ -28,3 +28,29 @@ router:
 defaults:
   # Proveedor a usar si un proyecto no define preferred_models en su context.yaml
   default_provider: "claude"
+
+# Precio por proveedor/modelo en USD por 1M tokens.
+# Estos valores se usan para calcular el costo estimado de cada run.
+pricing:
+  claude-sonnet-4-6:
+    input: 3.00
+    output: 15.00
+    cache_write: 3.75
+    cache_read: 0.30
+  claude-opus-4-8:
+    input: 15.00
+    output: 75.00
+    cache_write: 18.75
+    cache_read: 1.50
+  gpt-4o:
+    input: 5.00
+    output: 15.00
+  deepseek-v4-flash:
+    input: 0.14
+    output: 0.28
+
+# Presupuesto diario de tokens por proyecto.
+# El dashboard muestra un gauge y emite warnings cuando se supera warning_threshold.
+budgets:
+  default_daily_budget_usd: 5.00
+  warning_threshold: 0.80

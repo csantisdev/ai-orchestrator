@@ -13,3 +13,6 @@ PROJECT_CONTEXT_DIRNAME = ".orchestrator"
 PROJECT_CONTEXT_FILENAME = "context.yaml"
 
 PROVIDERS = ("claude", "openai", "deepseek")
+
+DB_PATH     = HOME_DIR / "runs.db"
+CHROMA_PATH = HOME_DIR / "chroma"

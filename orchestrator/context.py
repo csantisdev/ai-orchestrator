@@ -22,9 +22,8 @@ class ProjectContext:
     conventions: list[str] = field(default_factory=list)
     default_provider: str | None = None
     routing_notes: str = ""
-    # keywords: lista de {match: str, provider: str, weight: int}
-    # usada como SEÑAL para el router liviano, no como regla rígida.
     keyword_hints: list[dict] = field(default_factory=list)
+    daily_budget_usd: float | None = None
     raw: dict = field(default_factory=dict)
 
     @property
@@ -61,6 +60,7 @@ def load_context(project_path: Path) -> ProjectContext:
         default_provider=preferred.get("default"),
         routing_notes=preferred.get("notes", ""),
         keyword_hints=raw.get("keyword_hints", []) or [],
+        daily_budget_usd=raw.get("daily_budget_usd"),
         raw={**raw, "_context_path": ctx_path},
     )
 
