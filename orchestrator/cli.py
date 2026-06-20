@@ -102,6 +102,9 @@ def remove(alias: str = typer.Argument(..., help="Alias del proyecto a quitar de
         raise typer.Exit(code=1)
 
 
+RESEARCH_MODEL = "claude-opus-4-8"
+
+
 @app.command()
 def run(
     task: str = typer.Option(..., "--task", "-t", help="Descripción de la tarea a resolver."),
@@ -109,9 +112,16 @@ def run(
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help=f"Forzar un proveedor específico ({', '.join(PROVIDERS)}), sin pasar por el router."
     ),
+    research: bool = typer.Option(
+        False, "--research", help=f"Investigación profunda: fuerza Claude {RESEARCH_MODEL}, omite el router."
+    ),
     show_reason: bool = typer.Option(True, "--show-reason/--no-show-reason", help="Mostrar la justificación del ruteo."),
 ):
     """Ejecuta una tarea: resuelve el contexto del proyecto, rutea y llama al provider."""
+    if research and model:
+        console.print("[red]✗[/red] --research y --model no pueden usarse juntos.")
+        raise typer.Exit(code=1)
+
     try:
         config = load_config()
     except ConfigError as exc:
@@ -130,7 +140,14 @@ def run(
         console.print(f"[red]✗[/red] {exc}")
         raise typer.Exit(code=1)
 
-    if model:
+    if research:
+        try:
+            decision = router_module.force_provider("claude")
+        except ValueError as exc:
+            console.print(f"[red]✗[/red] {exc}")
+            raise typer.Exit(code=1)
+        decision.reason = f"Modo research: {RESEARCH_MODEL}"
+    elif model:
         try:
             decision = router_module.force_provider(model)
         except ValueError as exc:
@@ -149,6 +166,9 @@ def run(
     except (ConfigError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         raise typer.Exit(code=1)
+
+    if research:
+        provider.model = RESEARCH_MODEL
 
     system_prompt = (
         f"Estás trabajando en el proyecto '{ctx.name}'.\n"
