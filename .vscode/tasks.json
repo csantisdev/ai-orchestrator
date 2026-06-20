@@ -4,7 +4,13 @@
     {
       "label": "Orchestrator: Dashboard",
       "type": "shell",
-      "command": ".venv\\Scripts\\ai-orchestrator.exe serve --port 8080 --no-open",
+      "command": ".venv/Scripts/ai-orchestrator.exe serve --port 8080 --no-open",
+      "options": {
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-NonInteractive", "-Command"]
+        }
+      },
       "isBackground": true,
       "problemMatcher": {
         "pattern": {
@@ -29,7 +35,13 @@
     {
       "label": "Orchestrator: History",
       "type": "shell",
-      "command": ".venv\\Scripts\\ai-orchestrator.exe history --last 30",
+      "command": ".venv/Scripts/ai-orchestrator.exe history --last 30",
+      "options": {
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-NonInteractive", "-Command"]
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
