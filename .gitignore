@@ -38,6 +38,6 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Historial local (futuro SQLite)
+# DB runtime — datos locales, no se versionan
 *.db
 *.sqlite3
