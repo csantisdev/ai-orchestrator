@@ -12,6 +12,8 @@ class CompletionResult:
     provider: str
     model: str
     raw_response: dict | None = None
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 class BaseProvider(ABC):

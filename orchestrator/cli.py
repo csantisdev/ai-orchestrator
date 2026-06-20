@@ -19,9 +19,11 @@ from orchestrator import context as context_module
 from orchestrator import history as history_module
 from orchestrator import index as index_module
 from orchestrator import router as router_module
-from orchestrator.config import ConfigError, load_config
+from orchestrator.config import ConfigError, get_pricing_table, load_config
 from orchestrator.context import ContextNotFoundError
+from orchestrator.costs import calculate_cost, check_budget
 from orchestrator.dashboard import build_html
+from orchestrator.db import get_run, init_db, projects_list
 from orchestrator.index import ProjectNotFoundError
 from orchestrator.paths import HOME_DIR, PROVIDERS
 from orchestrator.providers.factory import build_provider
@@ -32,6 +34,10 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console(legacy_windows=False)
+
+
+def _ensure_db() -> None:
+    init_db()
 
 
 @app.command()
@@ -45,6 +51,7 @@ def add(
     ),
 ):
     """Registra un proyecto en el índice y genera su context.yaml si no existe."""
+    _ensure_db()
     project_path = Path(path).expanduser().resolve()
 
     if not project_path.exists():
@@ -76,6 +83,7 @@ def add(
 @app.command(name="list")
 def list_command():
     """Lista los proyectos registrados en el índice."""
+    _ensure_db()
     projects = index_module.list_projects()
 
     if not projects:
@@ -97,6 +105,7 @@ def list_command():
 @app.command()
 def remove(alias: str = typer.Argument(..., help="Alias del proyecto a quitar del índice.")):
     """Quita un proyecto del índice (no borra archivos del proyecto)."""
+    _ensure_db()
     try:
         index_module.remove_project(alias)
         console.print(f"[green]✓[/green] '{alias}' fue quitado del índice.")
@@ -122,6 +131,8 @@ def run(
     show_reason: bool = typer.Option(True, "--show-reason/--no-show-reason", help="Mostrar la justificación del ruteo."),
 ):
     """Ejecuta una tarea: resuelve el contexto del proyecto, rutea y llama al provider."""
+    _ensure_db()
+
     if task_file:
         task = Path(task_file).read_text(encoding="utf-8")
     if not task:
@@ -194,13 +205,37 @@ def run(
     console.print(f"[bold green]── Respuesta ({result.provider}/{result.model}) ──[/bold green]")
     console.print(result.text)
 
-    history_module.log_run(
+    pricing = get_pricing_table(config)
+    cost_usd = calculate_cost(result, pricing)
+
+    run_id = history_module.log_run(
         project=project,
         task=task,
         result=result,
         duration_ms=duration_ms,
         routing_reason=decision.reason,
+        cost_usd=cost_usd,
     )
+
+    from orchestrator.similarity import get_backend
+    try:
+        get_backend().upsert(run_id, task)
+    except Exception:
+        pass
+
+    if cost_usd is not None:
+        cache_note = ""
+        if result.cache_read_tokens:
+            cache_note = f"  [dim](cache hit: {result.cache_read_tokens} tokens)[/dim]"
+        console.print(f"\n[dim]Costo estimado: ${cost_usd:.4f}{cache_note}[/dim]")
+
+    budget = check_budget(project, config, daily_budget_usd=ctx.daily_budget_usd)
+    if budget["warning"]:
+        spent = budget["spent_usd"]
+        limit = budget["limit_usd"]
+        pct = round(budget["pct"] * 100)
+        style = "red" if budget["over"] else "yellow"
+        console.print(f"[{style}]⚠  Presupuesto diario: ${spent:.4f} / ${limit:.2f} ({pct}%)[/{style}]")
 
 
 @app.command(name="history")
@@ -209,6 +244,7 @@ def history_command(
     last: int = typer.Option(20, "--last", "-n", help="Cantidad de runs a mostrar."),
 ):
     """Muestra el historial de runs en la terminal."""
+    _ensure_db()
     runs = history_module.read_runs(project=project, last=last)
 
     if not runs:
@@ -223,14 +259,16 @@ def history_command(
     table.add_column("Modelo", style="dim")
     table.add_column("Dur.", justify="right")
     table.add_column("Tokens", justify="right")
+    table.add_column("Costo", justify="right")
     table.add_column("Tarea", max_width=50)
 
     PROV_STYLE = {"claude": "orange1", "deepseek": "green", "openai": "blue"}
 
     for r in reversed(runs):
-        from orchestrator.dashboard import _fmt_ms, _fmt_tokens, _fmt_ts
+        from orchestrator.dashboard import _fmt_cost, _fmt_ms, _fmt_tokens, _fmt_ts
         prov = r.get("provider", "?")
         style = PROV_STYLE.get(prov, "white")
+        preview = r.get("task_preview") or r.get("task", "")
         table.add_row(
             _fmt_ts(r.get("ts", "")),
             r.get("project", "—"),
@@ -238,11 +276,12 @@ def history_command(
             r.get("model", "—").split("/")[-1],
             _fmt_ms(r.get("duration_ms")),
             _fmt_tokens(r.get("input_tokens"), r.get("output_tokens")),
-            (r.get("task_preview", "")[:48] + "…") if len(r.get("task_preview", "")) > 48 else r.get("task_preview", ""),
+            _fmt_cost(r.get("cost_usd")),
+            (preview[:48] + "…") if len(preview) > 48 else preview,
         )
 
     console.print(table)
-    console.print(f"[dim]Log en: {history_module.RUNS_PATH}[/dim]")
+    console.print(f"[dim]DB en: {history_module.RUNS_PATH}[/dim]")
 
 
 @app.command()
@@ -251,13 +290,25 @@ def serve(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Proyecto por defecto al abrir."),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Abrir en el browser al iniciar."),
 ):
-    """Inicia el dashboard web del orquestador en http://127.0.0.1:<port>"""
+    """Inicia el dashboard web interactivo en http://127.0.0.1:<port>"""
     import http.server
+    import json as json_mod
+    import queue
+    import socket
     import socketserver
     import urllib.parse
     import webbrowser
 
-    runs_path = history_module.RUNS_PATH
+    _ensure_db()
+
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    from orchestrator import background as bg_module
+    from orchestrator.sse import BUS
 
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -265,37 +316,115 @@ def serve(
 
         def do_GET(self):
             parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
+
+            if path == "/events":
+                self._handle_sse()
+                return
+
+            if path.startswith("/run/"):
+                run_id_str = path.split("/run/", 1)[-1].rstrip("/")
+                try:
+                    rid = int(run_id_str)
+                except ValueError:
+                    self._json({"error": "invalid id"}, 400)
+                    return
+                row = get_run(rid)
+                if row is None:
+                    self._json({"error": "not found"}, 404)
+                    return
+                self._json(dict(row))
+                return
+
             params = urllib.parse.parse_qs(parsed.query)
-            sel_project = params.get("project", [""])[0]
-
-            runs = history_module.read_runs(last=200)
-            html = build_html(runs, selected_project=sel_project)
+            sel_project = params.get("project", [project or ""])[0]
+            runs_list = history_module.read_runs(last=200)
+            extra_projects = projects_list()
+            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects)
             body = html.encode("utf-8")
-
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
 
+        def do_POST(self):
+            if self.path != "/run":
+                self._json({"error": "not found"}, 404)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json_mod.loads(self.rfile.read(length))
+                proj = body.get("project", "").strip()
+                task_text = body.get("task", "").strip()
+                forced_model = body.get("model") or None
+                if not proj or not task_text:
+                    self._json({"error": "project and task are required"}, 400)
+                    return
+                run_id = bg_module.submit_run(
+                    project=proj,
+                    task=task_text,
+                    config=config,
+                    model=forced_model,
+                )
+                self._json({"run_id": run_id}, 202)
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+
+        def _handle_sse(self):
+            try:
+                self.request.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except (OSError, AttributeError):
+                pass
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            q = BUS.subscribe()
+            try:
+                while True:
+                    try:
+                        msg = q.get(timeout=15)
+                        self.wfile.write(msg.encode("utf-8"))
+                        self.wfile.flush()
+                    except queue.Empty:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+            finally:
+                BUS.unsubscribe(q)
+
+        def _json(self, data: dict, status: int = 200) -> None:
+            body = json_mod.dumps(data, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
+
+    class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+        daemon_threads = True
+        allow_reuse_address = True
+
     url = f"http://127.0.0.1:{port}"
 
     try:
-        server = socketserver.TCPServer(("127.0.0.1", port), DashboardHandler)
-        server.allow_reuse_address = True
+        server = ThreadedServer(("127.0.0.1", port), DashboardHandler)
     except OSError as exc:
         console.print(f"[red]✗[/red] No se pudo iniciar en el puerto {port}: {exc}")
         console.print(f"[dim]  Intentá con otro puerto: ai-orchestrator serve --port 9000[/dim]")
         raise typer.Exit(code=1)
 
     console.print(f"[bold green]✓[/bold green] Dashboard en [cyan]{url}[/cyan]")
-    console.print(f"[dim]  Log: {runs_path}[/dim]")
-    console.print(f"[dim]  Ctrl+C para detener · auto-refresh cada 15s[/dim]")
-
-    if not runs_path.exists():
-        console.print("[yellow]ℹ[/yellow] Aún no hay runs. Ejecutá un 'run' para ver datos.")
+    console.print(f"[dim]  DB: {HOME_DIR / 'runs.db'}[/dim]")
+    console.print(f"[dim]  Ctrl+C para detener · SSE activo[/dim]")
 
     if open_browser:
+        import webbrowser
         webbrowser.open(url)
 
     try:

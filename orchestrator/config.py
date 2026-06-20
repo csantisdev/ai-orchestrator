@@ -40,3 +40,12 @@ def get_router_config(config: dict) -> dict:
 
 def get_default_provider(config: dict) -> str:
     return config.get("defaults", {}).get("default_provider", "claude")
+
+
+def get_pricing_table(config: dict) -> dict:
+    from orchestrator.costs import DEFAULT_PRICING
+    return config.get("pricing", DEFAULT_PRICING)
+
+
+def get_budget_config(config: dict) -> dict:
+    return config.get("budgets", {"default_daily_budget_usd": 5.0, "warning_threshold": 0.80})

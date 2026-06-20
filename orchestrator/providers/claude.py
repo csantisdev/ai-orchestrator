@@ -34,10 +34,13 @@ class ClaudeProvider(BaseProvider):
         text = "".join(
             block.get("text", "") for block in data.get("content", []) if block.get("type") == "text"
         )
+        usage = data.get("usage", {})
 
         return CompletionResult(
             text=text,
             provider=self.name,
             model=self.model,
             raw_response=data,
+            cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
+            cache_read_tokens=usage.get("cache_read_input_tokens", 0),
         )

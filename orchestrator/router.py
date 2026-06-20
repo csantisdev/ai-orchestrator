@@ -14,7 +14,7 @@ config.yaml, o al default_provider del context.yaml del proyecto.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dc_replace
 
 from orchestrator.config import get_default_provider, get_router_config
 from orchestrator.context import ProjectContext
@@ -60,7 +60,49 @@ def _calculate_keyword_signals(task: str, ctx: ProjectContext) -> list[dict]:
     return signals
 
 
-def _build_router_prompt(task: str, ctx: ProjectContext, signals: list[dict]) -> str:
+def _compress_context(ctx: ProjectContext, task: str, threshold_chars: int = 3200) -> ProjectContext:
+    if not ctx.conventions:
+        return ctx
+    total_chars = len(ctx.stack) + len(ctx.description) + sum(len(c) for c in ctx.conventions)
+    if total_chars < threshold_chars:
+        return ctx
+    task_words = set(task.lower().split())
+    relevant = [c for c in ctx.conventions if any(w in c.lower() for w in task_words)]
+    if not relevant:
+        relevant = ctx.conventions[:3]
+    return dc_replace(ctx, conventions=relevant)
+
+
+def _fetch_similar_runs(task: str, n: int = 3) -> list[dict]:
+    try:
+        from orchestrator.db import get_run
+        from orchestrator.similarity import get_backend
+        backend = get_backend()
+        hits = backend.query(task, n_results=n)
+        results = []
+        for hit in hits:
+            row = get_run(hit["run_id"])
+            if row and row["status"] == "done":
+                results.append({
+                    "project": row["project"],
+                    "provider": row["provider"],
+                    "routing_reason": row["routing_reason"],
+                    "task_preview": row["task_preview"],
+                })
+        return results
+    except Exception:
+        return []
+
+
+def _build_router_prompt(task: str, ctx: ProjectContext, signals: list[dict], similar_runs: list[dict] | None = None) -> str:
+    similar_section = ""
+    if similar_runs:
+        lines = "\n".join(
+            f"- [{r['project']}] → {r['provider']}: \"{r['routing_reason']}\""
+            for r in similar_runs
+        )
+        similar_section = f"\nDecisiones de ruteo previas en tareas similares:\n{lines}\n"
+
     return f"""Proyecto: {ctx.name}
 Stack: {ctx.stack}
 Descripción: {ctx.description}
@@ -69,7 +111,7 @@ Notas de ruteo del proyecto: {ctx.routing_notes or "(sin notas específicas)"}
 Proveedor por defecto del proyecto: {ctx.default_provider or "(sin definir)"}
 
 Señales de keywords detectadas en la tarea: {json.dumps(signals, ensure_ascii=False) if signals else "(ninguna)"}
-
+{similar_section}
 Tarea a resolver:
 \"\"\"{task}\"\"\"
 
@@ -83,7 +125,9 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
     fallback = router_cfg.get("fallback_provider") or ctx.default_provider or get_default_provider(config)
 
     signals = _calculate_keyword_signals(task, ctx)
-    prompt = _build_router_prompt(task, ctx, signals)
+    similar = _fetch_similar_runs(task, n=3)
+    ctx_compressed = _compress_context(ctx, task)
+    prompt = _build_router_prompt(task, ctx_compressed, signals, similar_runs=similar)
 
     try:
         router = build_provider(config, router_provider_name)
