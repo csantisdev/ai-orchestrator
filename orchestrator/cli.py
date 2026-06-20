@@ -249,10 +249,13 @@ def history_command(
 def serve(
     port: int = typer.Option(8080, "--port", help="Puerto HTTP para el dashboard."),
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Proyecto por defecto al abrir."),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Abrir en el browser al iniciar."),
 ):
-    """Inicia el dashboard web del orquestador en http://localhost:<port>"""
+    """Inicia el dashboard web del orquestador en http://127.0.0.1:<port>"""
     import http.server
+    import socketserver
     import urllib.parse
+    import webbrowser
 
     runs_path = history_module.RUNS_PATH
 
@@ -275,18 +278,30 @@ def serve(
             self.end_headers()
             self.wfile.write(body)
 
-    url = f"http://localhost:{port}"
+    url = f"http://127.0.0.1:{port}"
+
+    try:
+        server = socketserver.TCPServer(("127.0.0.1", port), DashboardHandler)
+        server.allow_reuse_address = True
+    except OSError as exc:
+        console.print(f"[red]✗[/red] No se pudo iniciar en el puerto {port}: {exc}")
+        console.print(f"[dim]  Intentá con otro puerto: ai-orchestrator serve --port 9000[/dim]")
+        raise typer.Exit(code=1)
+
     console.print(f"[bold green]✓[/bold green] Dashboard en [cyan]{url}[/cyan]")
     console.print(f"[dim]  Log: {runs_path}[/dim]")
     console.print(f"[dim]  Ctrl+C para detener · auto-refresh cada 15s[/dim]")
 
     if not runs_path.exists():
-        console.print("[yellow]ℹ[/yellow] Aún no hay runs registrados. Ejecutá un 'run' para ver datos.")
+        console.print("[yellow]ℹ[/yellow] Aún no hay runs. Ejecutá un 'run' para ver datos.")
 
-    server = http.server.HTTPServer(("localhost", port), DashboardHandler)
+    if open_browser:
+        webbrowser.open(url)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        server.shutdown()
         console.print("\n[dim]Dashboard detenido.[/dim]")
 
 
