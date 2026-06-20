@@ -1,0 +1,43 @@
+# Entornos virtuales
+venv/
+.venv/
+env/
+
+# Configuración con secretos — NUNCA versionar
+config.yaml
+
+# Índice de proyectos local — es específico de cada máquina
+index.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# Logs y cache
+*.log
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor
+.vscode/*
+!.vscode/tasks.json
+.idea/
+
+# Claude Code — configuración local de sesión (rutas de máquina, permisos)
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Historial local (futuro SQLite)
+*.db
+*.sqlite3

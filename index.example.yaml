@@ -1,0 +1,14 @@
+# ~/.ai-orchestrator/index.yaml
+#
+# Registro central liviano: alias -> path del proyecto.
+# Este archivo es específico de cada máquina (está en .gitignore).
+# Se gestiona con `ai-orchestrator add` / `ai-orchestrator remove`.
+#
+# Ejemplo:
+#
+# projects:
+#   frontend: "/ruta/a/mi-app-frontend"
+#   api:      "/ruta/a/mi-api"
+#   cms:      "/ruta/a/mi-cms"
+
+projects: {}

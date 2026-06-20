@@ -1,0 +1,30 @@
+# ~/.ai-orchestrator/config.yaml
+#
+# Copiar este archivo a config.yaml y completar con tus credenciales reales.
+# config.yaml está en .gitignore — nunca se versiona.
+
+providers:
+  claude:
+    api_key: "sk-ant-..."
+    model: "claude-sonnet-4-6"
+
+  openai:
+    api_key: "sk-..."
+    model: "gpt-4o"
+
+  deepseek:
+    api_key: "sk-..."
+    model: "deepseek-v4-flash"
+
+router:
+  # Modelo liviano/barato usado SOLO para decidir el ruteo, no para resolver
+  # la tarea en sí. DeepSeek V4-Flash es la opción más económica ($0.14/M tokens).
+  # Nota: "deepseek-chat" fue deprecado el 24 jul 2026 — usar "deepseek-v4-flash".
+  provider: "deepseek"
+  model: "deepseek-v4-flash"
+  # Si el router falla o no está disponible, cae a este proveedor por defecto
+  fallback_provider: "claude"
+
+defaults:
+  # Proveedor a usar si un proyecto no define preferred_models en su context.yaml
+  default_provider: "claude"

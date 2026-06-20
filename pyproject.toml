@@ -1,0 +1,22 @@
+[project]
+name = "ai-orchestrator"
+version = "0.1.0"
+description = "Orquestador local de agentes IA multi-proveedor (Claude, OpenAI, DeepSeek)"
+authors = []
+requires-python = ">=3.10"
+dependencies = [
+    "typer[all]>=0.12.0",
+    "pyyaml>=6.0",
+    "httpx>=0.27.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+ai-orchestrator = "orchestrator.cli:app"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["orchestrator*"]
