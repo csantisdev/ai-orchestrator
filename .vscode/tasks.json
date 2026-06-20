@@ -19,7 +19,7 @@
         "background": {
           "activeOnStart": true,
           "beginsPattern": "Dashboard en",
-          "endsPattern": "auto-refresh"
+          "endsPattern": "SSE activo"
         }
       },
       "presentation": {
