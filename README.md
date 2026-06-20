@@ -1,105 +1,161 @@
 # ai-orchestrator
 
-Orquestador local de agentes IA. Rutea tareas de desarrollo entre múltiples
-proveedores (Claude, OpenAI/Codex, DeepSeek) según el contexto del proyecto
-y el contenido de la tarea, usando un modelo "router" liviano para decidir
-automáticamente qué motor conviene en cada caso.
+Orquestador local de agentes IA. Rutea tareas entre Claude, OpenAI y DeepSeek según el
+contexto del proyecto, con dashboard en vivo, tracking de costo y seguimiento de sesiones
+de Claude Code.
 
 ## Arquitectura
 
 ```
-~/.ai-orchestrator/                    ← instalación global (no vive en cada repo)
-├── index.yaml                         ← alias → path de cada proyecto
-├── config.yaml                        ← API keys, modelo router por defecto
-└── orchestrator/
-    ├── cli.py                         ← comandos Typer (run, add, list, remove)
-    ├── router.py                      ← consulta al modelo router liviano
-    ├── context.py                     ← lee el context.yaml del proyecto
-    └── providers/
-        ├── claude.py
-        ├── openai.py
-        └── deepseek.py
+C:\Fuentes\ai-orchestrator\          ← instalación global (no vive en cada repo)
+├── orchestrator/
+│   ├── cli.py          ← comandos Typer
+│   ├── router.py       ← decide proveedor (router liviano + similitud semántica)
+│   ├── db.py           ← persistencia SQLite (runs, costos, estado)
+│   ├── similarity.py   ← búsqueda semántica (ChromaDB) con fallback FTS5
+│   ├── watcher.py      ← importa sesiones de Claude Code
+│   ├── dashboard.py    ← HTML del panel web
+│   ├── sse.py          ← Server-Sent Events (actualizaciones en tiempo real)
+│   ├── background.py   ← worker threads para runs asincrónicos
+│   ├── costs.py        ← cálculo de costo USD por run
+│   └── providers/      ← claude.py · openai.py · deepseek.py
+├── config.example.yaml
+├── requirements.txt
+└── pyproject.toml
+
+~/.ai-orchestrator/                  ← datos runtime (no versionados)
+├── config.yaml                      ← API keys, modelos, pricing, budgets
+├── index.yaml                       ← alias → path de cada proyecto
+├── runs.db                          ← SQLite: historial completo de runs
+└── chroma/                          ← índice vectorial (si ChromaDB instalado)
 
 # Dentro de cada proyecto (versionado en su propio repo):
 mi-proyecto/
 └── .orchestrator/
-    └── context.yaml                   ← stack, convenciones, reglas de ruteo
+    └── context.yaml                 ← stack, convenciones, reglas de ruteo
 ```
-
-**Principio de diseño:** el orquestador es una herramienta global, instalada
-una sola vez. Cada proyecto aporta su propio `context.yaml` versionado junto
-al código, así viaja con el repo y cualquiera que lo clone entiende el
-contexto sin pasos adicionales.
 
 ## Instalación
 
-```bash
-git clone git@github.com:csantisdev/ai-orchestrator.git ~/.ai-orchestrator
-cd ~/.ai-orchestrator
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-
-# Linux/Mac
-source venv/bin/activate
-
+```powershell
+cd C:\Fuentes\ai-orchestrator
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 pip install -e .
 ```
 
-Copiá `config.example.yaml` a `config.yaml` y completá tus API keys:
+Copiar y completar la configuración:
 
-```bash
-cp config.example.yaml ~/.ai-orchestrator/config.yaml
+```powershell
+cp config.example.yaml $env:USERPROFILE\.ai-orchestrator\config.yaml
 ```
 
-Ver [`docs/api-keys.md`](docs/api-keys.md) para el paso a paso de cómo
-obtener cada key (Anthropic, OpenAI, DeepSeek) y la configuración mínima
-si no usás todos los proveedores.
+Ver [`docs/api-keys.md`](docs/api-keys.md) para obtener cada API key.
 
-## Uso
+### Búsqueda vectorial (opcional)
 
-### Registrar un proyecto
-
-```bash
-ai-orchestrator add mi-proyecto --path "/ruta/a/mi-proyecto"
+```powershell
+pip install chromadb
 ```
 
-Esto crea el índice en `~/.ai-orchestrator/index.yaml` y, si no existe,
-genera un `.orchestrator/context.yaml` base dentro del proyecto.
+Si no está instalado, el router usa FTS5 (SQLite full-text search) como fallback automático.
 
-### Ejecutar una tarea
+## Comandos
 
-```bash
-ai-orchestrator run --project mi-proyecto --task "revisar este endpoint y sugerir refactor"
-```
+### Gestión de proyectos
 
-El router decide automáticamente el modelo más adecuado según las reglas
-definidas en el `context.yaml` del proyecto y el contenido de la tarea.
+```powershell
+# Registrar un proyecto
+ai-orchestrator add mi-proyecto --path "C:\ruta\al\proyecto"
 
-### Forzar un modelo (override manual)
-
-```bash
-ai-orchestrator run --project mi-proyecto --task "..." --model claude
-```
-
-### Listar proyectos registrados
-
-```bash
+# Listar proyectos registrados
 ai-orchestrator list
+
+# Quitar un proyecto del índice
+ai-orchestrator remove mi-proyecto
 ```
+
+### Ejecutar tareas
+
+```powershell
+# El router decide el proveedor automáticamente
+ai-orchestrator run --project mi-proyecto --task "revisar el endpoint de login"
+
+# Forzar un modelo específico
+ai-orchestrator run --project mi-proyecto --task "..." --model claude
+
+# Usar Claude Opus para investigación profunda
+ai-orchestrator run --project mi-proyecto --task "..." --research
+```
+
+### Historial
+
+```powershell
+# Ver los últimos 20 runs con costo
+ai-orchestrator history
+
+# Filtrar por proyecto
+ai-orchestrator history --project mi-proyecto --last 50
+```
+
+### Dashboard web
+
+```powershell
+# Lanza el panel en http://127.0.0.1:8080 (abre el browser automáticamente)
+ai-orchestrator serve
+
+# Puerto alternativo sin abrir el browser
+ai-orchestrator serve --port 9090 --no-open
+```
+
+El dashboard incluye:
+- Tabla de runs en tiempo real vía SSE (sin auto-refresh)
+- Formulario embebido para enviar tareas desde el browser
+- Panel de detalle con la respuesta completa al hacer click en una fila
+- Gauge de presupuesto diario por proyecto
+- Indicadores de costo USD y % de cache hit por run
+
+En VS Code: `Ctrl+Shift+P` → **Tasks: Run Task** → **Orchestrator: Dashboard**
+
+### Tracking de Claude Code
+
+```powershell
+# Importa sesiones nuevas de Claude Code al historial del orquestador
+ai-orchestrator sync-cc
+```
+
+Esto parsea `~/.claude/projects/` y agrega cada sesión al DB con tokens, costo estimado
+y proyecto detectado por el `cwd`.
+
+**Para sincronización automática al terminar cada sesión de Claude Code,** agregar en
+`~/.claude/settings.json`:
+
+```json
+"hooks": {
+  "Stop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "C:\\Fuentes\\ai-orchestrator\\.venv\\Scripts\\ai-orchestrator.exe sync-cc --quiet"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Configuración
+
+Ver [`config.example.yaml`](config.example.yaml) para la plantilla completa, incluyendo
+las secciones `pricing` (costo por modelo) y `budgets` (presupuesto diario por proyecto).
 
 ## Formato de `context.yaml`
 
-Ver [`docs/context-schema.md`](docs/context-schema.md) para el detalle
-completo de campos y reglas de ruteo soportadas.
-
-## Roadmap
-
-- [ ] Historial de ejecuciones en SQLite (costo, modelo usado, resultado)
-- [ ] Integración como Task de VS Code (`tasks.json`)
-- [ ] Soporte multi-step (cadenas de tareas entre proveedores)
+Ver [`docs/context-schema.md`](docs/context-schema.md) para el esquema completo de campos
+y reglas de ruteo.
 
 ## Licencia
 
