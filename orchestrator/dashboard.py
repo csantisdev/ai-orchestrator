@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 from datetime import datetime, timezone
 
 
@@ -217,7 +218,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
     )
 
 
-def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None, contexts: list[dict] | None = None) -> str:
+def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None, contexts: list[dict] | None = None, registered_projects: list[str] | None = None) -> str:
     selected_project = _text(selected_project)
     all_projects = sorted({_text(r.get("project")) for r in runs if _text(r.get("project"))})
     if projects_extra:
@@ -521,6 +522,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 <div id="toast"></div>
 
 <script>
+const PROJECTS = {json.dumps(sorted(registered_projects or []))};
 const evtSource = new EventSource("/events");
 evtSource.addEventListener("run_started", e => {{
   const d = JSON.parse(e.data);
@@ -751,12 +753,58 @@ function loadInspector() {{
     .catch(() => {{ el.innerHTML = '<p style="color:#f87171;font-size:13px">Error al cargar /inspect.</p>'; }});
 }}
 
+function reloadInspector() {{
+  const el = document.getElementById("inspector-content");
+  el.innerHTML = '<p style="color:#71717a;font-size:13px"><span class="spinner"></span>&nbsp;Actualizando...</p>';
+  fetch("/inspect")
+    .then(r => r.json())
+    .then(renderInspector)
+    .catch(() => {{ el.innerHTML = '<p style="color:#f87171;font-size:13px">Error al recargar.</p>'; }});
+}}
+
+function indexDocs() {{
+  const sel = document.getElementById("insp-project-sel");
+  const status = document.getElementById("insp-action-status");
+  const proj = sel ? sel.value : "";
+  if (!proj) {{ status.textContent = "Seleccioná un proyecto."; return; }}
+  status.innerHTML = '<span class="spinner"></span>&nbsp;Indexando...';
+  document.getElementById("insp-index-btn").disabled = true;
+  fetch("/index-docs", {{
+    method: "POST",
+    headers: {{"Content-Type": "application/json"}},
+    body: JSON.stringify({{project: proj}}),
+  }})
+  .then(r => r.json())
+  .then(d => {{
+    if (d.error) {{ status.textContent = "Error: " + d.error; }}
+    else {{ status.textContent = "✓ " + d.chunks + " chunks indexados para '" + d.project + "'."; }}
+    document.getElementById("insp-index-btn").disabled = false;
+    reloadInspector();
+  }})
+  .catch(() => {{
+    status.textContent = "Error de conexión.";
+    document.getElementById("insp-index-btn").disabled = false;
+  }});
+}}
+
 function renderInspector(data) {{
   const el = document.getElementById("inspector-content");
   const chroma = data.chroma || {{}};
   const COLS = ["runs","docs","responses"];
   const colLabels = {{runs:"Routing memory",docs:"Docs (RAG)",responses:"Respuestas"}};
-  let html = `<div class="panel" style="margin-bottom:20px">
+  const projOpts = PROJECTS.map(p => `<option value="${{escHtml(p)}}">${{escHtml(p)}}</option>`).join("");
+  let html = `<div class="panel" style="margin-bottom:16px">
+    <h2>Acciones</h2>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="insp-project-sel" style="min-width:160px">
+        <option value="">— proyecto —</option>${{projOpts}}
+      </select>
+      <button id="insp-index-btn" class="btn btn-primary" onclick="indexDocs()">Indexar docs</button>
+      <span id="insp-action-status" style="font-size:12px;color:#71717a"></span>
+      <button class="btn btn-secondary" onclick="reloadInspector()" style="margin-left:auto">↻ Recargar</button>
+    </div>
+  </div>
+  <div class="panel" style="margin-bottom:20px">
     <h2>ChromaDB — Colecciones vectoriales</h2>
     <div class="insp-grid">`;
   COLS.forEach(col => {{
@@ -772,7 +820,7 @@ function renderInspector(data) {{
       ${{bpRows ? '<div class="col-projects">' + bpRows + '</div>' : ""}}
     </div>`;
   }});
-  html += `</div></div>`;
+  html += `</div></div></div>`;
 
   function mkTable(title, rows, cols) {{
     const n = (rows||[]).length;
