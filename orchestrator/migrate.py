@@ -227,3 +227,20 @@ def run_migrations() -> None:
                     pass
                 _mark_applied(conn, "add_step_id_to_runs")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "create_chunks_table"):
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS chunks (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        project     TEXT    NOT NULL,
+                        source_path TEXT    NOT NULL,
+                        chunk_count INTEGER NOT NULL DEFAULT 0,
+                        ts          TEXT    NOT NULL,
+                        collection  TEXT    NOT NULL DEFAULT 'docs',
+                        UNIQUE(project, source_path)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_chunks_project ON chunks(project);
+                """)
+                _mark_applied(conn, "create_chunks_table")
+                conn.commit()

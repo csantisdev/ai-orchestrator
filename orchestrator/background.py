@@ -82,6 +82,16 @@ def _worker(
                 f"Stack: {ctx.stack}\n"
                 f"Convenciones: {', '.join(ctx.conventions) if ctx.conventions else 'ninguna registrada'}\n"
             )
+            try:
+                from orchestrator.rag import retrieve_docs, retrieve_responses, build_context_block
+                rag_block = build_context_block(
+                    retrieve_docs(task, project),
+                    retrieve_responses(task, project),
+                )
+                if rag_block:
+                    system_prompt += "\n\n" + rag_block
+            except Exception:
+                pass
 
         t0 = time.monotonic()
         result = provider.complete(prompt=task, system=system_prompt)
@@ -97,6 +107,12 @@ def _worker(
             routing_reason=decision.reason,
             cost_usd=cost_usd,
         )
+
+        try:
+            from orchestrator.rag import index_response
+            index_response(run_id, project, task, result.text)
+        except Exception:
+            pass
 
         BUS.publish(
             "run_done",

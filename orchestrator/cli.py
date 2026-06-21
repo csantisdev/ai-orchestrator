@@ -195,6 +195,16 @@ def run(
         f"Stack: {ctx.stack}\n"
         f"Convenciones: {', '.join(ctx.conventions) if ctx.conventions else 'ninguna registrada'}\n"
     )
+    try:
+        from orchestrator.rag import retrieve_docs, retrieve_responses, build_context_block
+        rag_block = build_context_block(
+            retrieve_docs(task, project),
+            retrieve_responses(task, project),
+        )
+        if rag_block:
+            system_prompt += "\n\n" + rag_block
+    except Exception:
+        pass
 
     t0 = time.monotonic()
     with console.status(f"[bold cyan]Ejecutando en {decision.provider}..."):
@@ -220,6 +230,12 @@ def run(
     from orchestrator.similarity import get_backend
     try:
         get_backend().upsert(run_id, task)
+    except Exception:
+        pass
+
+    try:
+        from orchestrator.rag import index_response
+        index_response(run_id, project, task, result.text)
     except Exception:
         pass
 
@@ -279,6 +295,29 @@ def sync_cc(
         )
 
     console.print(table)
+
+
+@app.command(name="index-docs")
+def index_docs(
+    project: str = typer.Option(..., "--project", "-p", help="Alias del proyecto a indexar."),
+):
+    """Indexa la documentación del proyecto en ChromaDB para búsqueda RAG."""
+    _ensure_db()
+    try:
+        project_path = index_module.get_project_path(project)
+    except ProjectNotFoundError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    from orchestrator.rag import index_project
+    from pathlib import Path as _Path
+    with console.status(f"[bold cyan]Indexando {project}..."):
+        n = index_project(project, _Path(project_path))
+
+    if n:
+        console.print(f"[green]✓[/green] {n} chunks indexados para '{project}'")
+    else:
+        console.print(f"[yellow]⚠[/yellow] No se encontraron archivos para indexar en '{project_path}'")
 
 
 @app.command(name="history")
