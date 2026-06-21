@@ -218,7 +218,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
     )
 
 
-def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None, contexts: list[dict] | None = None, registered_projects: list[str] | None = None) -> str:
+def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None, contexts: list[dict] | None = None) -> str:
     selected_project = _text(selected_project)
     all_projects = sorted({_text(r.get("project")) for r in runs if _text(r.get("project"))})
     if projects_extra:
@@ -522,7 +522,6 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 <div id="toast"></div>
 
 <script>
-const PROJECTS = {json.dumps(sorted(registered_projects or []))};
 const evtSource = new EventSource("/events");
 evtSource.addEventListener("run_started", e => {{
   const d = JSON.parse(e.data);
@@ -792,7 +791,8 @@ function renderInspector(data) {{
   const chroma = data.chroma || {{}};
   const COLS = ["runs","docs","responses"];
   const colLabels = {{runs:"Routing memory",docs:"Docs (RAG)",responses:"Respuestas"}};
-  const projOpts = PROJECTS.map(p => `<option value="${{escHtml(p)}}">${{escHtml(p)}}</option>`).join("");
+  const projects = data.registered_projects || [];
+  const projOpts = projects.map(p => `<option value="${{escHtml(p)}}">${{escHtml(p)}}</option>`).join("");
   let html = `<div class="panel" style="margin-bottom:16px">
     <h2>Acciones</h2>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
