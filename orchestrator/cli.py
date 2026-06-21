@@ -459,10 +459,14 @@ def serve(
                 return
 
             if path == "/inspect":
+                import concurrent.futures
                 from orchestrator.db import read_inspector_data
                 from orchestrator.rag import chroma_stats
-                payload = read_inspector_data()
-                payload["chroma"] = chroma_stats()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+                    db_fut = ex.submit(read_inspector_data)
+                    ch_fut = ex.submit(chroma_stats)
+                    payload = db_fut.result()
+                    payload["chroma"] = ch_fut.result()
                 self._json(payload)
                 return
 
@@ -599,6 +603,15 @@ def serve(
     console.print(f"[bold green]✓[/bold green] Dashboard en [cyan]{url}[/cyan]")
     console.print(f"[dim]  DB: {HOME_DIR / 'runs.db'}[/dim]")
     console.print(f"[dim]  Ctrl+C para detener · SSE activo[/dim]")
+
+    import threading as _threading
+    def _prewarm_chroma():
+        try:
+            from orchestrator.rag import _get_client
+            _get_client()
+        except Exception:
+            pass
+    _threading.Thread(target=_prewarm_chroma, daemon=True).start()
 
     if open_browser:
         import webbrowser

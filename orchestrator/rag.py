@@ -13,13 +13,25 @@ _MAX_FILE_BYTES = 100_000
 _MAX_PY_FILES = 30
 
 
+_chroma_client = None
+_chroma_lock = None
+
+
 def _get_client():
-    import chromadb
-    from orchestrator.paths import HOME_DIR
-    return chromadb.PersistentClient(
-        path=str(HOME_DIR / "chroma"),
-        settings=chromadb.Settings(anonymized_telemetry=False),
-    )
+    global _chroma_client, _chroma_lock
+    if _chroma_lock is None:
+        import threading
+        _chroma_lock = threading.Lock()
+    if _chroma_client is None:
+        with _chroma_lock:
+            if _chroma_client is None:
+                import chromadb
+                from orchestrator.paths import HOME_DIR
+                _chroma_client = chromadb.PersistentClient(
+                    path=str(HOME_DIR / "chroma"),
+                    settings=chromadb.Settings(anonymized_telemetry=False),
+                )
+    return _chroma_client
 
 
 def _docs_collection():
