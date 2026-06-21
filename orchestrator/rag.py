@@ -163,6 +163,30 @@ def build_context_block(doc_chunks: list[dict], response_chunks: list[dict]) -> 
     return "\n\n".join(parts)
 
 
+def chroma_stats() -> dict:
+    try:
+        client = _get_client()
+        result: dict = {}
+        for col_name in ("runs", "docs", "responses"):
+            try:
+                col = client.get_collection(col_name)
+                count = col.count()
+                if col_name in ("docs", "responses") and count > 0:
+                    items = col.get(include=["metadatas"], limit=2000)
+                    by_project: dict[str, int] = {}
+                    for m in (items.get("metadatas") or []):
+                        p = (m or {}).get("project", "?")
+                        by_project[p] = by_project.get(p, 0) + 1
+                    result[col_name] = {"count": count, "by_project": by_project}
+                else:
+                    result[col_name] = {"count": count}
+            except Exception:
+                result[col_name] = {"count": 0}
+        return result
+    except Exception:
+        return {}
+
+
 def index_response(run_id: int, project: str, task: str, response: str) -> None:
     if not response.strip():
         return
