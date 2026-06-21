@@ -281,6 +281,72 @@ def test_tool_calls_and_alignments_readable():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_rag_chunk_text():
+    from orchestrator.rag import chunk_text
+    text = "A" * 2000
+    chunks = chunk_text(text, source="test.md")
+    assert len(chunks) > 1
+    for c in chunks:
+        assert len(c["text"]) <= 800
+        assert c["source"] == "test.md"
+    assert chunks[0]["chunk_idx"] == 0
+    assert chunks[1]["chunk_idx"] == 1
+
+
+def test_rag_index_and_retrieve():
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+    import orchestrator.similarity as sim_mod
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    original_home = paths_mod.HOME_DIR
+    original_db   = paths_mod.DB_PATH
+    paths_mod.HOME_DIR = tmp_path
+    paths_mod.DB_PATH  = tmp_path / "runs.db"
+    db_mod._local = threading.local()
+    sim_mod._backend_cache = None
+
+    try:
+        db_mod.init_db()
+
+        import orchestrator.rag as rag_mod
+
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        (project_dir / "README.md").write_text(
+            "Este proyecto gestiona licitaciones públicas. "
+            "Permite buscar, filtrar y exportar bases de licitación.",
+            encoding="utf-8",
+        )
+
+        n = rag_mod.index_project("myproject", project_dir)
+        assert n > 0
+
+        rows = db_mod._conn().execute(
+            "SELECT * FROM chunks WHERE project='myproject'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["source_path"] == "README.md"
+
+        results = rag_mod.retrieve_docs("licitaciones públicas", "myproject", n=2)
+        assert len(results) >= 1
+        assert "licitacion" in results[0]["text"].lower() or "licitaciones" in results[0]["text"].lower()
+
+        block = rag_mod.build_context_block(results, [])
+        assert "Documentación relevante" in block
+        assert "README.md" in block
+
+    finally:
+        _close_db(db_mod)
+        paths_mod.HOME_DIR = original_home
+        paths_mod.DB_PATH  = original_db
+        db_mod._local = threading.local()
+        sim_mod._backend_cache = None
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_similarity_backend():
     import orchestrator.paths as paths_mod
     import orchestrator.db as db_mod
