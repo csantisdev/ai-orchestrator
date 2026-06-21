@@ -604,6 +604,48 @@ function openDetail(runId) {{
             ${{data.cache_creation_tokens ? ` · Escritos al cache: <strong>${{data.cache_creation_tokens}}</strong>` : ''}}
           </p>
         </div>` : ''}}
+        ${{data.alignments && data.alignments.length ? `<div class="detail-section">
+          <label>Checkpoints de alineación</label>
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead><tr style="color:#6b7280;border-bottom:1px solid #e5e7eb">
+              <th style="text-align:left;padding:4px 6px">Hora</th>
+              <th style="text-align:left;padding:4px 6px">Checkpoint</th>
+              <th style="text-align:left;padding:4px 6px">Agente</th>
+              <th style="text-align:center;padding:4px 6px">OK</th>
+              <th style="text-align:left;padding:4px 6px">Mensaje</th>
+            </tr></thead>
+            <tbody>
+              ${{data.alignments.map(a => `<tr style="border-bottom:1px solid #f3f4f6">
+                <td style="padding:4px 6px;color:#9ca3af;white-space:nowrap">${{escHtml(a.ts ? a.ts.slice(11,19) : '—')}}</td>
+                <td style="padding:4px 6px">${{escHtml(a.checkpoint || '—')}}</td>
+                <td style="padding:4px 6px">${{escHtml(a.agent || '—')}}</td>
+                <td style="padding:4px 6px;text-align:center">${{a.confirmed ? '<span style="color:#15803d;font-weight:700">✓</span>' : '<span style="color:#dc2626">✗</span>'}}</td>
+                <td style="padding:4px 6px;color:#374151">${{escHtml(a.message || '')}}</td>
+              </tr>`).join('')}}
+            </tbody>
+          </table>
+        </div>` : ''}}
+        ${{data.tool_calls && data.tool_calls.length ? `<div class="detail-section">
+          <label>Herramientas invocadas</label>
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead><tr style="color:#6b7280;border-bottom:1px solid #e5e7eb">
+              <th style="text-align:left;padding:4px 6px">Hora</th>
+              <th style="text-align:left;padding:4px 6px">Herramienta</th>
+              <th style="text-align:center;padding:4px 6px">Estado</th>
+              <th style="text-align:right;padding:4px 6px">ms</th>
+              <th style="text-align:left;padding:4px 6px">Salida</th>
+            </tr></thead>
+            <tbody>
+              ${{data.tool_calls.map(tc => `<tr style="border-bottom:1px solid #f3f4f6">
+                <td style="padding:4px 6px;color:#9ca3af;white-space:nowrap">${{escHtml(tc.ts ? tc.ts.slice(11,19) : '—')}}</td>
+                <td style="padding:4px 6px;font-weight:600">${{escHtml(tc.tool_name || '—')}}</td>
+                <td style="padding:4px 6px;text-align:center"><span style="font-size:11px;padding:1px 6px;border-radius:8px;background:${{tc.status==='ok'?'#d1fae5':'#fee2e2'}};color:${{tc.status==='ok'?'#065f46':'#991b1b'}}">${{escHtml(tc.status || '—')}}</span></td>
+                <td style="padding:4px 6px;text-align:right;color:#6b7280">${{tc.duration_ms != null ? tc.duration_ms : '—'}}</td>
+                <td style="padding:4px 6px;color:#374151;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{escHtml(tc.output ? String(tc.output).slice(0,80) : '')}}</td>
+              </tr>`).join('')}}
+            </tbody>
+          </table>
+        </div>` : ''}}
       `;
     }})
     .catch(() => {{ content.innerHTML = '<p style="color:#ef4444;font-size:13px">Error al cargar detalle.</p>'; }});

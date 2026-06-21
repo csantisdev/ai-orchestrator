@@ -193,6 +193,94 @@ def test_mcp_tool_handlers():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_step_id_propagation():
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    original_home = paths_mod.HOME_DIR
+    original_db   = paths_mod.DB_PATH
+    paths_mod.HOME_DIR = tmp_path
+    paths_mod.DB_PATH  = tmp_path / "runs.db"
+    db_mod._local = threading.local()
+
+    try:
+        db_mod.init_db()
+
+        ctx_id = db_mod.insert_context("proj-x", "Plan de prueba", "Verifica step_id")
+        step_id = db_mod.insert_step(ctx_id, 1, "Paso activo", provider="deepseek")
+
+        conn = db_mod._conn()
+        conn.execute("UPDATE steps SET status='in_progress' WHERE id=?", (step_id,))
+        conn.commit()
+
+        run_id = db_mod.insert_run("proj-x", "tarea de prueba", step_id=step_id)
+
+        rows = db_mod.read_runs(project="proj-x")
+        assert len(rows) == 1
+        assert rows[0]["step_id"] == step_id
+
+    finally:
+        _close_db(db_mod)
+        paths_mod.HOME_DIR = original_home
+        paths_mod.DB_PATH  = original_db
+        db_mod._local = threading.local()
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_tool_calls_and_alignments_readable():
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    original_home = paths_mod.HOME_DIR
+    original_db   = paths_mod.DB_PATH
+    paths_mod.HOME_DIR = tmp_path
+    paths_mod.DB_PATH  = tmp_path / "runs.db"
+    db_mod._local = threading.local()
+
+    try:
+        db_mod.init_db()
+
+        from orchestrator.mcp import _tool_record_tool_call, _tool_confirm_alignment
+
+        ctx_id = db_mod.insert_context("proj-y", "Contexto lectura", "")
+        step_id = db_mod.insert_step(ctx_id, 1, "Paso lectura", provider="claude")
+
+        _tool_record_tool_call({
+            "step_id": step_id, "context_id": ctx_id,
+            "tool_name": "Read", "input": {"path": "db.py"},
+            "output": "ok", "status": "ok", "duration_ms": 50,
+        })
+        _tool_confirm_alignment({
+            "step_id": step_id, "context_id": ctx_id,
+            "agent": "claude-code", "checkpoint": "antes de paso 1",
+            "confirmed": True, "message": "listo",
+        })
+
+        tcs = db_mod.read_tool_calls_for_step(step_id)
+        aligns = db_mod.read_alignments_for_step(step_id)
+
+        assert len(tcs) == 1
+        assert tcs[0]["tool_name"] == "Read"
+        assert tcs[0]["status"] == "ok"
+
+        assert len(aligns) == 1
+        assert aligns[0]["checkpoint"] == "antes de paso 1"
+        assert aligns[0]["confirmed"] == 1
+
+    finally:
+        _close_db(db_mod)
+        paths_mod.HOME_DIR = original_home
+        paths_mod.DB_PATH  = original_db
+        db_mod._local = threading.local()
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_similarity_backend():
     import orchestrator.paths as paths_mod
     import orchestrator.db as db_mod

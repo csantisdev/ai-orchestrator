@@ -18,12 +18,17 @@ def submit_run(
     model: Optional[str] = None,
     ctx=None,
 ) -> int:
+    from orchestrator.router import _fetch_active_context
+    active = _fetch_active_context(project)
+    step_id = active["active_step"]["id"] if active and active.get("active_step") else None
+
     run_id = insert_run(
         project=project,
         task=task,
         provider="?",
         model="?",
         status="pending",
+        step_id=step_id,
     )
     BUS.publish("run_started", json.dumps({"run_id": run_id, "project": project}))
 

@@ -173,6 +173,15 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
     signals = _calculate_keyword_signals(task, ctx)
     similar = _fetch_similar_runs(task, n=3)
     active_ctx = _fetch_active_context(ctx.name)
+
+    if active_ctx and active_ctx.get("active_step"):
+        step = active_ctx["active_step"]
+        if step.get("provider") and step["provider"] in PROVIDERS:
+            return RoutingDecision(
+                provider=step["provider"],
+                reason=f"Paso activo [{step['order_idx']}]: {step['title']} → provider definido: {step['provider']}",
+            )
+
     ctx_compressed = _compress_context(ctx, task)
     prompt = _build_router_prompt(task, ctx_compressed, signals, similar_runs=similar, active_context=active_ctx)
 

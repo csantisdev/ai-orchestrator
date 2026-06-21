@@ -376,7 +376,12 @@ def serve(
                 if row is None:
                     self._json({"error": "not found"}, 404)
                     return
-                self._json(dict(row))
+                payload = dict(row)
+                if row["step_id"]:
+                    from orchestrator.db import read_tool_calls_for_step, read_alignments_for_step
+                    payload["tool_calls"] = [dict(r) for r in read_tool_calls_for_step(row["step_id"])]
+                    payload["alignments"] = [dict(r) for r in read_alignments_for_step(row["step_id"])]
+                self._json(payload)
                 return
 
             params = urllib.parse.parse_qs(parsed.query)
