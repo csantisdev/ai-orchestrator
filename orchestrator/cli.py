@@ -449,9 +449,23 @@ def serve(
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
 
-            if path in ("/favicon.ico", "/robots.txt"):
+            if path == "/favicon.ico":
+                self._file(self._DOCS_IMG / "favicons" / "favicon.ico")
+                return
+
+            if path == "/robots.txt":
                 self.send_response(204)
                 self.end_headers()
+                return
+
+            if path.startswith("/static/img/"):
+                rel = path[len("/static/img/"):].lstrip("/")
+                target = (self._DOCS_IMG / rel).resolve()
+                if not str(target).startswith(str(self._DOCS_IMG.resolve())):
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+                self._file(target)
                 return
 
             if path == "/events":
@@ -618,6 +632,26 @@ def serve(
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, OSError):
+                pass
+
+        _MIME_TYPES = {".ico": "image/x-icon", ".png": "image/png", ".json": "application/json"}
+        _DOCS_IMG = Path(__file__).parent.parent / "docs" / "img"
+
+        def _file(self, file_path: Path) -> None:
+            suffix = file_path.suffix.lower()
+            content_type = self._MIME_TYPES.get(suffix, "application/octet-stream")
+            try:
+                data = file_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(data)
+            except FileNotFoundError:
+                self.send_response(404)
+                self.end_headers()
             except (BrokenPipeError, ConnectionAbortedError, OSError):
                 pass
 
