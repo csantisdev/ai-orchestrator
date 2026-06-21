@@ -444,6 +444,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
       <select name="project" onchange="this.form.submit()">{project_options}</select>
     </form>
     <button class="btn btn-secondary" onclick="toggleSender()">+ Nueva tarea</button>
+    <a href="/docs" style="font-size:12px;color:#71717a;text-decoration:none;padding:4px 8px;border:1px solid #27272a;border-radius:6px;font-weight:500" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#71717a'">Docs</a>
     <span class="meta">{now}</span>
   </div>
 </div>
