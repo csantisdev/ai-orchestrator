@@ -444,6 +444,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
       <select name="project" onchange="this.form.submit()">{project_options}</select>
     </form>
     <button class="btn btn-secondary" onclick="toggleSender()">+ Nueva tarea</button>
+    <button class="btn btn-secondary" onclick="toggleContextForm()">+ Nuevo contexto</button>
     <a href="/docs" style="font-size:12px;color:#71717a;text-decoration:none;padding:4px 8px;border:1px solid #27272a;border-radius:6px;font-weight:500" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#71717a'">Docs</a>
     <span class="meta">{now}</span>
   </div>
@@ -482,6 +483,33 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
       <div class="full" style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-primary" onclick="submitTask()">Enviar</button>
         <span id="senderStatus" style="font-size:12px;color:#71717a"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sender-panel" id="contextPanel">
+    <h2 style="font-size:13px;font-weight:700;color:#374151;margin-bottom:14px;text-transform:uppercase;letter-spacing:.4px">Nuevo contexto</h2>
+    <div class="sender-form">
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
+        <select id="ctxProject" style="width:100%">{project_options_form}</select>
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Título</label>
+        <input id="ctxTitle" type="text" placeholder="Objetivo del contexto..." style="width:100%">
+      </div>
+      <div class="full">
+        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Descripción (opcional)</label>
+        <input id="ctxDesc" type="text" placeholder="Detalle adicional..." style="width:100%">
+      </div>
+      <div class="full">
+        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Pasos</label>
+        <div id="ctxSteps"></div>
+        <button class="btn btn-secondary" onclick="addCtxStep()" style="margin-top:8px;font-size:12px;padding:5px 12px">+ Paso</button>
+      </div>
+      <div class="full" style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-primary" onclick="submitContext()">Crear contexto</button>
+        <span id="ctxStatus" style="font-size:12px;color:#71717a"></span>
       </div>
     </div>
   </div>
@@ -730,6 +758,61 @@ function closeDetail(e) {{
 
 function toggleSender() {{
   document.getElementById("senderPanel").classList.toggle("open");
+  document.getElementById("contextPanel").classList.remove("open");
+}}
+
+function toggleContextForm() {{
+  document.getElementById("contextPanel").classList.toggle("open");
+  document.getElementById("senderPanel").classList.remove("open");
+}}
+
+let _ctxStepCount = 0;
+function addCtxStep() {{
+  _ctxStepCount++;
+  const container = document.getElementById("ctxSteps");
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;gap:8px;margin-bottom:8px;align-items:center";
+  row.innerHTML = `
+    <input type="text" placeholder="Título del paso..." style="flex:1;border:1px solid #27272a;border-radius:8px;padding:7px 12px;font-size:13px;background:#18181b;color:#f8fafc;font-family:inherit" class="ctx-step-title">
+    <select style="border:1px solid #27272a;border-radius:8px;padding:7px 12px;font-size:13px;background:#18181b;color:#f8fafc;font-family:inherit" class="ctx-step-provider">
+      <option value="">auto</option>
+      <option value="claude">claude</option>
+      <option value="deepseek">deepseek</option>
+      <option value="openai">openai</option>
+    </select>
+    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#71717a;cursor:pointer;font-size:16px;padding:0 4px" title="Quitar paso">✕</button>
+  `;
+  container.appendChild(row);
+}}
+
+function submitContext() {{
+  const project = document.getElementById("ctxProject").value;
+  const title   = document.getElementById("ctxTitle").value.trim();
+  const desc    = document.getElementById("ctxDesc").value.trim();
+  const status  = document.getElementById("ctxStatus");
+  if (!project) {{ status.textContent = "Seleccioná un proyecto."; return; }}
+  if (!title)   {{ status.textContent = "El título no puede estar vacío."; return; }}
+  const steps = Array.from(document.querySelectorAll("#ctxSteps > div")).map(row => ({{
+    title:    row.querySelector(".ctx-step-title").value.trim(),
+    provider: row.querySelector(".ctx-step-provider").value,
+  }})).filter(s => s.title);
+  status.innerHTML = '<span class="spinner"></span> Creando...';
+  fetch("/create-context", {{
+    method: "POST",
+    headers: {{"Content-Type": "application/json"}},
+    body: JSON.stringify({{project, title, description: desc, steps}}),
+  }})
+  .then(r => r.json())
+  .then(d => {{
+    if (d.error) {{ status.textContent = "Error: " + d.error; return; }}
+    status.textContent = "Contexto #" + d.context_id + " creado con " + (d.steps || []).length + " paso(s).";
+    document.getElementById("ctxTitle").value = "";
+    document.getElementById("ctxDesc").value = "";
+    document.getElementById("ctxSteps").innerHTML = "";
+    _ctxStepCount = 0;
+    showToast("Contexto '" + d.title + "' creado para " + d.project);
+  }})
+  .catch(() => {{ status.textContent = "Error al crear."; }});
 }}
 
 function submitTask() {{
