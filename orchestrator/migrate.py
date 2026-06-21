@@ -244,3 +244,16 @@ def run_migrations() -> None:
                 """)
                 _mark_applied(conn, "create_chunks_table")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_parent_step_id_to_contexts"):
+                try:
+                    conn.execute("ALTER TABLE contexts ADD COLUMN parent_step_id INTEGER REFERENCES steps(id)")
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_contexts_parent_step ON contexts(parent_step_id)"
+                        " WHERE parent_step_id IS NOT NULL"
+                    )
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_parent_step_id_to_contexts")
+                conn.commit()
