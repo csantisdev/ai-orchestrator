@@ -73,6 +73,29 @@ def _compress_context(ctx: ProjectContext, task: str, threshold_chars: int = 320
     return dc_replace(ctx, conventions=relevant)
 
 
+def _fetch_active_context(project: str) -> dict | None:
+    try:
+        from orchestrator.db import _conn
+        conn = _conn()
+        ctx = conn.execute(
+            "SELECT * FROM contexts WHERE project=? AND status='active' ORDER BY ts DESC LIMIT 1",
+            (project,),
+        ).fetchone()
+        if ctx is None:
+            return None
+        step = conn.execute(
+            "SELECT * FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx LIMIT 1",
+            (ctx["id"],),
+        ).fetchone()
+        return {
+            "title": ctx["title"],
+            "description": ctx["description"],
+            "active_step": dict(step) if step else None,
+        }
+    except Exception:
+        return None
+
+
 def _fetch_similar_runs(task: str, n: int = 3) -> list[dict]:
     try:
         from orchestrator.db import get_run
@@ -94,7 +117,13 @@ def _fetch_similar_runs(task: str, n: int = 3) -> list[dict]:
         return []
 
 
-def _build_router_prompt(task: str, ctx: ProjectContext, signals: list[dict], similar_runs: list[dict] | None = None) -> str:
+def _build_router_prompt(
+    task: str,
+    ctx: ProjectContext,
+    signals: list[dict],
+    similar_runs: list[dict] | None = None,
+    active_context: dict | None = None,
+) -> str:
     similar_section = ""
     if similar_runs:
         lines = "\n".join(
@@ -103,13 +132,30 @@ def _build_router_prompt(task: str, ctx: ProjectContext, signals: list[dict], si
         )
         similar_section = f"\nDecisiones de ruteo previas en tareas similares:\n{lines}\n"
 
+    context_section = ""
+    if active_context:
+        step_line = ""
+        step = active_context.get("active_step")
+        if step:
+            step_line = (
+                f"\n  Paso activo [{step['order_idx']}]: {step['title']}"
+                f"\n  Descripción: {step['description']}"
+                f"\n  Proveedor recomendado para este paso: {step['provider'] or '(sin definir)'}"
+            )
+        context_section = (
+            f"\nContexto activo del proyecto:"
+            f"\n  Objetivo: {active_context['title']}"
+            f"\n  {active_context['description']}"
+            f"{step_line}\n"
+        )
+
     return f"""Proyecto: {ctx.name}
 Stack: {ctx.stack}
 Descripción: {ctx.description}
 Convenciones: {", ".join(ctx.conventions) if ctx.conventions else "(sin convenciones registradas)"}
 Notas de ruteo del proyecto: {ctx.routing_notes or "(sin notas específicas)"}
 Proveedor por defecto del proyecto: {ctx.default_provider or "(sin definir)"}
-
+{context_section}
 Señales de keywords detectadas en la tarea: {json.dumps(signals, ensure_ascii=False) if signals else "(ninguna)"}
 {similar_section}
 Tarea a resolver:
@@ -126,8 +172,9 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
 
     signals = _calculate_keyword_signals(task, ctx)
     similar = _fetch_similar_runs(task, n=3)
+    active_ctx = _fetch_active_context(ctx.name)
     ctx_compressed = _compress_context(ctx, task)
-    prompt = _build_router_prompt(task, ctx_compressed, signals, similar_runs=similar)
+    prompt = _build_router_prompt(task, ctx_compressed, signals, similar_runs=similar, active_context=active_ctx)
 
     try:
         router = build_provider(config, router_provider_name)

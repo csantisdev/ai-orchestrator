@@ -383,7 +383,9 @@ def serve(
             sel_project = params.get("project", [project or ""])[0]
             runs_list = history_module.read_runs(last=200)
             extra_projects = projects_list()
-            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects)
+            from orchestrator.db import read_contexts_with_steps
+            contexts = read_contexts_with_steps(project=sel_project or None)
+            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects, contexts=contexts)
             body = html.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

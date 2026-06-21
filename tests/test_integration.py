@@ -1,4 +1,4 @@
-"""Test de integración: db, costs, similarity."""
+"""Test de integración: db, costs, similarity, contextos y MCP tools."""
 import threading
 import tempfile
 from pathlib import Path
@@ -72,6 +72,125 @@ def test_cost_calculation():
     cost = calculate_cost(result, DEFAULT_PRICING)
     assert cost is not None
     assert abs(cost - (3.00 + 15.00)) < 0.001
+
+
+def test_context_and_steps():
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    original_home = paths_mod.HOME_DIR
+    original_db   = paths_mod.DB_PATH
+    paths_mod.HOME_DIR = tmp_path
+    paths_mod.DB_PATH  = tmp_path / "runs.db"
+    db_mod._local = threading.local()
+
+    try:
+        db_mod.init_db()
+
+        ctx_id = db_mod.insert_context("mi-proyecto", "Implementar MCP", "Descripción del objetivo")
+        assert isinstance(ctx_id, int)
+
+        s1 = db_mod.insert_step(ctx_id, 1, "Diseñar schema", provider="claude")
+        s2 = db_mod.insert_step(ctx_id, 2, "Implementar handlers", provider="deepseek")
+        assert s1 < s2
+
+        rows = db_mod.read_contexts_with_steps("mi-proyecto")
+        assert len(rows) == 1
+        assert rows[0]["title"] == "Implementar MCP"
+        assert len(rows[0]["steps"]) == 2
+        assert rows[0]["steps"][0]["order_idx"] == 1
+        assert rows[0]["steps"][1]["provider"] == "deepseek"
+
+    finally:
+        _close_db(db_mod)
+        paths_mod.HOME_DIR = original_home
+        paths_mod.DB_PATH  = original_db
+        db_mod._local = threading.local()
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_mcp_tool_handlers():
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    original_home = paths_mod.HOME_DIR
+    original_db   = paths_mod.DB_PATH
+    paths_mod.HOME_DIR = tmp_path
+    paths_mod.DB_PATH  = tmp_path / "runs.db"
+    db_mod._local = threading.local()
+
+    try:
+        db_mod.init_db()
+
+        from orchestrator.mcp import (
+            _tool_get_context,
+            _tool_list_steps,
+            _tool_confirm_alignment,
+            _tool_record_tool_call,
+            _tool_advance_step,
+        )
+
+        ctx_id = db_mod.insert_context("test-proj", "Test MCP", "Objetivo de prueba")
+        db_mod.insert_step(ctx_id, 1, "Paso uno", provider="claude")
+        db_mod.insert_step(ctx_id, 2, "Paso dos", provider="deepseek")
+
+        ctx = _tool_get_context({"project": "test-proj"})
+        assert ctx["title"] == "Test MCP"
+        assert ctx["status"] == "active"
+
+        result = _tool_list_steps({"context_id": ctx_id})
+        assert len(result["steps"]) == 2
+        assert result["steps"][0]["title"] == "Paso uno"
+
+        step_id = result["steps"][0]["id"]
+
+        align = _tool_confirm_alignment({
+            "step_id": step_id,
+            "context_id": ctx_id,
+            "agent": "claude-code",
+            "checkpoint": "antes de ejecutar paso 1",
+            "confirmed": True,
+            "message": "todo ok",
+        })
+        assert align["confirmed"] is True
+        assert isinstance(align["id"], int)
+
+        tc = _tool_record_tool_call({
+            "step_id": step_id,
+            "context_id": ctx_id,
+            "tool_name": "Edit",
+            "input": {"file": "db.py"},
+            "output": "ok",
+            "status": "ok",
+            "duration_ms": 120,
+        })
+        assert isinstance(tc["id"], int)
+
+        advance = _tool_advance_step({"step_id": step_id, "notes": "completado"})
+        assert advance["completed_step_id"] == step_id
+        assert advance["next_step"] is not None
+        assert advance["next_step"]["title"] == "Paso dos"
+        assert advance["context_done"] is False
+
+        advance2 = _tool_advance_step({"step_id": advance["next_step"]["id"], "notes": "listo"})
+        assert advance2["context_done"] is True
+        assert advance2["next_step"] is None
+
+        final_ctx = _tool_get_context({"context_id": ctx_id})
+        assert final_ctx["status"] == "completed"
+
+    finally:
+        _close_db(db_mod)
+        paths_mod.HOME_DIR = original_home
+        paths_mod.DB_PATH  = original_db
+        db_mod._local = threading.local()
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_similarity_backend():

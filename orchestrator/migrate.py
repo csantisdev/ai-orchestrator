@@ -138,3 +138,92 @@ def run_migrations() -> None:
             with _write_lock:
                 _mark_applied(conn, "index_chroma")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "create_contexts_table"):
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS contexts (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ts          TEXT    NOT NULL,
+                        updated_at  TEXT    NOT NULL,
+                        project     TEXT    NOT NULL,
+                        title       TEXT    NOT NULL DEFAULT '',
+                        description TEXT    NOT NULL DEFAULT '',
+                        status      TEXT    NOT NULL DEFAULT 'active',
+                        metadata    TEXT    NOT NULL DEFAULT '{}'
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_contexts_project ON contexts(project);
+                    CREATE INDEX IF NOT EXISTS idx_contexts_status  ON contexts(status);
+                """)
+                _mark_applied(conn, "create_contexts_table")
+                conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "create_steps_table"):
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS steps (
+                        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                        context_id   INTEGER NOT NULL REFERENCES contexts(id),
+                        order_idx    INTEGER NOT NULL,
+                        title        TEXT    NOT NULL DEFAULT '',
+                        description  TEXT    NOT NULL DEFAULT '',
+                        status       TEXT    NOT NULL DEFAULT 'pending',
+                        provider     TEXT    NOT NULL DEFAULT '',
+                        started_at   TEXT,
+                        completed_at TEXT,
+                        notes        TEXT    NOT NULL DEFAULT ''
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_steps_context_order  ON steps(context_id, order_idx);
+                    CREATE INDEX IF NOT EXISTS idx_steps_context_status ON steps(context_id, status);
+                """)
+                _mark_applied(conn, "create_steps_table")
+                conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "create_tool_calls_table"):
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS tool_calls (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ts          TEXT    NOT NULL,
+                        step_id     INTEGER NOT NULL REFERENCES steps(id),
+                        context_id  INTEGER NOT NULL REFERENCES contexts(id),
+                        tool_name   TEXT    NOT NULL DEFAULT '',
+                        input       TEXT    NOT NULL DEFAULT '{}',
+                        output      TEXT    NOT NULL DEFAULT '',
+                        status      TEXT    NOT NULL DEFAULT 'ok',
+                        duration_ms INTEGER
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_tool_calls_step    ON tool_calls(step_id, ts);
+                    CREATE INDEX IF NOT EXISTS idx_tool_calls_context ON tool_calls(context_id, ts);
+                """)
+                _mark_applied(conn, "create_tool_calls_table")
+                conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "create_alignments_table"):
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS alignments (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ts         TEXT    NOT NULL,
+                        step_id    INTEGER NOT NULL REFERENCES steps(id),
+                        context_id INTEGER NOT NULL REFERENCES contexts(id),
+                        agent      TEXT    NOT NULL DEFAULT '',
+                        confirmed  INTEGER NOT NULL DEFAULT 1,
+                        checkpoint TEXT    NOT NULL DEFAULT '',
+                        message    TEXT    NOT NULL DEFAULT ''
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_alignments_step    ON alignments(step_id);
+                    CREATE INDEX IF NOT EXISTS idx_alignments_context ON alignments(context_id, ts);
+                """)
+                _mark_applied(conn, "create_alignments_table")
+                conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_step_id_to_runs"):
+                try:
+                    conn.execute("ALTER TABLE runs ADD COLUMN step_id INTEGER REFERENCES steps(id)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_step ON runs(step_id)")
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_step_id_to_runs")
+                conn.commit()

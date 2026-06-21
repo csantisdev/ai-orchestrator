@@ -144,7 +144,79 @@ def _status_badge(status: object) -> str:
     return ""
 
 
-def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None) -> str:
+_STEP_STATUS_STYLE: dict[str, tuple[str, str]] = {
+    "pending":     ("#6b7280", "#f3f4f6"),
+    "in_progress": ("#1d4ed8", "#dbeafe"),
+    "completed":   ("#065f46", "#d1fae5"),
+    "blocked":     ("#991b1b", "#fee2e2"),
+    "skipped":     ("#9ca3af", "#f9fafb"),
+}
+
+_CTX_STATUS_STYLE: dict[str, tuple[str, str]] = {
+    "active":    ("#065f46", "#d1fae5"),
+    "completed": ("#6b7280", "#f3f4f6"),
+    "abandoned": ("#991b1b", "#fee2e2"),
+}
+
+
+def _build_contexts_section(contexts: list[dict]) -> str:
+    if not contexts:
+        return ""
+
+    cards = ""
+    for ctx in contexts:
+        ctx_status = _text(ctx.get("status"), "active")
+        sc, sbg = _CTX_STATUS_STYLE.get(ctx_status, ("#6b7280", "#f3f4f6"))
+        steps = ctx.get("steps", [])
+
+        steps_html = ""
+        for step in steps:
+            st = _text(step.get("status"), "pending")
+            fc, fbg = _STEP_STATUS_STYLE.get(st, ("#6b7280", "#f3f4f6"))
+            provider = _text(step.get("provider"))
+            is_active = st == "in_progress"
+            left_border = "border-left:3px solid #1d4ed8;" if is_active else "border-left:3px solid #e5e7eb;"
+            active_bg = "background:#eff6ff;" if is_active else ""
+            prov_html = ""
+            if provider:
+                pc = PROVIDER_COLORS.get(provider, "#6b7280")
+                prov_html = f'<span style="font-size:10px;background:{pc};color:#fff;padding:1px 6px;border-radius:8px">{_escape(provider)}</span>'
+            steps_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;{left_border}{active_bg}border-radius:4px;margin-bottom:2px">'
+                f'<span style="font-size:11px;font-weight:700;color:#9ca3af;min-width:18px;text-align:center">{step.get("order_idx","?")}</span>'
+                f'<span style="font-size:12px;color:#374151;flex:1">{_escape(_text(step.get("title")))}</span>'
+                f'{prov_html}'
+                f'<span style="font-size:10px;background:{fbg};color:{fc};padding:1px 6px;border-radius:8px;font-weight:600">{_escape(st)}</span>'
+                f'</div>'
+            )
+
+        desc_html = ""
+        if ctx.get("description"):
+            desc_html = f'<p style="font-size:12px;color:#6b7280;margin-bottom:8px">{_escape(_text(ctx.get("description")))}</p>'
+
+        body_html = steps_html if steps_html else '<p style="font-size:12px;color:#9ca3af">Sin pasos definidos.</p>'
+
+        cards += (
+            f'<div style="background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:10px">'
+            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+            f'<span style="font-size:14px;font-weight:700;color:#1f2937;flex:1">{_escape(_text(ctx.get("title"), "(sin título)"))}</span>'
+            f'<span style="font-size:11px;color:#6b7280">{_escape(_text(ctx.get("project")))}</span>'
+            f'<span style="font-size:11px;background:{sbg};color:{sc};padding:2px 8px;border-radius:10px;font-weight:600">{_escape(ctx_status)}</span>'
+            f'</div>'
+            f'{desc_html}'
+            f'<div>{body_html}</div>'
+            f'</div>'
+        )
+
+    return (
+        f'<div class="panel" style="margin-bottom:20px">'
+        f'<h2>Contextos <span style="font-weight:400;text-transform:none;font-size:12px;color:#9ca3af">({len(contexts)})</span></h2>'
+        f'{cards}'
+        f'</div>'
+    )
+
+
+def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None, contexts: list[dict] | None = None) -> str:
     selected_project = _text(selected_project)
     all_projects = sorted({_text(r.get("project")) for r in runs if _text(r.get("project"))})
     if projects_extra:
@@ -217,6 +289,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     provider_bars = _chart_bars(by_provider, max_prov, lambda p: (PROVIDER_COLORS.get(p, "#888"), PROVIDER_BG.get(p, "#f8f8f8")))
     model_bars    = _chart_bars(by_model, max_model, _model_color)
     purpose_bars  = _chart_bars(by_purpose, max_purpose, _purpose_color)
+    contexts_section = _build_contexts_section(contexts or [])
 
     rows = ""
     for r in filtered_rev[:100]:
@@ -392,6 +465,8 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <div class="panel"><h2>Por Modelo</h2>{model_bars}</div>
     <div class="panel"><h2>Por Propósito</h2>{purpose_bars}</div>
   </div>
+
+  {contexts_section}
 
   <div class="panel" style="margin-bottom:20px;overflow-x:auto">
     <h2>Runs <span id="runs-count" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;color:#9ca3af">({len(filtered_rev[:100])} de {total})</span></h2>
