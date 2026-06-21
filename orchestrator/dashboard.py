@@ -7,15 +7,15 @@ from datetime import datetime, timezone
 
 
 PROVIDER_COLORS = {
-    "claude":   "#c45c1a",
-    "deepseek": "#1e7d4f",
-    "openai":   "#6366f1",
+    "claude":   "#fb923c",
+    "deepseek": "#22c55e",
+    "openai":   "#818cf8",
 }
 
 PROVIDER_BG = {
-    "claude":   "#fff3ed",
-    "deepseek": "#f0fdf4",
-    "openai":   "#eef2ff",
+    "claude":   "rgba(251,146,60,0.15)",
+    "deepseek": "rgba(34,197,94,0.15)",
+    "openai":   "rgba(129,140,248,0.15)",
 }
 
 
@@ -104,7 +104,7 @@ def _model_color(model: str) -> tuple[str, str]:
         return PROVIDER_COLORS["deepseek"], PROVIDER_BG["deepseek"]
     if "gpt" in ml or "openai" in ml:
         return PROVIDER_COLORS["openai"], PROVIDER_BG["openai"]
-    return "#6b7280", "#f9fafb"
+    return "#71717a", "rgba(113,113,122,0.12)"
 
 
 def _purpose_color(purpose: str) -> tuple[str, str]:
@@ -116,10 +116,10 @@ def _purpose_color(purpose: str) -> tuple[str, str]:
     if "openai" in pl or "gpt" in pl:
         return PROVIDER_COLORS["openai"], PROVIDER_BG["openai"]
     if "research" in pl:
-        return "#6b3fa0", "#f3effe"
+        return "#c084fc", "rgba(192,132,252,0.12)"
     if "router" in pl:
-        return "#0f766e", "#f0fdfa"
-    return "#6b7280", "#f9fafb"
+        return "#38bdf8", "rgba(56,189,248,0.12)"
+    return "#71717a", "rgba(113,113,122,0.12)"
 
 
 def _purpose_bucket(reason: object, provider: object) -> str:
@@ -145,17 +145,17 @@ def _status_badge(status: object) -> str:
 
 
 _STEP_STATUS_STYLE: dict[str, tuple[str, str]] = {
-    "pending":     ("#6b7280", "#f3f4f6"),
-    "in_progress": ("#1d4ed8", "#dbeafe"),
-    "completed":   ("#065f46", "#d1fae5"),
-    "blocked":     ("#991b1b", "#fee2e2"),
-    "skipped":     ("#9ca3af", "#f9fafb"),
+    "pending":     ("#71717a", "rgba(113,113,122,0.12)"),
+    "in_progress": ("#38bdf8", "rgba(56,189,248,0.12)"),
+    "completed":   ("#22c55e", "rgba(34,197,94,0.12)"),
+    "blocked":     ("#f87171", "rgba(248,113,113,0.12)"),
+    "skipped":     ("#52525b", "rgba(82,82,91,0.10)"),
 }
 
 _CTX_STATUS_STYLE: dict[str, tuple[str, str]] = {
-    "active":    ("#065f46", "#d1fae5"),
-    "completed": ("#6b7280", "#f3f4f6"),
-    "abandoned": ("#991b1b", "#fee2e2"),
+    "active":    ("#22c55e", "rgba(34,197,94,0.12)"),
+    "completed": ("#71717a", "rgba(113,113,122,0.12)"),
+    "abandoned": ("#f87171", "rgba(248,113,113,0.12)"),
 }
 
 
@@ -175,33 +175,34 @@ def _build_contexts_section(contexts: list[dict]) -> str:
             fc, fbg = _STEP_STATUS_STYLE.get(st, ("#6b7280", "#f3f4f6"))
             provider = _text(step.get("provider"))
             is_active = st == "in_progress"
-            left_border = "border-left:3px solid #1d4ed8;" if is_active else "border-left:3px solid #e5e7eb;"
-            active_bg = "background:#eff6ff;" if is_active else ""
+            left_border = "border-left:2px solid #38bdf8;" if is_active else "border-left:2px solid #27272a;"
+            active_bg = "background:rgba(56,189,248,0.06);" if is_active else ""
             prov_html = ""
             if provider:
-                pc = PROVIDER_COLORS.get(provider, "#6b7280")
-                prov_html = f'<span style="font-size:10px;background:{pc};color:#fff;padding:1px 6px;border-radius:8px">{_escape(provider)}</span>'
+                pc = PROVIDER_COLORS.get(provider, "#71717a")
+                pbg = PROVIDER_BG.get(provider, "rgba(113,113,122,0.12)")
+                prov_html = f'<span style="font-size:10px;background:{pbg};color:{pc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(provider)}</span>'
             steps_html += (
-                f'<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;{left_border}{active_bg}border-radius:4px;margin-bottom:2px">'
-                f'<span style="font-size:11px;font-weight:700;color:#9ca3af;min-width:18px;text-align:center">{step.get("order_idx","?")}</span>'
-                f'<span style="font-size:12px;color:#374151;flex:1">{_escape(_text(step.get("title")))}</span>'
+                f'<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;{left_border}{active_bg}border-radius:6px;margin-bottom:2px">'
+                f'<span style="font-size:11px;font-weight:700;color:#52525b;min-width:18px;text-align:center;font-family:\'JetBrains Mono\',monospace">{step.get("order_idx","?")}</span>'
+                f'<span style="font-size:12px;color:#d1d5db;flex:1">{_escape(_text(step.get("title")))}</span>'
                 f'{prov_html}'
-                f'<span style="font-size:10px;background:{fbg};color:{fc};padding:1px 6px;border-radius:8px;font-weight:600">{_escape(st)}</span>'
+                f'<span style="font-size:10px;background:{fbg};color:{fc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(st)}</span>'
                 f'</div>'
             )
 
         desc_html = ""
         if ctx.get("description"):
-            desc_html = f'<p style="font-size:12px;color:#6b7280;margin-bottom:8px">{_escape(_text(ctx.get("description")))}</p>'
+            desc_html = f'<p style="font-size:12px;color:#71717a;margin-bottom:10px;line-height:1.5">{_escape(_text(ctx.get("description")))}</p>'
 
-        body_html = steps_html if steps_html else '<p style="font-size:12px;color:#9ca3af">Sin pasos definidos.</p>'
+        body_html = steps_html if steps_html else '<p style="font-size:12px;color:#52525b;padding:8px 0">Sin pasos definidos.</p>'
 
         cards += (
-            f'<div style="background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:10px">'
-            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
-            f'<span style="font-size:14px;font-weight:700;color:#1f2937;flex:1">{_escape(_text(ctx.get("title"), "(sin título)"))}</span>'
-            f'<span style="font-size:11px;color:#6b7280">{_escape(_text(ctx.get("project")))}</span>'
-            f'<span style="font-size:11px;background:{sbg};color:{sc};padding:2px 8px;border-radius:10px;font-weight:600">{_escape(ctx_status)}</span>'
+            f'<div style="background:#18181b;border:1px solid #27272a;border-radius:12px;padding:14px;margin-bottom:10px">'
+            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+            f'<span style="font-size:13px;font-weight:600;color:#f8fafc;flex:1">{_escape(_text(ctx.get("title"), "(sin título)"))}</span>'
+            f'<span style="font-size:11px;color:#52525b;font-family:\'JetBrains Mono\',monospace">{_escape(_text(ctx.get("project")))}</span>'
+            f'<span style="font-size:10px;background:{sbg};color:{sc};padding:2px 8px;border-radius:20px;font-weight:600">{_escape(ctx_status)}</span>'
             f'</div>'
             f'{desc_html}'
             f'<div>{body_html}</div>'
@@ -210,7 +211,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
 
     return (
         f'<div class="panel" style="margin-bottom:20px">'
-        f'<h2>Contextos <span style="font-weight:400;text-transform:none;font-size:12px;color:#9ca3af">({len(contexts)})</span></h2>'
+        f'<h2>Contextos <span style="font-weight:400;text-transform:none;font-size:11px;color:#52525b;letter-spacing:0">({len(contexts)})</span></h2>'
         f'{cards}'
         f'</div>'
     )
@@ -276,15 +277,15 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
             safe_key = _escape(key[:40])
             bars += f"""
         <div style="margin-bottom:10px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <span style="font-size:12px;font-weight:600;color:{color};background:{bg};padding:2px 8px;border-radius:12px">{safe_key}</span>
-            <span style="font-size:12px;color:#555">{count}</span>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+            <span style="font-size:12px;font-weight:600;color:{color};background:{bg};padding:2px 9px;border-radius:20px">{safe_key}</span>
+            <span style="font-size:12px;color:#71717a;font-variant-numeric:tabular-nums">{count}</span>
           </div>
-          <div style="height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden">
-            <div style="height:100%;width:{pct}%;background:{color};border-radius:4px"></div>
+          <div style="height:5px;background:#27272a;border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:{pct}%;background:{color};border-radius:3px;opacity:.85"></div>
           </div>
         </div>"""
-        return bars or '<p style="color:#9ca3af;font-size:13px">Sin datos</p>'
+        return bars or '<p style="color:#71717a;font-size:13px">Sin datos</p>'
 
     provider_bars = _chart_bars(by_provider, max_prov, lambda p: (PROVIDER_COLORS.get(p, "#888"), PROVIDER_BG.get(p, "#f8f8f8")))
     model_bars    = _chart_bars(by_model, max_model, _model_color)
@@ -305,16 +306,16 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
         status_html = _status_badge(r.get("status", "done"))
         run_id = r.get("id", "")
         rows += f"""<tr data-run-id="{_escape(run_id)}" onclick="openDetail({_escape(run_id) if run_id else '0'})" style="cursor:pointer">
-          <td style="padding:8px 10px;color:#6b7280;font-size:12px;white-space:nowrap">{_fmt_ts(r.get('ts',''))}</td>
-          <td style="padding:8px 10px;font-weight:600;font-size:13px;color:#1f2937">{_escape(_text(r.get('project'), '—'))}</td>
-          <td style="padding:8px 10px">{badge}</td>
-          <td style="padding:8px 10px;font-size:12px;color:#6b7280">{_escape(model_short)}</td>
-          <td style="padding:8px 10px;font-size:12px;color:#374151;text-align:right">{_fmt_ms(r.get('duration_ms'))}</td>
-          <td style="padding:8px 10px;font-size:12px;color:#374151;text-align:right">{_fmt_tokens(r.get('input_tokens'), r.get('output_tokens'))}</td>
-          <td style="padding:8px 10px;font-size:12px;color:#374151;text-align:right">{_fmt_cost(r.get('cost_usd'))}</td>
-          <td style="padding:8px 10px;font-size:12px;color:#374151;text-align:center">{_fmt_cache_pct(r.get('cache_read_tokens'), r.get('input_tokens'))}</td>
-          <td style="padding:8px 10px;font-size:12px;color:#6b7280;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{_escape(task_value)}">{_escape(task)}</td>
-          <td style="padding:8px 10px;font-size:11px;color:#9ca3af">{status_html}</td>
+          <td style="padding:9px 12px;color:#71717a;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums;font-family:'JetBrains Mono',monospace">{_fmt_ts(r.get('ts',''))}</td>
+          <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#f8fafc">{_escape(_text(r.get('project'), '—'))}</td>
+          <td style="padding:9px 12px">{badge}</td>
+          <td style="padding:9px 12px;font-size:12px;color:#a1a1aa;font-family:'JetBrains Mono',monospace">{_escape(model_short)}</td>
+          <td style="padding:9px 12px;font-size:12px;color:#a1a1aa;text-align:right;font-variant-numeric:tabular-nums">{_fmt_ms(r.get('duration_ms'))}</td>
+          <td style="padding:9px 12px;font-size:12px;color:#a1a1aa;text-align:right;font-variant-numeric:tabular-nums">{_fmt_tokens(r.get('input_tokens'), r.get('output_tokens'))}</td>
+          <td style="padding:9px 12px;font-size:12px;color:#22c55e;text-align:right;font-weight:500;font-variant-numeric:tabular-nums">{_fmt_cost(r.get('cost_usd'))}</td>
+          <td style="padding:9px 12px;font-size:12px;color:#a1a1aa;text-align:center">{_fmt_cache_pct(r.get('cache_read_tokens'), r.get('input_tokens'))}</td>
+          <td style="padding:9px 12px;font-size:12px;color:#71717a;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{_escape(task_value)}">{_escape(task)}</td>
+          <td style="padding:9px 12px;font-size:11px">{status_html}</td>
         </tr>"""
 
     project_options = '<option value="">Todos los proyectos</option>'
@@ -338,69 +339,74 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orchestrator Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
-    body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f3f4f6;color:#111827}}
-    .header{{background:#1f2937;color:#fff;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}}
-    .header h1{{font-size:18px;font-weight:700;letter-spacing:-.3px}}
-    .header .meta{{font-size:11px;color:#9ca3af}}
+    body{{font-family:'Inter',system-ui,sans-serif;background:#09090b;color:#f8fafc;-webkit-font-smoothing:antialiased}}
+    .header{{background:#111827;border-bottom:1px solid #27272a;color:#f8fafc;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}}
+    .header h1{{font-size:16px;font-weight:700;letter-spacing:-.4px;color:#f8fafc}}
+    .header .meta{{font-size:11px;color:#71717a}}
     .container{{max-width:1500px;margin:0 auto;padding:20px 16px}}
     .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}}
-    .card{{background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:16px}}
-    .card .label{{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:600;margin-bottom:6px}}
-    .card .value{{font-size:26px;font-weight:700;color:#111827;line-height:1}}
-    .card .sub{{font-size:11px;color:#9ca3af;margin-top:4px}}
+    .card{{background:#111827;border-radius:16px;border:1px solid #27272a;padding:18px}}
+    .card .label{{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#71717a;font-weight:600;margin-bottom:8px}}
+    .card .value{{font-size:28px;font-weight:700;color:#f8fafc;line-height:1}}
+    .card .sub{{font-size:11px;color:#52525b;margin-top:5px}}
     .grid-charts{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:20px}}
-    .panel{{background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:16px}}
-    .panel h2{{font-size:13px;font-weight:700;color:#374151;margin-bottom:14px;text-transform:uppercase;letter-spacing:.4px}}
+    .panel{{background:#111827;border-radius:16px;border:1px solid #27272a;padding:18px}}
+    .panel h2{{font-size:10px;font-weight:700;color:#71717a;margin-bottom:14px;text-transform:uppercase;letter-spacing:.7px}}
     .toolbar{{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}}
-    select,input,textarea{{border:1px solid #d1d5db;border-radius:6px;padding:6px 10px;font-size:13px;background:#fff;color:#374151}}
-    textarea{{width:100%;min-height:80px;resize:vertical;font-family:inherit}}
-    .btn{{padding:7px 16px;border-radius:6px;border:none;font-size:13px;font-weight:600;cursor:pointer}}
-    .btn-primary{{background:#1f2937;color:#fff}}
-    .btn-primary:hover{{background:#374151}}
-    .btn-secondary{{background:#f3f4f6;color:#374151;border:1px solid #d1d5db}}
+    select,input,textarea{{border:1px solid #27272a;border-radius:8px;padding:7px 12px;font-size:13px;background:#18181b;color:#f8fafc;font-family:inherit}}
+    textarea{{width:100%;min-height:80px;resize:vertical}}
+    select:focus,input:focus,textarea:focus{{outline:none;border-color:#22c55e}}
+    .btn{{padding:7px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s}}
+    .btn-primary{{background:#22c55e;color:#09090b}}
+    .btn-primary:hover{{opacity:.85}}
+    .btn-secondary{{background:#18181b;color:#f8fafc;border:1px solid #27272a}}
+    .btn-secondary:hover{{background:#27272a}}
     table{{width:100%;border-collapse:collapse}}
-    thead tr{{background:#f9fafb;border-bottom:2px solid #e5e7eb}}
-    th{{padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:600;white-space:nowrap}}
-    tbody tr{{border-bottom:1px solid #f3f4f6;transition:background .1s}}
-    tbody tr:hover{{background:#f9fafb}}
-    .empty{{text-align:center;padding:40px;color:#9ca3af;font-size:14px}}
-    .badge{{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}}
-    .badge-running{{background:#dbeafe;color:#1d4ed8;animation:pulse 1.5s ease-in-out infinite}}
-    .badge-pending{{background:#fef3c7;color:#92400e}}
-    .badge-failed{{background:#fee2e2;color:#991b1b}}
-    @keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:.5}}}}
-    .sender-panel{{background:#fff;border-radius:10px;border:1px solid #d1d5db;padding:16px;margin-bottom:20px;display:none}}
+    thead tr{{background:#0c0c0e;border-bottom:1px solid #27272a}}
+    th{{padding:9px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#71717a;font-weight:600;white-space:nowrap}}
+    tbody tr{{border-bottom:1px solid #18181b;transition:background .1s}}
+    tbody tr:hover{{background:#18181b}}
+    .empty{{text-align:center;padding:40px;color:#71717a;font-size:14px}}
+    .badge{{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}}
+    .badge-running{{background:rgba(56,189,248,0.12);color:#38bdf8;animation:pulse 1.5s ease-in-out infinite}}
+    .badge-pending{{background:rgba(251,191,36,0.12);color:#fcd34d}}
+    .badge-failed{{background:rgba(248,113,113,0.12);color:#f87171}}
+    @keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:.4}}}}
+    .sender-panel{{background:#111827;border-radius:16px;border:1px solid #27272a;padding:18px;margin-bottom:20px;display:none}}
     .sender-panel.open{{display:block}}
     .sender-form{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
     @media(max-width:700px){{.sender-form{{grid-template-columns:1fr}}}}
     .sender-form .full{{grid-column:1/-1}}
-    .detail-overlay{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100}}
+    .detail-overlay{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;backdrop-filter:blur(3px)}}
     .detail-overlay.open{{display:flex;align-items:flex-start;justify-content:flex-end}}
-    .detail-panel{{background:#fff;width:min(640px,95vw);height:100vh;overflow-y:auto;padding:24px;box-shadow:-4px 0 24px rgba(0,0,0,.15)}}
-    .detail-panel h3{{font-size:16px;font-weight:700;margin-bottom:16px;color:#1f2937}}
-    .detail-section{{margin-bottom:16px}}
-    .detail-section label{{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:6px}}
-    .detail-section pre{{background:#f8f9fa;border:1px solid #e5e7eb;border-radius:6px;padding:12px;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow-y:auto;font-family:'Cascadia Code','Consolas',monospace}}
-    .budget-bar{{height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;margin-top:6px}}
-    .budget-fill{{height:100%;border-radius:4px;transition:width .4s}}
-    .close-btn{{float:right;background:none;border:none;font-size:20px;cursor:pointer;color:#6b7280;padding:0 4px}}
-    .spinner{{display:inline-block;width:14px;height:14px;border:2px solid #e5e7eb;border-top-color:#1d4ed8;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}}
+    .detail-panel{{background:#111827;width:min(660px,95vw);height:100vh;overflow-y:auto;padding:24px;box-shadow:-4px 0 40px rgba(0,0,0,.6);border-left:1px solid #27272a}}
+    .detail-panel h3{{font-size:15px;font-weight:700;margin-bottom:16px;color:#f8fafc}}
+    .detail-section{{margin-bottom:18px}}
+    .detail-section label{{display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:#71717a;margin-bottom:8px}}
+    .detail-section pre{{background:#0f172a;border:1px solid #27272a;border-radius:12px;padding:14px;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow-y:auto;font-family:'JetBrains Mono','Consolas',monospace;color:#e2e8f0;line-height:1.65}}
+    .budget-bar{{height:5px;background:#27272a;border-radius:3px;overflow:hidden;margin-top:8px}}
+    .budget-fill{{height:100%;border-radius:3px;transition:width .4s}}
+    .close-btn{{float:right;background:none;border:none;font-size:20px;cursor:pointer;color:#71717a;padding:0 4px}}
+    .close-btn:hover{{color:#f8fafc}}
+    .spinner{{display:inline-block;width:14px;height:14px;border:2px solid #27272a;border-top-color:#22c55e;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}}
     @keyframes spin{{to{{transform:rotate(360deg)}}}}
-    #toast{{position:fixed;bottom:20px;right:20px;background:#1f2937;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;display:none;z-index:200}}
+    #toast{{position:fixed;bottom:20px;right:20px;background:#18181b;color:#f8fafc;border:1px solid #27272a;padding:10px 18px;border-radius:10px;font-size:13px;display:none;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.5)}}
   </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>&#11041; Orchestrator Dashboard</h1>
+  <h1><span style="color:#22c55e;font-family:'JetBrains Mono',monospace;font-size:14px;margin-right:8px">▸</span>Orchestrator</h1>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <form method="get" style="display:flex;align-items:center;gap:8px">
-      <label style="font-size:13px;color:#9ca3af;font-weight:600">Proyecto:</label>
+      <label style="font-size:12px;color:#71717a;font-weight:500">Proyecto</label>
       <select name="project" onchange="this.form.submit()">{project_options}</select>
     </form>
-    <button class="btn btn-secondary" onclick="toggleSender()" style="font-size:13px">+ Nueva tarea</button>
+    <button class="btn btn-secondary" onclick="toggleSender()">+ Nueva tarea</button>
     <span class="meta">{now}</span>
   </div>
 </div>
@@ -411,11 +417,11 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <h2 style="font-size:13px;font-weight:700;color:#374151;margin-bottom:14px;text-transform:uppercase;letter-spacing:.4px">Enviar tarea</h2>
     <div class="sender-form">
       <div>
-        <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px">Proyecto</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
         <select id="senderProject" style="width:100%">{project_options_form}</select>
       </div>
       <div>
-        <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px">Modelo (opcional)</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Modelo (opcional)</label>
         <select id="senderModel" style="width:100%">
           <option value="">Router automático</option>
           <option value="claude">Claude</option>
@@ -424,12 +430,12 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
         </select>
       </div>
       <div class="full">
-        <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px">Tarea</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Tarea</label>
         <textarea id="senderTask" placeholder="Describí la tarea que querés resolver..."></textarea>
       </div>
       <div class="full" style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-primary" onclick="submitTask()">Enviar</button>
-        <span id="senderStatus" style="font-size:12px;color:#6b7280"></span>
+        <span id="senderStatus" style="font-size:12px;color:#71717a"></span>
       </div>
     </div>
   </div>
@@ -469,7 +475,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   {contexts_section}
 
   <div class="panel" style="margin-bottom:20px;overflow-x:auto">
-    <h2>Runs <span id="runs-count" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;color:#9ca3af">({len(filtered_rev[:100])} de {total})</span></h2>
+    <h2>Runs <span id="runs-count" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">({len(filtered_rev[:100])} de {total})</span></h2>
     {'<table id="runs-table"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body">' + rows + '</tbody></table>' if rows else '<table id="runs-table" style="display:none"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body"></tbody></table><p class="empty" id="empty-msg">No hay runs aún. Usá el botón <strong>+ Nueva tarea</strong> para enviar una.</p>'}
   </div>
 
@@ -479,7 +485,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <div class="detail-panel" id="detailPanel">
     <button class="close-btn" onclick="closeDetail()">&#x2715;</button>
     <h3>Detalle del run</h3>
-    <div id="detailContent"><p style="color:#9ca3af;font-size:13px">Cargando...</p></div>
+    <div id="detailContent"><p style="color:#71717a;font-size:13px">Cargando...</p></div>
   </div>
 </div>
 
@@ -517,10 +523,10 @@ function prependPendingRow(d) {{
   tr.style.cursor = "pointer";
   tr.onclick = () => openDetail(d.run_id);
   tr.innerHTML = `
-    <td style="padding:8px 10px;color:#6b7280;font-size:12px;white-space:nowrap">ahora</td>
-    <td style="padding:8px 10px;font-weight:600;font-size:13px;color:#1f2937">${{escHtml(d.project)}}</td>
-    <td style="padding:8px 10px"><span class="badge badge-pending">… pending</span></td>
-    <td colspan="7" style="padding:8px 10px;font-size:12px;color:#9ca3af"><span class="spinner"></span> esperando respuesta...</td>
+    <td style="padding:9px 12px;color:#52525b;font-size:11px;white-space:nowrap;font-family:'JetBrains Mono',monospace">ahora</td>
+    <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#f8fafc">${{escHtml(d.project)}}</td>
+    <td style="padding:9px 12px"><span class="badge badge-pending">… pending</span></td>
+    <td colspan="7" style="padding:9px 12px;font-size:12px;color:#71717a"><span class="spinner"></span> esperando respuesta...</td>
   `;
   tbody.insertBefore(tr, tbody.firstChild);
 }}
@@ -528,7 +534,7 @@ function prependPendingRow(d) {{
 function updateRow(d) {{
   const tr = document.querySelector(`tr[data-run-id="${{d.run_id}}"]`);
   if (!tr) return;
-  tr.cells[2].innerHTML = '<span style="background:#f0fdf4;color:#15803d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">done</span>';
+  tr.cells[2].innerHTML = '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600">done</span>';
   if (tr.cells[3]) {{
     tr.cells[3].colSpan = 1;
     tr.cells[3].textContent = d.model ? d.model.split("/").pop() : "?";
@@ -558,9 +564,9 @@ function updateBudgetGauge(d) {{
   const color = d.pct >= 1.0 ? "#ef4444" : d.pct >= 0.8 ? "#f59e0b" : "#22c55e";
   sec.innerHTML = `<div class="panel" style="margin-bottom:20px">
     <h2>Presupuesto diario — ${{escHtml(d.project)}}</h2>
-    <div style="display:flex;justify-content:space-between;font-size:12px;color:#6b7280;margin-bottom:4px">
-      <span>Gastado: <strong>$${{parseFloat(d.spent_usd).toFixed(4)}}</strong></span>
-      <span>Límite: <strong>$${{parseFloat(d.limit_usd).toFixed(2)}}</strong></span>
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:#71717a;margin-bottom:6px">
+      <span>Gastado: <strong style="color:#f8fafc">$${{parseFloat(d.spent_usd).toFixed(4)}}</strong></span>
+      <span>Límite: <strong style="color:#f8fafc">$${{parseFloat(d.limit_usd).toFixed(2)}}</strong></span>
       <span style="color:${{color}};font-weight:700">${{pct}}%</span>
     </div>
     <div class="budget-bar"><div class="budget-fill" style="width:${{pct}}%;background:${{color}}"></div></div>
@@ -576,14 +582,15 @@ function openDetail(runId) {{
   fetch("/run/" + runId)
     .then(r => r.json())
     .then(data => {{
-      const provColor = {{"claude":"#c45c1a","deepseek":"#1e7d4f","openai":"#6366f1"}}[data.provider] || "#555";
+      const provColor = {{"claude":"#fb923c","deepseek":"#22c55e","openai":"#818cf8"}}[data.provider] || "#71717a";
+      const provBg = {{"claude":"rgba(251,146,60,0.12)","deepseek":"rgba(34,197,94,0.12)","openai":"rgba(129,140,248,0.12)"}}[data.provider] || "rgba(113,113,122,0.12)";
       content.innerHTML = `
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-          <span style="background:#f3f4f6;color:#374151;padding:3px 10px;border-radius:10px;font-size:12px"><strong>ID:</strong> ${{data.id}}</span>
-          <span style="color:${{provColor}};padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600">${{escHtml(data.provider)}}</span>
-          <span style="background:#f3f4f6;color:#374151;padding:3px 10px;border-radius:10px;font-size:12px">${{escHtml(data.model)}}</span>
-          <span style="background:#f3f4f6;color:#374151;padding:3px 10px;border-radius:10px;font-size:12px">${{data.duration_ms ? (data.duration_ms/1000).toFixed(1)+"s" : "—"}}</span>
-          ${{data.cost_usd ? `<span style="background:#f0fdf4;color:#15803d;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600">$${{parseFloat(data.cost_usd).toFixed(4)}}</span>` : ''}}
+          <span style="background:#18181b;color:#a1a1aa;padding:3px 10px;border-radius:20px;font-size:11px;font-family:'JetBrains Mono',monospace">#${{data.id}}</span>
+          <span style="background:${{provBg}};color:${{provColor}};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${{escHtml(data.provider)}}</span>
+          <span style="background:#18181b;color:#a1a1aa;padding:3px 10px;border-radius:20px;font-size:11px;font-family:'JetBrains Mono',monospace">${{escHtml(data.model ? data.model.split('/').pop() : '—')}}</span>
+          <span style="background:#18181b;color:#a1a1aa;padding:3px 10px;border-radius:20px;font-size:12px">${{data.duration_ms ? (data.duration_ms/1000).toFixed(1)+"s" : "—"}}</span>
+          ${{data.cost_usd ? `<span style="background:rgba(34,197,94,0.10);color:#22c55e;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">$${{parseFloat(data.cost_usd).toFixed(4)}}</span>` : ''}}
         </div>
         <div class="detail-section">
           <label>Tarea enviada</label>
@@ -595,32 +602,32 @@ function openDetail(runId) {{
         </div>
         <div class="detail-section">
           <label>Razón de ruteo</label>
-          <p style="font-size:13px;color:#374151">${{escHtml(data.routing_reason || "—")}}</p>
+          <p style="font-size:13px;color:#a1a1aa;line-height:1.5">${{escHtml(data.routing_reason || "—")}}</p>
         </div>
         ${{data.cache_read_tokens ? `<div class="detail-section">
           <label>Cache Claude</label>
-          <p style="font-size:13px;color:#374151">
-            Leídos del cache: <strong>${{data.cache_read_tokens}}</strong> tokens
-            ${{data.cache_creation_tokens ? ` · Escritos al cache: <strong>${{data.cache_creation_tokens}}</strong>` : ''}}
+          <p style="font-size:13px;color:#a1a1aa">
+            Leídos: <strong style="color:#38bdf8">${{data.cache_read_tokens}}</strong> tokens
+            ${{data.cache_creation_tokens ? ` · Escritos: <strong style="color:#22c55e">${{data.cache_creation_tokens}}</strong>` : ''}}
           </p>
         </div>` : ''}}
         ${{data.alignments && data.alignments.length ? `<div class="detail-section">
           <label>Checkpoints de alineación</label>
           <table style="width:100%;font-size:12px;border-collapse:collapse">
-            <thead><tr style="color:#6b7280;border-bottom:1px solid #e5e7eb">
-              <th style="text-align:left;padding:4px 6px">Hora</th>
-              <th style="text-align:left;padding:4px 6px">Checkpoint</th>
-              <th style="text-align:left;padding:4px 6px">Agente</th>
-              <th style="text-align:center;padding:4px 6px">OK</th>
-              <th style="text-align:left;padding:4px 6px">Mensaje</th>
+            <thead><tr style="color:#52525b;border-bottom:1px solid #27272a">
+              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Hora</th>
+              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Checkpoint</th>
+              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Agente</th>
+              <th style="text-align:center;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">OK</th>
+              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Mensaje</th>
             </tr></thead>
             <tbody>
-              ${{data.alignments.map(a => `<tr style="border-bottom:1px solid #f3f4f6">
-                <td style="padding:4px 6px;color:#9ca3af;white-space:nowrap">${{escHtml(a.ts ? a.ts.slice(11,19) : '—')}}</td>
-                <td style="padding:4px 6px">${{escHtml(a.checkpoint || '—')}}</td>
-                <td style="padding:4px 6px">${{escHtml(a.agent || '—')}}</td>
-                <td style="padding:4px 6px;text-align:center">${{a.confirmed ? '<span style="color:#15803d;font-weight:700">✓</span>' : '<span style="color:#dc2626">✗</span>'}}</td>
-                <td style="padding:4px 6px;color:#374151">${{escHtml(a.message || '')}}</td>
+              ${{data.alignments.map(a => `<tr style="border-bottom:1px solid #18181b">
+                <td style="padding:5px 8px;color:#52525b;white-space:nowrap;font-family:'JetBrains Mono',monospace">${{escHtml(a.ts ? a.ts.slice(11,19) : '—')}}</td>
+                <td style="padding:5px 8px;color:#d1d5db">${{escHtml(a.checkpoint || '—')}}</td>
+                <td style="padding:5px 8px;color:#a1a1aa">${{escHtml(a.agent || '—')}}</td>
+                <td style="padding:5px 8px;text-align:center">${{a.confirmed ? '<span style="color:#22c55e;font-weight:700;font-size:14px">✓</span>' : '<span style="color:#f87171;font-weight:700;font-size:14px">✗</span>'}}</td>
+                <td style="padding:5px 8px;color:#a1a1aa">${{escHtml(a.message || '')}}</td>
               </tr>`).join('')}}
             </tbody>
           </table>
@@ -628,20 +635,20 @@ function openDetail(runId) {{
         ${{data.tool_calls && data.tool_calls.length ? `<div class="detail-section">
           <label>Herramientas invocadas</label>
           <table style="width:100%;font-size:12px;border-collapse:collapse">
-            <thead><tr style="color:#6b7280;border-bottom:1px solid #e5e7eb">
-              <th style="text-align:left;padding:4px 6px">Hora</th>
-              <th style="text-align:left;padding:4px 6px">Herramienta</th>
-              <th style="text-align:center;padding:4px 6px">Estado</th>
-              <th style="text-align:right;padding:4px 6px">ms</th>
-              <th style="text-align:left;padding:4px 6px">Salida</th>
+            <thead><tr style="color:#52525b;border-bottom:1px solid #27272a">
+              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Hora</th>
+              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Herramienta</th>
+              <th style="text-align:center;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Estado</th>
+              <th style="text-align:right;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">ms</th>
+              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Salida</th>
             </tr></thead>
             <tbody>
-              ${{data.tool_calls.map(tc => `<tr style="border-bottom:1px solid #f3f4f6">
-                <td style="padding:4px 6px;color:#9ca3af;white-space:nowrap">${{escHtml(tc.ts ? tc.ts.slice(11,19) : '—')}}</td>
-                <td style="padding:4px 6px;font-weight:600">${{escHtml(tc.tool_name || '—')}}</td>
-                <td style="padding:4px 6px;text-align:center"><span style="font-size:11px;padding:1px 6px;border-radius:8px;background:${{tc.status==='ok'?'#d1fae5':'#fee2e2'}};color:${{tc.status==='ok'?'#065f46':'#991b1b'}}">${{escHtml(tc.status || '—')}}</span></td>
-                <td style="padding:4px 6px;text-align:right;color:#6b7280">${{tc.duration_ms != null ? tc.duration_ms : '—'}}</td>
-                <td style="padding:4px 6px;color:#374151;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{escHtml(tc.output ? String(tc.output).slice(0,80) : '')}}</td>
+              ${{data.tool_calls.map(tc => `<tr style="border-bottom:1px solid #18181b">
+                <td style="padding:5px 8px;color:#52525b;white-space:nowrap;font-family:'JetBrains Mono',monospace">${{escHtml(tc.ts ? tc.ts.slice(11,19) : '—')}}</td>
+                <td style="padding:5px 8px;font-weight:600;color:#f8fafc;font-family:'JetBrains Mono',monospace">${{escHtml(tc.tool_name || '—')}}</td>
+                <td style="padding:5px 8px;text-align:center"><span style="font-size:10px;padding:2px 7px;border-radius:20px;background:${{tc.status==='ok'?'rgba(34,197,94,0.12)':'rgba(248,113,113,0.12)'}};color:${{tc.status==='ok'?'#22c55e':'#f87171'}};font-weight:600">${{escHtml(tc.status || '—')}}</span></td>
+                <td style="padding:5px 8px;text-align:right;color:#71717a;font-variant-numeric:tabular-nums">${{tc.duration_ms != null ? tc.duration_ms : '—'}}</td>
+                <td style="padding:5px 8px;color:#a1a1aa;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{escHtml(tc.output ? String(tc.output).slice(0,80) : '')}}</td>
               </tr>`).join('')}}
             </tbody>
           </table>
