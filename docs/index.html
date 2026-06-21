@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ai-orchestrator — Documentación</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#09090b;--surface:#0f0f12;--border:#27272a;--muted:#71717a;
+      --text:#f8fafc;--text2:#a1a1aa;
+      --green:#22c55e;--orange:#fb923c;--blue:#818cf8;--sky:#38bdf8;--purple:#c084fc;
+      --green-bg:rgba(34,197,94,.12);--orange-bg:rgba(251,146,60,.12);
+      --blue-bg:rgba(129,140,248,.12);--sky-bg:rgba(56,189,248,.12);
+    }
+    html{scroll-behavior:smooth}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;line-height:1.6}
+    a{color:var(--sky);text-decoration:none}
+    a:hover{text-decoration:underline}
+    code,pre{font-family:'JetBrains Mono',monospace}
+
+    /* ── Nav ── */
+    nav{position:sticky;top:0;z-index:100;background:rgba(9,9,11,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 32px;display:flex;align-items:center;justify-content:space-between;height:52px}
+    .nav-logo{display:flex;align-items:center;gap:10px}
+    .nav-logo img{height:22px}
+    .nav-links{display:flex;gap:24px;font-size:13px;font-weight:500;color:var(--muted)}
+    .nav-links a{color:var(--muted);transition:color .15s}
+    .nav-links a:hover{color:var(--text);text-decoration:none}
+    .nav-dash{background:var(--green);color:#000;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700}
+    .nav-dash:hover{opacity:.85;text-decoration:none}
+
+    /* ── Hero ── */
+    .hero{position:relative;overflow:hidden;text-align:center;padding:72px 32px 56px}
+    .hero-banner{width:100%;max-width:900px;border-radius:12px;display:block;margin:0 auto 40px}
+    .hero h1{font-size:clamp(28px,5vw,48px);font-weight:700;letter-spacing:-.5px;margin-bottom:14px}
+    .hero h1 span{color:var(--green)}
+    .hero p{font-size:16px;color:var(--text2);max-width:580px;margin:0 auto 28px}
+    .hero-badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--border)}
+    .badge-green{background:var(--green-bg);color:var(--green);border-color:rgba(34,197,94,.25)}
+    .badge-orange{background:var(--orange-bg);color:var(--orange);border-color:rgba(251,146,60,.25)}
+    .badge-blue{background:var(--blue-bg);color:var(--blue);border-color:rgba(129,140,248,.25)}
+    .badge-sky{background:var(--sky-bg);color:var(--sky);border-color:rgba(56,189,248,.25)}
+
+    /* ── Layout ── */
+    .page{max-width:960px;margin:0 auto;padding:0 32px 80px}
+    section{padding-top:72px}
+    section + section{border-top:1px solid var(--border);margin-top:64px}
+    .sec-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--green);margin-bottom:8px}
+    h2{font-size:26px;font-weight:700;letter-spacing:-.3px;margin-bottom:6px}
+    h3{font-size:16px;font-weight:600;margin:28px 0 10px;color:var(--text)}
+    p{color:var(--text2);font-size:15px;margin-bottom:12px}
+    ul{color:var(--text2);font-size:15px;padding-left:20px;margin-bottom:12px}
+    ul li{margin-bottom:4px}
+    ul li strong{color:var(--text);font-weight:600}
+
+    /* ── Cards ── */
+    .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:24px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
+    .card-icon{font-size:20px;margin-bottom:10px}
+    .card h4{font-size:14px;font-weight:700;margin-bottom:6px;color:var(--text)}
+    .card p{font-size:13px;margin:0;color:var(--muted)}
+
+    /* ── Architecture diagram ── */
+    .arch{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:28px;margin-top:20px;overflow-x:auto}
+    .arch pre{font-size:13px;line-height:1.7;color:var(--text2);white-space:pre}
+    .arch pre .hl{color:var(--green)}
+    .arch pre .dim{color:#3f3f46}
+
+    /* ── Flow ── */
+    .flow{display:flex;align-items:center;flex-wrap:wrap;gap:0;margin:20px 0}
+    .flow-step{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 16px;font-size:13px;font-weight:600;white-space:nowrap}
+    .flow-arrow{color:var(--muted);padding:0 8px;font-size:16px;flex-shrink:0}
+    .fs-green{border-color:rgba(34,197,94,.3);color:var(--green)}
+    .fs-orange{border-color:rgba(251,146,60,.3);color:var(--orange)}
+    .fs-blue{border-color:rgba(129,140,248,.3);color:var(--blue)}
+    .fs-sky{border-color:rgba(56,189,248,.3);color:var(--sky)}
+    .fs-purple{border-color:rgba(192,132,252,.3);color:var(--purple)}
+    .fs-default{color:var(--text2)}
+
+    /* ── Code blocks ── */
+    .code-block{background:#0c0c0f;border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin:12px 0;overflow-x:auto}
+    .code-block pre{font-size:13px;line-height:1.65;color:#d4d4d8;white-space:pre}
+    .code-block .kw{color:#c084fc}
+    .code-block .str{color:#86efac}
+    .code-block .cm{color:#3f3f46}
+    .code-block .cmd{color:var(--sky)}
+    .code-block .flag{color:var(--orange)}
+
+    /* ── Tables ── */
+    table{width:100%;border-collapse:collapse;font-size:13px;margin:16px 0}
+    th{text-align:left;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:1px solid var(--border)}
+    td{padding:9px 12px;border-bottom:1px solid #18181b;color:var(--text2);vertical-align:top}
+    td:first-child{color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;white-space:nowrap}
+    tr:last-child td{border-bottom:none}
+
+    /* ── Callout ── */
+    .callout{border-left:3px solid var(--green);background:var(--green-bg);border-radius:0 8px 8px 0;padding:12px 16px;margin:16px 0;font-size:14px;color:var(--text2)}
+    .callout strong{color:var(--text)}
+    .callout-warn{border-color:var(--orange);background:var(--orange-bg)}
+
+    /* ── Footer ── */
+    footer{border-top:1px solid var(--border);padding:28px 32px;text-align:center;font-size:12px;color:#3f3f46;max-width:960px;margin:0 auto}
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">
+    <img src="/static/img/logo.png" alt="ai-orchestrator">
+  </div>
+  <div class="nav-links">
+    <a href="#alcances">Alcances</a>
+    <a href="#diseno">Diseño</a>
+    <a href="#herramientas">Herramientas</a>
+    <a href="#configuracion">Configuración</a>
+    <a href="/" class="nav-dash">Dashboard →</a>
+  </div>
+</nav>
+
+<!-- ── HERO ── -->
+<div class="hero">
+  <img src="/static/img/banner.png" alt="ai-orchestrator banner" class="hero-banner">
+  <h1>Orquestador local de <span>agentes IA</span></h1>
+  <p>Rutea tareas entre Claude, OpenAI y DeepSeek según el contexto del proyecto, con tracking de costo en tiempo real y dashboard web.</p>
+  <div class="hero-badges">
+    <span class="badge badge-green">Claude · OpenAI · DeepSeek</span>
+    <span class="badge badge-orange">Ruteo semántico</span>
+    <span class="badge badge-blue">SQLite + ChromaDB</span>
+    <span class="badge badge-sky">Dashboard SSE</span>
+  </div>
+</div>
+
+<div class="page">
+
+<!-- ── ALCANCES ── -->
+<section id="alcances">
+  <div class="sec-label">Alcances</div>
+  <h2>¿Qué hace el orquestador?</h2>
+  <p>Un proceso local que actúa como intermediario inteligente entre tu código y múltiples proveedores de IA. Analiza cada tarea, decide a qué modelo mandarla, registra la respuesta y muestra todo en un panel web.</p>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-icon">🧭</div>
+      <h4>Ruteo inteligente</h4>
+      <p>Un modelo liviano (DeepSeek Flash) analiza la tarea y el contexto del proyecto para decidir Claude, OpenAI o DeepSeek — sin hardcodear.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">💰</div>
+      <h4>Control de costos</h4>
+      <p>Cada run registra tokens de entrada, salida y cache. El costo en USD se calcula con la tabla de precios de config.yaml y se visualiza en el dashboard.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🧠</div>
+      <h4>Memoria RAG</h4>
+      <p>ChromaDB indexa la documentación de cada proyecto y las respuestas previas. Cada nueva tarea recupera contexto semántico relevante antes de llamar al modelo.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📊</div>
+      <h4>Dashboard en vivo</h4>
+      <p>Panel web con Server-Sent Events. Las filas aparecen en tiempo real sin recargar la página. Incluye gauge de presupuesto, filtros y panel de detalle.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔍</div>
+      <h4>Inspector DB</h4>
+      <p>Vista integrada del estado interno: colecciones de ChromaDB con conteos por proyecto, tablas de SQLite y registro de proyectos con acciones de indexación.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📋</div>
+      <h4>Contextos y pasos</h4>
+      <p>Flujos estructurados multi-paso con alineación de checkpoints y registro de tool calls. El router puede respetar el provider definido para cada paso.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">⚡</div>
+      <h4>Barra de actividad</h4>
+      <p>Spans en tiempo real que muestran qué está haciendo el servidor: Router, RAG retrieval, API call, indexación — con duración de cada operación.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔄</div>
+      <h4>Sync Claude Code</h4>
+      <p>Importa sesiones del historial de Claude Code al DB del orquestador. Puede ejecutarse automáticamente vía hook Stop de Claude Code.</p>
+    </div>
+  </div>
+
+  <h3>Fuera del alcance</h3>
+  <ul>
+    <li>No es un proxy de API — el proceso debe estar corriendo localmente</li>
+    <li>No orquesta agentes en paralelo — una tarea a la vez por run</li>
+    <li>No gestiona el historial de conversación — cada run es stateless salvo el contexto RAG</li>
+  </ul>
+</section>
+
+<!-- ── DISEÑO ── -->
+<section id="diseno">
+  <div class="sec-label">Diseño</div>
+  <h2>Arquitectura del sistema</h2>
+
+  <h3>Capas principales</h3>
+  <div class="arch">
+    <pre>
+<span class="hl">CLI / HTTP Server</span>  (cli.py · Typer + BaseHTTPRequestHandler)
+    │
+    ├── <span class="hl">Router</span>            (router.py)
+    │       Analiza tarea + context.yaml + keyword_hints
+    │       Llama a DeepSeek Flash para decidir provider
+    │       Enforce de step.provider si hay contexto activo
+    │
+    ├── <span class="hl">RAG</span>               (rag.py · ChromaDB / FTS5 fallback)
+    │       retrieve_docs()     — chunks del código/docs del proyecto
+    │       retrieve_responses() — respuestas previas similares
+    │       build_context_block() — bloque de contexto para el system prompt
+    │
+    ├── <span class="hl">Providers</span>         (providers/)
+    │       claude.py   → Anthropic API (claude-sonnet-4-6 / opus)
+    │       openai.py   → OpenAI API   (gpt-4o)
+    │       deepseek.py → DeepSeek API (deepseek-v4-flash / pro)
+    │
+    ├── <span class="hl">DB</span>                (db.py · SQLite WAL)
+    │       runs, contexts, steps, chunks, alignments, tool_calls
+    │       FTS5 virtual table sobre runs para búsqueda full-text
+    │
+    ├── <span class="hl">SSE Bus</span>           (sse.py)
+    │       BUS.publish(event, data) → todas las conexiones /events
+    │       Eventos: run_started, run_done, run_failed, trace, budget_warning
+    │
+    └── <span class="hl">Dashboard</span>         (dashboard.py)
+            HTML generado server-side con f-strings
+            JS vanilla — fetch, SSE, template literals</pre>
+  </div>
+
+  <h3>Flujo de una tarea</h3>
+  <div class="flow">
+    <div class="flow-step fs-green">CLI / Dashboard</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-default">submit_run()</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-sky">Router</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-blue">RAG retrieval</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-orange">Provider API</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-default">DB update</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-purple">Index response</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-green">SSE → Dashboard</div>
+  </div>
+
+  <h3>Directorios</h3>
+  <div class="code-block"><pre><span class="cm"># Instalación del orquestador</span>
+C:\Fuentes\ai-orchestrator\
+├── orchestrator\
+│   ├── cli.py          <span class="cm">← servidor HTTP + comandos Typer</span>
+│   ├── router.py       <span class="cm">← decisión de proveedor</span>
+│   ├── db.py           <span class="cm">← SQLite WAL</span>
+│   ├── rag.py          <span class="cm">← ChromaDB / FTS5</span>
+│   ├── tracer.py       <span class="cm">← spans al SSE bus</span>
+│   ├── background.py   <span class="cm">← worker threads</span>
+│   ├── dashboard.py    <span class="cm">← HTML del panel</span>
+│   ├── sse.py          <span class="cm">← Server-Sent Events</span>
+│   └── providers\      <span class="cm">← claude · openai · deepseek</span>
+└── docs\               <span class="cm">← esta página</span>
+
+<span class="cm"># Datos runtime (no versionados)</span>
+~\.ai-orchestrator\
+├── config.yaml         <span class="cm">← API keys y modelos</span>
+├── index.yaml          <span class="cm">← alias → path de cada proyecto</span>
+├── runs.db             <span class="cm">← historial SQLite</span>
+└── chroma\             <span class="cm">← índice vectorial</span>
+
+<span class="cm"># Dentro de cada proyecto (versionado en su repo)</span>
+mi-proyecto\
+└── .orchestrator\
+    └── context.yaml    <span class="cm">← stack, convenciones, reglas de ruteo</span></pre></div>
+
+  <h3>Base de datos SQLite</h3>
+  <table>
+    <tr><th>Tabla</th><th>Contenido</th><th>Clave foránea</th></tr>
+    <tr><td>runs</td><td>Cada llamada a un proveedor. Tokens, costo, duración, respuesta completa.</td><td>step_id → steps</td></tr>
+    <tr><td>contexts</td><td>Flujos de trabajo multi-paso (título, descripción, estado).</td><td>—</td></tr>
+    <tr><td>steps</td><td>Pasos dentro de un contexto. Provider sugerido, orden, estado.</td><td>context_id → contexts</td></tr>
+    <tr><td>chunks</td><td>Registro de archivos indexados por RAG (proyecto, path, cantidad de chunks).</td><td>—</td></tr>
+    <tr><td>alignments</td><td>Checkpoints de alineación confirmados por el agente.</td><td>step_id → steps</td></tr>
+    <tr><td>tool_calls</td><td>Herramientas invocadas durante un paso (nombre, input, output, duración).</td><td>step_id → steps</td></tr>
+  </table>
+
+  <h3>ChromaDB — colecciones</h3>
+  <table>
+    <tr><th>Colección</th><th>Contenido</th><th>Metadata</th></tr>
+    <tr><td>docs</td><td>Chunks de archivos .md, .py, .yaml del proyecto.</td><td>project, source, chunk_idx</td></tr>
+    <tr><td>responses</td><td>Respuestas previas de los modelos, para recuperar contexto similar.</td><td>project, run_id</td></tr>
+    <tr><td>runs</td><td>Resúmenes de runs para el router de similitud semántica.</td><td>project, provider</td></tr>
+  </table>
+
+  <div class="callout">
+    <strong>Fallback automático:</strong> Si ChromaDB no está instalado, el router usa FTS5 (SQLite full-text search). La diferencia es que FTS5 hace matching de keywords exactas; ChromaDB hace similitud semántica por embeddings. El resto del sistema funciona igual.
+  </div>
+</section>
+
+<!-- ── HERRAMIENTAS ── -->
+<section id="herramientas">
+  <div class="sec-label">Herramientas</div>
+  <h2>CLI y Dashboard</h2>
+
+  <h3>Gestión de proyectos</h3>
+  <div class="code-block"><pre><span class="cm"># Registrar un proyecto</span>
+<span class="cmd">ai-orchestrator</span> add mi-proyecto <span class="flag">--path</span> <span class="str">"C:\ruta\al\proyecto"</span>
+
+<span class="cm"># Listar proyectos registrados</span>
+<span class="cmd">ai-orchestrator</span> list
+
+<span class="cm"># Quitar del índice</span>
+<span class="cmd">ai-orchestrator</span> remove mi-proyecto</pre></div>
+
+  <h3>Ejecutar tareas</h3>
+  <div class="code-block"><pre><span class="cm"># Router decide el proveedor automáticamente</span>
+<span class="cmd">ai-orchestrator</span> run <span class="flag">--project</span> mi-proyecto <span class="flag">--task</span> <span class="str">"revisar el endpoint de login"</span>
+
+<span class="cm"># Forzar proveedor específico</span>
+<span class="cmd">ai-orchestrator</span> run <span class="flag">--project</span> mi-proyecto <span class="flag">--task</span> <span class="str">"..."</span> <span class="flag">--model</span> claude
+
+<span class="cm"># Modo investigación (Claude Opus)</span>
+<span class="cmd">ai-orchestrator</span> run <span class="flag">--project</span> mi-proyecto <span class="flag">--task</span> <span class="str">"..."</span> <span class="flag">--research</span></pre></div>
+
+  <h3>Dashboard web</h3>
+  <div class="code-block"><pre><span class="cm"># Lanza el panel en http://127.0.0.1:8080</span>
+<span class="cmd">ai-orchestrator</span> serve
+
+<span class="cm"># Puerto alternativo, sin abrir el browser</span>
+<span class="cmd">ai-orchestrator</span> serve <span class="flag">--port</span> 9090 <span class="flag">--no-open</span></pre></div>
+
+  <p>El dashboard tiene dos pestañas:</p>
+  <table>
+    <tr><th>Pestaña</th><th>Contenido</th></tr>
+    <tr><td>Dashboard</td><td>Tabla de runs en tiempo real (SSE), formulario de nueva tarea, panel de detalle, gauge de presupuesto diario, barra de actividad en tiempo real.</td></tr>
+    <tr><td>Inspector</td><td>Estado interno del sistema: tablas SQLite (conteos + últimos registros), colecciones ChromaDB con breakdown por proyecto, registro y acciones de indexación.</td></tr>
+  </table>
+
+  <h3>Indexación RAG</h3>
+  <div class="code-block"><pre><span class="cm"># Indexar archivos de un proyecto en ChromaDB</span>
+<span class="cmd">ai-orchestrator</span> index-docs mi-proyecto
+
+<span class="cm"># También disponible desde el Inspector del dashboard</span></pre></div>
+
+  <div class="callout">
+    <strong>Sin costo de IA:</strong> La indexación usa embeddings locales de ChromaDB (<code>all-MiniLM-L6-v2</code>), no llama a ningún proveedor externo. El único costo ocurre al <em>recuperar</em> contexto durante un run.
+  </div>
+
+  <h3>Historial</h3>
+  <div class="code-block"><pre><span class="cm"># Últimos 20 runs con costo</span>
+<span class="cmd">ai-orchestrator</span> history
+
+<span class="cm"># Filtrar por proyecto</span>
+<span class="cmd">ai-orchestrator</span> history <span class="flag">--project</span> mi-proyecto <span class="flag">--last</span> 50</pre></div>
+
+  <h3>Contextos y pasos</h3>
+  <div class="code-block"><pre><span class="cm"># Crear un contexto de trabajo</span>
+<span class="cmd">ai-orchestrator</span> create-context mi-proyecto <span class="str">"Implementar autenticación JWT"</span>
+
+<span class="cm"># Ver contextos activos</span>
+<span class="cmd">ai-orchestrator</span> list-contexts mi-proyecto</pre></div>
+
+  <h3>Sync de sesiones Claude Code</h3>
+  <div class="code-block"><pre><span class="cm"># Importar sesiones nuevas al historial</span>
+<span class="cmd">ai-orchestrator</span> sync-cc
+
+<span class="cm"># Silencioso (para uso en hooks)</span>
+<span class="cmd">ai-orchestrator</span> sync-cc <span class="flag">--quiet</span></pre></div>
+
+  <div class="callout">
+    <strong>Integración automática:</strong> Agregar en <code>~/.claude/settings.json</code> bajo <code>hooks.Stop</code> para sincronizar automáticamente al cerrar cada sesión de Claude Code.
+  </div>
+
+  <h3>Barra de actividad</h3>
+  <p>La barra fijada al fondo del dashboard muestra <em>spans</em> en tiempo real. Cada operación emite un evento cuando inicia (<code>running</code>) y cuando termina (<code>done/error + ms</code>). Spans disponibles:</p>
+  <table>
+    <tr><th>Span</th><th>Qué mide</th></tr>
+    <tr><td>Router</td><td>Tiempo de decisión del router (llamada a DeepSeek Flash)</td></tr>
+    <tr><td>RAG retrieval</td><td>Búsqueda semántica en ChromaDB</td></tr>
+    <tr><td>{provider} · API</td><td>Llamada HTTP al proveedor (Claude / OpenAI / DeepSeek)</td></tr>
+    <tr><td>Indexar respuesta</td><td>Guardado de la respuesta en ChromaDB</td></tr>
+    <tr><td>Inspector · SQLite</td><td>Lectura de tablas para el panel Inspector</td></tr>
+    <tr><td>Inspector · ChromaDB</td><td>Consulta de colecciones para el panel Inspector</td></tr>
+    <tr><td>index-docs · {proyecto}</td><td>Indexación completa de un proyecto</td></tr>
+  </table>
+</section>
+
+<!-- ── CONFIGURACIÓN ── -->
+<section id="configuracion">
+  <div class="sec-label">Configuración</div>
+  <h2>Archivos de configuración</h2>
+
+  <h3>~/.ai-orchestrator/config.yaml</h3>
+  <p>Credenciales, modelos y presupuestos. Nunca se versiona.</p>
+  <div class="code-block"><pre><span class="kw">providers</span>:
+  <span class="kw">claude</span>:
+    api_key: <span class="str">"sk-ant-..."</span>
+    model: <span class="str">"claude-sonnet-4-6"</span>
+  <span class="kw">openai</span>:
+    api_key: <span class="str">"sk-..."</span>
+    model: <span class="str">"gpt-4o"</span>
+  <span class="kw">deepseek</span>:
+    api_key: <span class="str">"sk-..."</span>
+    model: <span class="str">"deepseek-v4-flash"</span>
+
+<span class="kw">router</span>:
+  provider: <span class="str">"deepseek"</span>
+  fallback_provider: <span class="str">"claude"</span>
+
+<span class="kw">pricing</span>:
+  claude-sonnet-4-6:
+    input: <span class="str">3.00</span>   <span class="cm"># USD / 1M tokens</span>
+    output: <span class="str">15.00</span>
+
+<span class="kw">budgets</span>:
+  default_daily_budget_usd: <span class="str">5.00</span>
+  warning_threshold: <span class="str">0.80</span>  <span class="cm"># alerta al 80%</span></pre></div>
+
+  <h3>.orchestrator/context.yaml</h3>
+  <p>Por proyecto. Se versiona junto al código del proyecto.</p>
+  <div class="code-block"><pre><span class="kw">name</span>: mi-proyecto
+<span class="kw">stack</span>: <span class="str">PHP/Laravel</span>
+<span class="kw">description</span>: <span class="str">Aplicación web con autenticación y roles</span>
+<span class="kw">conventions</span>:
+  - <span class="str">Form Requests para validación</span>
+  - <span class="str">PSR-12</span>
+
+<span class="kw">preferred_models</span>:
+  default: claude
+  notes: <span class="str">>
+    Autenticación y permisos van siempre a Claude.
+    Tests y seeders pueden ir a DeepSeek.
+    Refactors frontend van bien con OpenAI.</span>
+
+<span class="kw">keyword_hints</span>:
+  - match: <span class="str">"seguridad"</span>
+    provider: claude
+    weight: 3
+  - match: <span class="str">"test"</span>
+    provider: deepseek
+    weight: 2</pre></div>
+
+  <table>
+    <tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr>
+    <tr><td>name</td><td>string</td><td>Nombre legible del proyecto.</td></tr>
+    <tr><td>stack</td><td>string</td><td>Stack tecnológico (ej. "PHP/Laravel", "Python/FastAPI").</td></tr>
+    <tr><td>conventions</td><td>list</td><td>Convenciones de código que el router incluye en el contexto.</td></tr>
+    <tr><td>preferred_models.notes</td><td>string</td><td>Texto libre con reglas de ruteo. Lo lee el router LLM directamente.</td></tr>
+    <tr><td>keyword_hints</td><td>list</td><td>Señales calculadas en Python antes de llamar al router. No deciden solos — son contexto adicional.</td></tr>
+  </table>
+
+  <div class="callout callout-warn">
+    <strong>Seguridad:</strong> <code>config.yaml</code>, <code>index.yaml</code>, <code>*.db</code> y el directorio <code>chroma/</code> están en <code>.gitignore</code> y nunca deben subirse a un repositorio.
+  </div>
+
+  <h3>Instalación</h3>
+  <div class="code-block"><pre><span class="cm"># Clonar e instalar</span>
+<span class="cmd">cd</span> C:\Fuentes\ai-orchestrator
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .
+
+<span class="cm"># Configuración inicial</span>
+<span class="cmd">cp</span> config.example.yaml %USERPROFILE%\.ai-orchestrator\config.yaml
+
+<span class="cm"># Búsqueda vectorial (opcional, recomendada)</span>
+pip install chromadb</pre></div>
+</section>
+
+</div><!-- /page -->
+
+<footer>
+  ai-orchestrator — MIT License — <a href="/">Dashboard</a>
+</footer>
+
+</body>
+</html>

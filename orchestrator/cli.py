@@ -468,6 +468,20 @@ def serve(
                 self._file(target)
                 return
 
+            if path == "/docs":
+                docs_html = self._DOCS_IMG.parent / "index.html"
+                try:
+                    body = docs_html.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                except (FileNotFoundError, OSError):
+                    self.send_response(404)
+                    self.end_headers()
+                return
+
             if path == "/events":
                 self._handle_sse()
                 return
