@@ -243,6 +243,20 @@ def read_contexts_with_steps(project: Optional[str] = None) -> list[dict]:
     return result
 
 
+def read_tool_calls_for_step(step_id: int) -> list[sqlite3.Row]:
+    return _conn().execute(
+        "SELECT * FROM tool_calls WHERE step_id=? ORDER BY ts",
+        (step_id,),
+    ).fetchall()
+
+
+def read_alignments_for_step(step_id: int) -> list[sqlite3.Row]:
+    return _conn().execute(
+        "SELECT * FROM alignments WHERE step_id=? ORDER BY ts",
+        (step_id,),
+    ).fetchall()
+
+
 def insert_context(project: str, title: str, description: str = "", metadata: str = "{}") -> int:
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
