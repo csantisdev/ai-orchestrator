@@ -396,9 +396,17 @@ def serve(
         def log_message(self, fmt, *args):
             pass
 
+        def handle_error(self, request, client_address):
+            pass
+
         def do_GET(self):
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
+
+            if path in ("/favicon.ico", "/robots.txt"):
+                self.send_response(204)
+                self.end_headers()
+                return
 
             if path == "/events":
                 self._handle_sse()
@@ -431,11 +439,14 @@ def serve(
             contexts = read_contexts_with_steps(project=sel_project or None)
             html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects, contexts=contexts)
             body = html.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, OSError):
+                pass
 
         def do_POST(self):
             if self.path != "/run":
@@ -488,12 +499,15 @@ def serve(
 
         def _json(self, data: dict, status: int = 200) -> None:
             body = json_mod.dumps(data, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, OSError):
+                pass
 
     class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         daemon_threads = True
