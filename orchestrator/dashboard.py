@@ -842,8 +842,16 @@ function loadInspector() {{
   el.innerHTML = '<p style="color:#71717a;font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
   fetch("/inspect")
     .then(r => r.json())
-    .then(renderInspector)
-    .catch(() => {{ el.innerHTML = '<p style="color:#f87171;font-size:13px">Error al cargar /inspect.</p>'; }});
+    .then(data => {{
+      if (data.error) {{
+        el.innerHTML = `<p style="color:#f87171;font-size:13px">Error del servidor: ${{escHtml(data.error)}}</p>`;
+        return;
+      }}
+      renderInspector(data);
+    }})
+    .catch(err => {{
+      el.innerHTML = `<p style="color:#f87171;font-size:13px">Error de conexión: ${{escHtml(String(err))}}</p>`;
+    }});
 }}
 
 function reloadInspector() {{
