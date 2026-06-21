@@ -761,6 +761,31 @@ function reloadInspector() {{
     .catch(() => {{ el.innerHTML = '<p style="color:#f87171;font-size:13px">Error al recargar.</p>'; }});
 }}
 
+function registerProject(alias) {{
+  const input  = document.getElementById("reg-path-" + alias);
+  const status = document.getElementById("reg-status-" + alias);
+  const path = input ? input.value.trim() : "";
+  if (!path) {{ status.textContent = "Ingresá la ruta."; return; }}
+  status.innerHTML = '<span class="spinner"></span>';
+  fetch("/add-project", {{
+    method: "POST",
+    headers: {{"Content-Type": "application/json"}},
+    body: JSON.stringify({{alias, path}}),
+  }})
+  .then(r => r.json())
+  .then(d => {{
+    if (d.error) {{ status.textContent = "✗ " + d.error; status.style.color = "#f87171"; }}
+    else {{
+      status.textContent = "✓ registrado";
+      status.style.color = "#22c55e";
+      const row = document.getElementById("reg-row-" + alias);
+      if (row) row.style.opacity = "0.4";
+      setTimeout(reloadInspector, 900);
+    }}
+  }})
+  .catch(() => {{ status.textContent = "✗ Error de conexión."; status.style.color = "#f87171"; }});
+}}
+
 function indexDocs() {{
   const sel = document.getElementById("insp-project-sel");
   const status = document.getElementById("insp-action-status");
@@ -826,6 +851,22 @@ function renderInspector(data) {{
     </div>`;
   }});
   html += `</div></div></div>`;
+
+  const unregistered = allProjects.filter(p => !registered.has(p));
+  if (unregistered.length > 0) {{
+    const regRows = unregistered.map(p => `
+      <div style="display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #18181b" id="reg-row-${{escHtml(p)}}">
+        <span style="font-size:12px;color:#f8fafc;min-width:170px;font-family:'JetBrains Mono',monospace;flex-shrink:0">${{escHtml(p)}}</span>
+        <input type="text" id="reg-path-${{escHtml(p)}}" placeholder="Ruta absoluta al directorio del proyecto" style="flex:1;min-width:0">
+        <button class="btn btn-secondary" style="white-space:nowrap;flex-shrink:0" onclick="registerProject('${{escHtml(p)}}')">Registrar</button>
+        <span id="reg-status-${{escHtml(p)}}" style="font-size:12px;min-width:90px;flex-shrink:0"></span>
+      </div>`).join("");
+    html += `<div class="panel" style="margin-bottom:16px">
+      <h2>Proyectos sin ruta registrada</h2>
+      <p style="font-size:12px;color:#71717a;margin-bottom:10px">Ingresá la ruta local para habilitarlos en el router y en el indexador RAG.</p>
+      ${{regRows}}
+    </div>`;
+  }}
 
   function mkTable(title, rows, cols) {{
     const n = (rows||[]).length;
