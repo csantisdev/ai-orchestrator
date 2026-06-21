@@ -518,6 +518,26 @@ def serve(
                 pass
 
         def do_POST(self):
+            if self.path == "/add-project":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json_mod.loads(self.rfile.read(length))
+                    alias = body.get("alias", "").strip()
+                    path = body.get("path", "").strip()
+                    if not alias or not path:
+                        self._json({"error": "alias y path son requeridos"}, 400)
+                        return
+                    from pathlib import Path as _Path
+                    project_path = _Path(path).expanduser().resolve()
+                    if not project_path.exists():
+                        self._json({"error": f"Ruta no existe: {path}"}, 400)
+                        return
+                    index_module.add_project(alias, str(project_path))
+                    self._json({"ok": True, "alias": alias, "path": str(project_path)})
+                except Exception as exc:
+                    self._json({"error": str(exc)}, 500)
+                return
+
             if self.path == "/index-docs":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
