@@ -486,6 +486,46 @@ def serve(
                 self._handle_sse()
                 return
 
+            if path == "/pick-folder":
+                try:
+                    import sys as _sys
+                    import subprocess as _sp
+                    folder = None
+                    if _sys.platform == "win32":
+                        _ps = (
+                            "Add-Type -AssemblyName System.Windows.Forms;"
+                            "[System.Windows.Forms.Application]::EnableVisualStyles();"
+                            "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
+                            "$d.Description = 'Seleccionar carpeta del proyecto';"
+                            "$d.RootFolder = [System.Environment+SpecialFolder]::MyComputer;"
+                            "$d.ShowNewFolderButton = $false;"
+                            "$h = New-Object System.Windows.Forms.Form;"
+                            "$h.TopMost = $true; $h.Opacity = 0; $h.Show();"
+                            "if ($d.ShowDialog($h) -eq 'OK') { Write-Output $d.SelectedPath };"
+                            "$h.Close()"
+                        )
+                        _r = _sp.run(
+                            ["powershell", "-NonInteractive", "-Command", _ps],
+                            capture_output=True, text=True, timeout=120,
+                            creationflags=0x08000000,
+                        )
+                        folder = _r.stdout.strip() or None
+                    else:
+                        import tkinter as _tk
+                        from tkinter import filedialog as _fd
+                        _root = _tk.Tk()
+                        _root.withdraw()
+                        _root.wm_attributes("-topmost", True)
+                        folder = _fd.askdirectory(
+                            parent=_root,
+                            title="Seleccionar carpeta del proyecto",
+                        ) or None
+                        _root.destroy()
+                    self._json({"path": folder})
+                except Exception as exc:
+                    self._json({"path": None, "error": str(exc)}, 500)
+                return
+
             if path == "/inspect":
                 try:
                     from orchestrator.db import read_inspector_data
