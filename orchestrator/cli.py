@@ -297,6 +297,52 @@ def sync_cc(
     console.print(table)
 
 
+@app.command(name="create-context")
+def create_context_cmd(
+    project: str = typer.Option(..., "--project", "-p", help="Alias del proyecto."),
+    title: str = typer.Option(..., "--title", "-t", help="Objetivo del contexto."),
+    description: str = typer.Option("", "--description", "-d", help="Descripción extendida."),
+    step: Optional[list[str]] = typer.Option(None, "--step", "-s", help="'Título:provider' — repetible. Ej: 'Diseñar schema:claude'"),
+):
+    """Crea un contexto de trabajo con pasos en la base de datos."""
+    _ensure_db()
+    from orchestrator.db import insert_context, insert_step
+    ctx_id = insert_context(project, title, description)
+    console.print(f"[green]✓[/green] Contexto [bold]#{ctx_id}[/bold] creado → {title}")
+    for i, s in enumerate(step or [], 1):
+        parts = s.split(":", 1)
+        step_title = parts[0].strip()
+        provider = parts[1].strip() if len(parts) > 1 else ""
+        sid = insert_step(ctx_id, i, step_title, provider=provider)
+        badge = f" [{provider}]" if provider else ""
+        console.print(f"  [cyan]paso {i}[/cyan]{badge} — {step_title} [dim](#{sid})[/dim]")
+    if not step:
+        console.print("  [yellow]sin pasos[/yellow] — añadí con --step 'Título:provider'")
+
+
+@app.command(name="list-contexts")
+def list_contexts_cmd(
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Filtrar por proyecto."),
+):
+    """Lista contextos de trabajo y sus pasos."""
+    _ensure_db()
+    from orchestrator.db import read_contexts_with_steps
+    contexts = read_contexts_with_steps(project=project)
+    if not contexts:
+        msg = f"No hay contextos para '{project}'." if project else "No hay contextos registrados."
+        console.print(f"[yellow]{msg}[/yellow]")
+        return
+    for ctx in contexts:
+        sc = "green" if ctx["status"] == "active" else "dim"
+        console.print(f"\n[bold]#{ctx['id']}[/bold] [{sc}]{ctx['status']}[/{sc}]  [cyan]{ctx['project']}[/cyan] — {ctx['title']}")
+        if ctx.get("description"):
+            console.print(f"  [dim]{ctx['description']}[/dim]")
+        for s in ctx.get("steps", []):
+            sc2 = {"pending": "dim", "in_progress": "yellow", "completed": "green"}.get(s["status"], "dim")
+            badge = f" [{s['provider']}]" if s.get("provider") else ""
+            console.print(f"  [{sc2}]{s['order_idx']}.[/{sc2}]{badge} {s['title']} — [{sc2}]{s['status']}[/{sc2}]")
+
+
 @app.command(name="index-docs")
 def index_docs(
     project: str = typer.Option(..., "--project", "-p", help="Alias del proyecto a indexar."),
