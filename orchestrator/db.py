@@ -257,6 +257,48 @@ def read_alignments_for_step(step_id: int) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def read_inspector_data() -> dict:
+    conn = _conn()
+
+    def _rows(sql: str) -> list[dict]:
+        try:
+            return [dict(r) for r in conn.execute(sql).fetchall()]
+        except Exception:
+            return []
+
+    return {
+        "counts": {
+            "runs":        conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0],
+            "contexts":    conn.execute("SELECT COUNT(*) FROM contexts").fetchone()[0],
+            "steps":       conn.execute("SELECT COUNT(*) FROM steps").fetchone()[0],
+            "chunks":      conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
+            "alignments":  conn.execute("SELECT COUNT(*) FROM alignments").fetchone()[0],
+            "tool_calls":  conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0],
+        },
+        "chunks": _rows(
+            "SELECT * FROM chunks ORDER BY ts DESC LIMIT 300"
+        ),
+        "contexts": _rows(
+            "SELECT * FROM contexts ORDER BY ts DESC LIMIT 100"
+        ),
+        "steps": _rows(
+            """SELECT s.*, c.title AS context_title, c.project
+               FROM steps s JOIN contexts c ON s.context_id = c.id
+               ORDER BY s.context_id, s.order_idx LIMIT 300"""
+        ),
+        "alignments": _rows(
+            """SELECT a.*, s.title AS step_title
+               FROM alignments a JOIN steps s ON a.step_id = s.id
+               ORDER BY a.ts DESC LIMIT 200"""
+        ),
+        "tool_calls": _rows(
+            """SELECT tc.*, s.title AS step_title
+               FROM tool_calls tc JOIN steps s ON tc.step_id = s.id
+               ORDER BY tc.ts DESC LIMIT 200"""
+        ),
+    }
+
+
 def insert_context(project: str, title: str, description: str = "", metadata: str = "{}") -> int:
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()

@@ -412,6 +412,14 @@ def serve(
                 self._handle_sse()
                 return
 
+            if path == "/inspect":
+                from orchestrator.db import read_inspector_data
+                from orchestrator.rag import chroma_stats
+                payload = read_inspector_data()
+                payload["chroma"] = chroma_stats()
+                self._json(payload)
+                return
+
             if path.startswith("/run/"):
                 run_id_str = path.split("/run/", 1)[-1].rstrip("/")
                 try:

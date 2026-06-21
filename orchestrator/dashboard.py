@@ -395,6 +395,18 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     .spinner{{display:inline-block;width:14px;height:14px;border:2px solid #27272a;border-top-color:#22c55e;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}}
     @keyframes spin{{to{{transform:rotate(360deg)}}}}
     #toast{{position:fixed;bottom:20px;right:20px;background:#18181b;color:#f8fafc;border:1px solid #27272a;padding:10px 18px;border-radius:10px;font-size:13px;display:none;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.5)}}
+    .tabnav{{background:#111827;border-bottom:1px solid #27272a}}
+    .tabnav-inner{{max-width:1500px;margin:0 auto;padding:0 16px;display:flex;gap:2px}}
+    .tab-btn{{background:none;border:none;border-bottom:2px solid transparent;color:#71717a;font-size:13px;font-weight:500;padding:12px 14px;cursor:pointer;font-family:inherit;transition:color .15s,border-color .15s}}
+    .tab-btn:hover{{color:#f8fafc}}
+    .tab-active{{color:#f8fafc;border-bottom-color:#22c55e}}
+    .insp-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}}
+    .insp-stat{{background:#18181b;border:1px solid #27272a;border-radius:12px;padding:14px}}
+    .insp-stat .col-name{{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#71717a;margin-bottom:8px;font-weight:600}}
+    .insp-stat .col-count{{font-size:26px;font-weight:700;color:#f8fafc;line-height:1}}
+    .insp-stat .col-sub{{font-size:11px;color:#52525b;margin-top:4px}}
+    .insp-stat .col-projects{{margin-top:10px;border-top:1px solid #27272a;padding-top:8px}}
+    .insp-stat .col-proj-row{{display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid #1f1f23}}
   </style>
 </head>
 <body>
@@ -411,6 +423,14 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   </div>
 </div>
 
+<div class="tabnav">
+  <div class="tabnav-inner">
+    <button class="tab-btn tab-active" id="tab-btn-main" onclick="switchTab('main')">Dashboard</button>
+    <button class="tab-btn" id="tab-btn-inspector" onclick="switchTab('inspector')">Inspector</button>
+  </div>
+</div>
+
+<div id="tab-main">
 <div class="container">
 
   <div class="sender-panel" id="senderPanel">
@@ -479,6 +499,15 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     {'<table id="runs-table"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body">' + rows + '</tbody></table>' if rows else '<table id="runs-table" style="display:none"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body"></tbody></table><p class="empty" id="empty-msg">No hay runs aún. Usá el botón <strong>+ Nueva tarea</strong> para enviar una.</p>'}
   </div>
 
+</div>
+</div>
+
+<div id="tab-inspector" style="display:none">
+<div class="container">
+  <div id="inspector-content" style="padding-top:4px">
+    <p style="color:#71717a;font-size:13px">Haz clic en la pestaña para cargar.</p>
+  </div>
+</div>
 </div>
 
 <div class="detail-overlay" id="detailOverlay" onclick="closeDetail(event)">
@@ -699,6 +728,117 @@ function showToast(msg, isError) {{
 function escHtml(s) {{
   if (s == null) return "";
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}}
+
+let _inspectorLoaded = false;
+function switchTab(name) {{
+  document.getElementById("tab-main").style.display      = name === "main"      ? "" : "none";
+  document.getElementById("tab-inspector").style.display = name === "inspector" ? "" : "none";
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
+  document.getElementById("tab-btn-" + name).classList.add("tab-active");
+  if (name === "inspector" && !_inspectorLoaded) {{
+    _inspectorLoaded = true;
+    loadInspector();
+  }}
+}}
+
+function loadInspector() {{
+  const el = document.getElementById("inspector-content");
+  el.innerHTML = '<p style="color:#71717a;font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
+  fetch("/inspect")
+    .then(r => r.json())
+    .then(renderInspector)
+    .catch(() => {{ el.innerHTML = '<p style="color:#f87171;font-size:13px">Error al cargar /inspect.</p>'; }});
+}}
+
+function renderInspector(data) {{
+  const el = document.getElementById("inspector-content");
+  const chroma = data.chroma || {{}};
+  const COLS = ["runs","docs","responses"];
+  const colLabels = {{runs:"Routing memory",docs:"Docs (RAG)",responses:"Respuestas"}};
+  let html = `<div class="panel" style="margin-bottom:20px">
+    <h2>ChromaDB — Colecciones vectoriales</h2>
+    <div class="insp-grid">`;
+  COLS.forEach(col => {{
+    const c = chroma[col] || {{}};
+    const bp = c.by_project || {{}};
+    const bpRows = Object.entries(bp).map(([p,n]) =>
+      `<div class="col-proj-row"><span style="color:#a1a1aa">${{escHtml(p)}}</span><span style="color:#22c55e;font-weight:600">${{n}}</span></div>`
+    ).join("");
+    html += `<div class="insp-stat">
+      <div class="col-name">${{colLabels[col] || col}}</div>
+      <div class="col-count">${{c.count ?? "—"}}</div>
+      <div class="col-sub">documentos indexados</div>
+      ${{bpRows ? '<div class="col-projects">' + bpRows + '</div>' : ""}}
+    </div>`;
+  }});
+  html += `</div></div>`;
+
+  function mkTable(title, rows, cols) {{
+    const n = (rows||[]).length;
+    if (!n) return `<div class="panel" style="margin-bottom:16px"><h2>${{title}} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">(0)</span></h2><p style="color:#52525b;font-size:13px">Sin registros.</p></div>`;
+    const ths = cols.map(c => `<th style="text-align:left;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px">${{c.label}}</th>`).join("");
+    const trs = rows.map(r => `<tr style="border-bottom:1px solid #18181b">${{
+      cols.map(c => {{
+        const val = r[c.key] ?? "—";
+        const sval = String(val);
+        const display = c.max && sval.length > c.max ? sval.slice(0, c.max) + "…" : sval;
+        return `<td style="padding:7px 10px;font-size:12px;color:${{c.color||"#a1a1aa"}};${{c.mono?"font-family:'JetBrains Mono',monospace":""}}">
+          ${{escHtml(display)}}
+        </td>`;
+      }}).join("")
+    }}</tr>`).join("");
+    return `<div class="panel" style="margin-bottom:16px;overflow-x:auto">
+      <h2>${{title}} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">${{n}} filas</span></h2>
+      <table><thead><tr style="background:#0c0c0e;border-bottom:1px solid #27272a">${{ths}}</tr></thead><tbody>${{trs}}</tbody></table>
+    </div>`;
+  }}
+
+  html += mkTable("Chunks indexados (RAG)", data.chunks, [
+    {{label:"Proyecto",    key:"project",    color:"#f8fafc"}},
+    {{label:"Archivo",     key:"source_path",color:"#a1a1aa",mono:true,max:60}},
+    {{label:"Chunks",      key:"chunk_count",color:"#22c55e"}},
+    {{label:"Colección",   key:"collection", color:"#71717a"}},
+    {{label:"Indexado",    key:"ts",         color:"#52525b",mono:true,max:19}},
+  ]);
+
+  html += mkTable("Contextos", data.contexts, [
+    {{label:"ID",      key:"id",          color:"#52525b",mono:true}},
+    {{label:"Proyecto",key:"project",     color:"#f8fafc"}},
+    {{label:"Título",  key:"title",       color:"#d1d5db",max:50}},
+    {{label:"Estado",  key:"status",      color:"#22c55e"}},
+    {{label:"Creado",  key:"ts",          color:"#52525b",mono:true,max:19}},
+  ]);
+
+  html += mkTable("Pasos", data.steps, [
+    {{label:"ID",       key:"id",            color:"#52525b",mono:true}},
+    {{label:"Proyecto", key:"project",       color:"#f8fafc"}},
+    {{label:"Contexto", key:"context_title", color:"#a1a1aa",max:30}},
+    {{label:"#",        key:"order_idx",     color:"#71717a",mono:true}},
+    {{label:"Título",   key:"title",         color:"#d1d5db",max:40}},
+    {{label:"Estado",   key:"status",        color:"#38bdf8"}},
+    {{label:"Provider", key:"provider",      color:"#71717a"}},
+  ]);
+
+  html += mkTable("Alineamientos", data.alignments, [
+    {{label:"ID",         key:"id",         color:"#52525b",mono:true}},
+    {{label:"Hora",       key:"ts",         color:"#52525b",mono:true,max:19}},
+    {{label:"Paso",       key:"step_title", color:"#a1a1aa",max:35}},
+    {{label:"Agente",     key:"agent",      color:"#d1d5db"}},
+    {{label:"OK",         key:"confirmed",  color:"#22c55e"}},
+    {{label:"Checkpoint", key:"checkpoint", color:"#71717a",max:50}},
+  ]);
+
+  html += mkTable("Tool Calls", data.tool_calls, [
+    {{label:"ID",          key:"id",          color:"#52525b",mono:true}},
+    {{label:"Hora",        key:"ts",          color:"#52525b",mono:true,max:19}},
+    {{label:"Paso",        key:"step_title",  color:"#a1a1aa",max:35}},
+    {{label:"Herramienta", key:"tool_name",   color:"#f8fafc",mono:true}},
+    {{label:"Estado",      key:"status",      color:"#22c55e"}},
+    {{label:"ms",          key:"duration_ms", color:"#71717a"}},
+  ]);
+
+  el.innerHTML = html;
 }}
 </script>
 
