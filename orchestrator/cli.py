@@ -459,27 +459,27 @@ def serve(
                 return
 
             if path == "/inspect":
-                import concurrent.futures
-                from orchestrator.db import read_inspector_data
-                from orchestrator.rag import chroma_stats
-                from orchestrator.tracer import span as _span
-                with _span("Inspector · SQLite + ChromaDB"):
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-                        db_fut = ex.submit(read_inspector_data)
-                        ch_fut = ex.submit(chroma_stats)
-                        payload = db_fut.result()
-                        payload["chroma"] = ch_fut.result()
                 try:
-                    registered = set(index_module.list_projects().keys())
-                except Exception:
-                    registered = set()
-                try:
-                    from_runs = set(projects_list())
-                except Exception:
-                    from_runs = set()
-                all_known = sorted(registered | from_runs)
-                payload["registered_projects"] = sorted(registered)
-                payload["all_projects"] = all_known
+                    from orchestrator.db import read_inspector_data
+                    from orchestrator.rag import chroma_stats
+                    from orchestrator.tracer import span as _span
+                    with _span("Inspector · SQLite"):
+                        payload = read_inspector_data()
+                    with _span("Inspector · ChromaDB"):
+                        payload["chroma"] = chroma_stats()
+                    try:
+                        registered = set(index_module.list_projects().keys())
+                    except Exception:
+                        registered = set()
+                    try:
+                        from_runs = set(projects_list())
+                    except Exception:
+                        from_runs = set()
+                    payload["registered_projects"] = sorted(registered)
+                    payload["all_projects"] = sorted(registered | from_runs)
+                except Exception as exc:
+                    self._json({"error": str(exc)}, 500)
+                    return
                 self._json(payload)
                 return
 
