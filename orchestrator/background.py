@@ -64,12 +64,15 @@ def _worker(
             except Exception:
                 ctx = None
 
+        from orchestrator.tracer import span as _span
+
         if forced_model:
             decision = router_module.force_provider(forced_model)
+        elif ctx:
+            with _span("Router", run_id=run_id):
+                decision = router_module.decide_provider(task=task, ctx=ctx, config=config)
         else:
-            decision = router_module.decide_provider(
-                task=task, ctx=ctx, config=config
-            ) if ctx else router_module.force_provider(
+            decision = router_module.force_provider(
                 config.get("defaults", {}).get("default_provider", "claude")
             )
 
@@ -84,17 +87,19 @@ def _worker(
             )
             try:
                 from orchestrator.rag import retrieve_docs, retrieve_responses, build_context_block
-                rag_block = build_context_block(
-                    retrieve_docs(task, project),
-                    retrieve_responses(task, project),
-                )
+                with _span("RAG retrieval", run_id=run_id):
+                    rag_block = build_context_block(
+                        retrieve_docs(task, project),
+                        retrieve_responses(task, project),
+                    )
                 if rag_block:
                     system_prompt += "\n\n" + rag_block
             except Exception:
                 pass
 
         t0 = time.monotonic()
-        result = provider.complete(prompt=task, system=system_prompt)
+        with _span(f"{decision.provider} · API", run_id=run_id):
+            result = provider.complete(prompt=task, system=system_prompt)
         duration_ms = int((time.monotonic() - t0) * 1000)
 
         pricing = get_pricing_table(config)
@@ -110,7 +115,8 @@ def _worker(
 
         try:
             from orchestrator.rag import index_response
-            index_response(run_id, project, task, result.text)
+            with _span("Indexar respuesta", run_id=run_id):
+                index_response(run_id, project, task, result.text)
         except Exception:
             pass
 
