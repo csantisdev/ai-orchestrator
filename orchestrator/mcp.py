@@ -96,6 +96,22 @@ TOOLS = [
         },
     },
     {
+        "name": "skip_step",
+        "description": (
+            "Marca un paso como omitido (skipped) sin ejecutarlo. "
+            "Funciona sobre steps en estado pending o in_progress. "
+            "Si el step estaba in_progress, activa el siguiente pending del contexto."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["step_id"],
+            "properties": {
+                "step_id": {"type": "integer"},
+                "reason":  {"type": "string", "default": "", "description": "Motivo por el que se omite el paso."},
+            },
+        },
+    },
+    {
         "name": "create_context",
         "description": (
             "Crea un nuevo contexto de trabajo para un proyecto con pasos opcionales. "
@@ -120,6 +136,10 @@ TOOLS = [
                         },
                         "required": ["title"],
                     },
+                },
+                "parent_step_id": {
+                    "type": "integer",
+                    "description": "ID del step que originó este contexto. Permite trazar la relación entre contextos.",
                 },
             },
         },
@@ -220,13 +240,51 @@ def _tool_record_tool_call(args: dict) -> dict:
     return {"id": cur.lastrowid, "ts": ts}
 
 
+def _tool_skip_step(args: dict) -> dict:
+    from orchestrator.db import _conn, _write_lock
+    conn = _conn()
+    ts = datetime.now(timezone.utc).isoformat()
+    step_id = args["step_id"]
+    with _write_lock:
+        step = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
+        if step is None:
+            raise ValueError(f"step {step_id} not found")
+        if step["status"] not in ("pending", "in_progress"):
+            raise ValueError(f"step {step_id} is '{step['status']}' — only pending/in_progress can be skipped")
+        context_id = step["context_id"]
+        was_active = step["status"] == "in_progress"
+        conn.execute(
+            "UPDATE steps SET status='skipped', completed_at=?, notes=? WHERE id=?",
+            (ts, args.get("reason", ""), step_id),
+        )
+        next_step = None
+        if was_active:
+            next_step = conn.execute(
+                """SELECT * FROM steps
+                   WHERE context_id=? AND order_idx > ? AND status='pending'
+                   ORDER BY order_idx LIMIT 1""",
+                (context_id, step["order_idx"]),
+            ).fetchone()
+            if next_step:
+                conn.execute(
+                    "UPDATE steps SET status='in_progress', started_at=? WHERE id=?",
+                    (ts, next_step["id"]),
+                )
+        conn.commit()
+    return {
+        "skipped_step_id": step_id,
+        "was_active": was_active,
+        "next_step": dict(next_step) if next_step else None,
+    }
+
+
 def _tool_create_context(args: dict) -> dict:
     from orchestrator.db import insert_context, insert_step
     project = args.get("project", "").strip()
     title = args.get("title", "").strip()
     if not project or not title:
         raise ValueError("project y title son requeridos")
-    ctx_id = insert_context(project, title, args.get("description", ""))
+    ctx_id = insert_context(project, title, args.get("description", ""), parent_step_id=args.get("parent_step_id"))
     steps_out = []
     for i, s in enumerate(args.get("steps", []) or [], 1):
         step_title = (s.get("title", "") if isinstance(s, dict) else str(s)).strip()
@@ -234,7 +292,7 @@ def _tool_create_context(args: dict) -> dict:
         if step_title:
             sid = insert_step(ctx_id, i, step_title, provider=provider)
             steps_out.append({"id": sid, "order_idx": i, "title": step_title, "provider": provider})
-    return {"context_id": ctx_id, "project": project, "title": title, "steps": steps_out}
+    return {"context_id": ctx_id, "project": project, "title": title, "steps": steps_out, "parent_step_id": args.get("parent_step_id")}
 
 
 def _tool_add_step(args: dict) -> dict:
@@ -282,11 +340,17 @@ def _tool_advance_step(args: dict) -> dict:
                 (ts, next_step["id"]),
             )
         else:
-            conn.execute(
-                "UPDATE contexts SET status='completed', updated_at=? WHERE id=?",
-                (ts, context_id),
-            )
-            context_done = True
+            unresolved = conn.execute(
+                """SELECT COUNT(*) FROM steps
+                   WHERE context_id=? AND id!=? AND status IN ('pending','in_progress')""",
+                (context_id, step_id),
+            ).fetchone()[0]
+            if unresolved == 0:
+                conn.execute(
+                    "UPDATE contexts SET status='completed', updated_at=? WHERE id=?",
+                    (ts, context_id),
+                )
+                context_done = True
         conn.commit()
     return {
         "completed_step_id": step_id,
@@ -301,6 +365,7 @@ _HANDLERS.update({
     "confirm_alignment":  _tool_confirm_alignment,
     "record_tool_call":   _tool_record_tool_call,
     "advance_step":       _tool_advance_step,
+    "skip_step":          _tool_skip_step,
     "create_context":     _tool_create_context,
     "add_step":           _tool_add_step,
 })

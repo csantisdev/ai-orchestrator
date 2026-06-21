@@ -299,14 +299,14 @@ def read_inspector_data() -> dict:
     }
 
 
-def insert_context(project: str, title: str, description: str = "", metadata: str = "{}") -> int:
+def insert_context(project: str, title: str, description: str = "", metadata: str = "{}", parent_step_id: Optional[int] = None) -> int:
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
     with _write_lock:
         cur = conn.execute(
-            """INSERT INTO contexts (ts, updated_at, project, title, description, status, metadata)
-               VALUES (?, ?, ?, ?, ?, 'active', ?)""",
-            (ts, ts, project, title, description, metadata),
+            """INSERT INTO contexts (ts, updated_at, project, title, description, status, metadata, parent_step_id)
+               VALUES (?, ?, ?, ?, ?, 'active', ?, ?)""",
+            (ts, ts, project, title, description, metadata, parent_step_id),
         )
         conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
