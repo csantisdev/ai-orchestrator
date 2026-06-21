@@ -237,6 +237,33 @@ def _build_css() -> str:
       --text-code:#1e293b;--text-detail:#374151;
       --overlay-bg:rgba(0,0,0,.35);--shadow-panel:-4px 0 40px rgba(0,0,0,.1);
     }
+    [data-theme="midnight"]{
+      --bg-base:#0a0e1a;--bg-surface:#0f1629;--bg-elevated:#070b14;
+      --bg-input:#141d35;--bg-code:#080c18;
+      --border:#1e2d50;--border-subtle:#162040;--border-faint:#141d35;
+      --text-primary:#e2e8f0;--text-secondary:#94a3b8;
+      --text-muted:#64748b;--text-faint:#475569;
+      --text-code:#cbd5e1;--text-detail:#b0bec5;
+      --overlay-bg:rgba(0,0,0,.75);--shadow-panel:-4px 0 40px rgba(0,0,0,.7);
+    }
+    [data-theme="nord"]{
+      --bg-base:#2e3440;--bg-surface:#3b4252;--bg-elevated:#292e39;
+      --bg-input:#434c5e;--bg-code:#252a35;
+      --border:#4c566a;--border-subtle:#434c5e;--border-faint:#3b4252;
+      --text-primary:#eceff4;--text-secondary:#d8dee9;
+      --text-muted:#a8b2c0;--text-faint:#7a8698;
+      --text-code:#d8dee9;--text-detail:#c5ccd8;
+      --overlay-bg:rgba(0,0,0,.55);--shadow-panel:-4px 0 40px rgba(0,0,0,.45);
+    }
+    [data-theme="espresso"]{
+      --bg-base:#1c1410;--bg-surface:#261c14;--bg-elevated:#160f0a;
+      --bg-input:#2e2018;--bg-code:#120d08;
+      --border:#3d2e20;--border-subtle:#2d2218;--border-faint:#2e2018;
+      --text-primary:#f5e6cf;--text-secondary:#c8a880;
+      --text-muted:#8a7055;--text-faint:#6b5540;
+      --text-code:#e8d5b0;--text-detail:#d4bc95;
+      --overlay-bg:rgba(0,0,0,.7);--shadow-panel:-4px 0 40px rgba(0,0,0,.6);
+    }
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',system-ui,sans-serif;background:var(--bg-base);color:var(--text-primary);-webkit-font-smoothing:antialiased;padding-bottom:48px}
     .activity-bar{position:fixed;bottom:0;left:0;right:0;background:var(--bg-elevated);border-top:1px solid var(--border);z-index:200;font-family:'JetBrains Mono',monospace}
@@ -607,30 +634,22 @@ function showToast(msg, isError) {
   setTimeout(() => { t.style.display = "none"; }, 4000);
 }
 
-// ── Theme toggle ──────────────────────────────────────────────────────────────
-(function() {
-  const saved = localStorage.getItem("theme");
-  if (saved === "light") { document.documentElement.setAttribute("data-theme", "light"); }
-})();
-
-function toggleTheme() {
-  const isLight = document.documentElement.getAttribute("data-theme") === "light";
-  if (isLight) {
+// ── Theme selector ────────────────────────────────────────────────────────────
+function setTheme(name) {
+  if (!name || name === "dark") {
     document.documentElement.removeAttribute("data-theme");
-    localStorage.setItem("theme", "dark");
-    document.getElementById("themeToggle").textContent = "☀";
   } else {
-    document.documentElement.setAttribute("data-theme", "light");
-    localStorage.setItem("theme", "light");
-    document.getElementById("themeToggle").textContent = "☾";
+    document.documentElement.setAttribute("data-theme", name);
   }
+  localStorage.setItem("theme", name || "dark");
+  const sel = document.getElementById("themeSelect");
+  if (sel) sel.value = name || "dark";
 }
 
 (function() {
-  if (localStorage.getItem("theme") === "light") {
-    const btn = document.getElementById("themeToggle");
-    if (btn) btn.textContent = "☾";
-  }
+  const saved = localStorage.getItem("theme") || "dark";
+  const sel = document.getElementById("themeSelect");
+  if (sel) sel.value = saved;
 })();
 
 function escHtml(s) {
@@ -1063,7 +1082,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orchestrator Dashboard</title>
-  <script>try{{if(localStorage.getItem("theme")==="light")document.documentElement.setAttribute("data-theme","light")}}catch(e){{}}</script>
+  <script>try{{const _t=localStorage.getItem("theme");if(_t&&_t!=="dark")document.documentElement.setAttribute("data-theme",_t)}}catch(e){{}}</script>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicons/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicons/favicon-16x16.png">
@@ -1084,7 +1103,13 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <button class="btn btn-secondary" onclick="toggleSender()">+ Nueva tarea</button>
     <button class="btn btn-secondary" onclick="toggleContextForm()">+ Nuevo contexto</button>
     <a href="/docs" class="theme-btn" style="text-decoration:none">Docs</a>
-    <button class="theme-btn" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema">☀</button>
+    <select id="themeSelect" class="theme-btn" onchange="setTheme(this.value)" title="Cambiar tema">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="midnight">Midnight</option>
+      <option value="nord">Nord</option>
+      <option value="espresso">Espresso</option>
+    </select>
     <span class="meta">{now}</span>
   </div>
 </div>
