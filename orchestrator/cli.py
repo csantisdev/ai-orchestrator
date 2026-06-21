@@ -468,9 +468,16 @@ def serve(
                     payload = db_fut.result()
                     payload["chroma"] = ch_fut.result()
                 try:
-                    payload["registered_projects"] = sorted(index_module.list_projects().keys())
+                    registered = set(index_module.list_projects().keys())
                 except Exception:
-                    payload["registered_projects"] = []
+                    registered = set()
+                try:
+                    from_runs = set(projects_list())
+                except Exception:
+                    from_runs = set()
+                all_known = sorted(registered | from_runs)
+                payload["registered_projects"] = sorted(registered)
+                payload["all_projects"] = all_known
                 self._json(payload)
                 return
 

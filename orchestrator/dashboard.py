@@ -791,8 +791,13 @@ function renderInspector(data) {{
   const chroma = data.chroma || {{}};
   const COLS = ["runs","docs","responses"];
   const colLabels = {{runs:"Routing memory",docs:"Docs (RAG)",responses:"Respuestas"}};
-  const projects = data.registered_projects || [];
-  const projOpts = projects.map(p => `<option value="${{escHtml(p)}}">${{escHtml(p)}}</option>`).join("");
+  const registered = new Set(data.registered_projects || []);
+  const allProjects = data.all_projects || [];
+  const projOpts = allProjects.map(p => {{
+    const indexable = registered.has(p);
+    const label = indexable ? p : p + " (sin ruta)";
+    return `<option value="${{escHtml(p)}}" ${{indexable ? "" : 'style="color:#71717a"'}}>${{escHtml(label)}}</option>`;
+  }}).join("");
   let html = `<div class="panel" style="margin-bottom:16px">
     <h2>Acciones</h2>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
