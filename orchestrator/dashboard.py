@@ -344,7 +344,27 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
-    body{{font-family:'Inter',system-ui,sans-serif;background:#09090b;color:#f8fafc;-webkit-font-smoothing:antialiased}}
+    body{{font-family:'Inter',system-ui,sans-serif;background:#09090b;color:#f8fafc;-webkit-font-smoothing:antialiased;padding-bottom:48px}}
+    .activity-bar{{position:fixed;bottom:0;left:0;right:0;background:#0c0c0e;border-top:1px solid #27272a;z-index:200;font-family:'JetBrains Mono',monospace}}
+    .activity-hdr{{display:flex;align-items:center;gap:10px;padding:0 16px;height:40px;cursor:pointer;user-select:none;transition:background .1s}}
+    .activity-hdr:hover{{background:#111827}}
+    .act-dot{{width:7px;height:7px;border-radius:50%;background:#27272a;flex-shrink:0;transition:background .2s}}
+    .act-dot.live{{background:#22c55e}}
+    .act-dot.pulse{{animation:_adot .6s ease-in-out 3}}
+    @keyframes _adot{{0%,100%{{opacity:1}}50%{{opacity:.2}}}}
+    .act-title{{font-size:10px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:.7px;flex-shrink:0}}
+    .act-summary{{font-size:11px;color:#52525b;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}}
+    .act-toggle{{font-size:10px;color:#52525b;flex-shrink:0}}
+    #activity-log{{max-height:200px;overflow-y:auto;border-top:1px solid #18181b}}
+    .tr-row{{display:grid;grid-template-columns:80px 44px 14px 1fr 64px;gap:8px;padding:4px 16px;align-items:center;font-size:11px;border-bottom:1px solid #0f0f11}}
+    .tr-ts{{color:#3f3f46;font-variant-numeric:tabular-nums}}
+    .tr-run{{color:#52525b;text-align:right}}
+    .tr-icon{{text-align:center;font-size:12px}}
+    .tr-name{{color:#71717a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+    .tr-dur{{color:#52525b;text-align:right;font-variant-numeric:tabular-nums}}
+    .tr-running .tr-icon{{color:#f59e0b}}.tr-running .tr-name{{color:#f8fafc}}
+    .tr-done .tr-icon{{color:#22c55e}}
+    .tr-error .tr-icon{{color:#f87171}}.tr-error .tr-name{{color:#f87171}}
     .header{{background:#111827;border-bottom:1px solid #27272a;color:#f8fafc;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}}
     .header h1{{font-size:16px;font-weight:700;letter-spacing:-.4px;color:#f8fafc}}
     .header .meta{{font-size:11px;color:#71717a}}
@@ -520,6 +540,16 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 </div>
 
 <div id="toast"></div>
+
+<div class="activity-bar">
+  <div class="activity-hdr" onclick="toggleActivity()">
+    <span class="act-dot" id="act-dot"></span>
+    <span class="act-title">Actividad</span>
+    <span class="act-summary" id="act-summary">sin eventos</span>
+    <span class="act-toggle" id="act-toggle">▼</span>
+  </div>
+  <div id="activity-log" style="display:none"></div>
+</div>
 
 <script>
 const evtSource = new EventSource("/events");
@@ -729,6 +759,70 @@ function showToast(msg, isError) {{
 function escHtml(s) {{
   if (s == null) return "";
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}}
+
+// ── Activity bar ─────────────────────────────────────────────────────────────
+let _actOpen = false;
+const _traceMap = {{}};
+
+evtSource.addEventListener("trace", e => _handleTrace(JSON.parse(e.data)));
+
+function toggleActivity() {{
+  _actOpen = !_actOpen;
+  document.getElementById("activity-log").style.display = _actOpen ? "block" : "none";
+  document.getElementById("act-toggle").textContent  = _actOpen ? "▲" : "▼";
+}}
+
+function _traceKey(d) {{
+  return ("tr_" + d.name + (d.run_id != null ? "_" + d.run_id : "")).replace(/[^a-z0-9_]/gi, "_");
+}}
+
+function _fmtTs(iso) {{
+  try {{ return new Date(iso).toLocaleTimeString("es", {{hour12:false, fractionalSecondDigits:2}}); }}
+  catch {{ return iso.slice(11, 22); }}
+}}
+
+function _handleTrace(d) {{
+  const key  = _traceKey(d);
+  const log  = document.getElementById("activity-log");
+  const dot  = document.getElementById("act-dot");
+  const runLabel = d.run_id != null ? "#" + d.run_id : "";
+  const detLabel = d.detail ? " · " + escHtml(d.detail) : "";
+
+  if (d.status === "running") {{
+    const row = document.createElement("div");
+    row.id = key;
+    row.className = "tr-row tr-running";
+    row.innerHTML =
+      `<span class="tr-ts">${{_fmtTs(d.ts)}}</span>` +
+      `<span class="tr-run">${{escHtml(runLabel)}}</span>` +
+      `<span class="tr-icon">▶</span>` +
+      `<span class="tr-name">${{escHtml(d.name)}}${{detLabel}}</span>` +
+      `<span class="tr-dur"></span>`;
+    _traceMap[key] = row;
+    log.insertBefore(row, log.firstChild);
+    while (log.children.length > 80) log.removeChild(log.lastChild);
+    if (!_actOpen) {{ _actOpen = true; log.style.display = "block"; document.getElementById("act-toggle").textContent = "▲"; }}
+  }} else {{
+    const icon = d.status === "done" ? "✓" : "✗";
+    const dur  = d.duration_ms != null ? d.duration_ms + "ms" : "";
+    const cls  = "tr-row tr-" + d.status;
+    const existing = _traceMap[key] || document.getElementById(key);
+    if (existing) {{
+      existing.className = cls;
+      existing.querySelector(".tr-icon").textContent = icon;
+      existing.querySelector(".tr-dur").textContent  = dur;
+      delete _traceMap[key];
+    }}
+  }}
+
+  const icon2 = d.status === "done" ? "✓" : d.status === "error" ? "✗" : "▶";
+  const dur2  = d.duration_ms ? " " + d.duration_ms + "ms" : "";
+  document.getElementById("act-summary").textContent = icon2 + " " + d.name + (runLabel ? " " + runLabel : "") + dur2;
+  dot.classList.add("live");
+  dot.classList.remove("pulse");
+  void dot.offsetWidth;
+  dot.classList.add("pulse");
 }}
 
 let _inspectorLoaded = false;

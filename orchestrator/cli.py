@@ -462,11 +462,13 @@ def serve(
                 import concurrent.futures
                 from orchestrator.db import read_inspector_data
                 from orchestrator.rag import chroma_stats
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-                    db_fut = ex.submit(read_inspector_data)
-                    ch_fut = ex.submit(chroma_stats)
-                    payload = db_fut.result()
-                    payload["chroma"] = ch_fut.result()
+                from orchestrator.tracer import span as _span
+                with _span("Inspector · SQLite + ChromaDB"):
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+                        db_fut = ex.submit(read_inspector_data)
+                        ch_fut = ex.submit(chroma_stats)
+                        payload = db_fut.result()
+                        payload["chroma"] = ch_fut.result()
                 try:
                     registered = set(index_module.list_projects().keys())
                 except Exception:
@@ -548,8 +550,10 @@ def serve(
                         return
                     proj_path = index_module.get_project_path(proj)
                     from orchestrator.rag import index_project
+                    from orchestrator.tracer import span as _span
                     from pathlib import Path as _Path
-                    n = index_project(proj, _Path(proj_path))
+                    with _span(f"index-docs · {proj}"):
+                        n = index_project(proj, _Path(proj_path))
                     self._json({"chunks": n, "project": proj})
                 except ProjectNotFoundError:
                     self._json({"error": f"Proyecto no registrado: {proj}"}, 404)
