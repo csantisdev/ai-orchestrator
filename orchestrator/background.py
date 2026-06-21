@@ -78,24 +78,32 @@ def _worker(
 
         provider = build_provider(config, decision.provider)
 
-        system_prompt = ""
+        system_prompt = (
+            f"Eres un asistente técnico. Estás trabajando en el proyecto '{project}'.\n"
+            "Responde directamente a la tarea sin pedir información adicional. "
+            "Usa el contexto disponible para dar una respuesta concreta.\n"
+        )
         if ctx:
-            system_prompt = (
-                f"Estás trabajando en el proyecto '{ctx.name}'.\n"
-                f"Stack: {ctx.stack}\n"
-                f"Convenciones: {', '.join(ctx.conventions) if ctx.conventions else 'ninguna registrada'}\n"
-            )
-            try:
-                from orchestrator.rag import retrieve_docs, retrieve_responses, build_context_block
-                with _span("RAG retrieval", run_id=run_id):
-                    rag_block = build_context_block(
-                        retrieve_docs(task, project),
-                        retrieve_responses(task, project),
-                    )
-                if rag_block:
-                    system_prompt += "\n\n" + rag_block
-            except Exception:
-                pass
+            if ctx.stack:
+                system_prompt += f"Stack: {ctx.stack}\n"
+            if ctx.description:
+                system_prompt += f"Descripción: {ctx.description}\n"
+            if ctx.conventions:
+                system_prompt += f"Convenciones: {', '.join(ctx.conventions)}\n"
+            if ctx.routing_notes:
+                system_prompt += f"Notas: {ctx.routing_notes}\n"
+
+        try:
+            from orchestrator.rag import retrieve_docs, retrieve_responses, build_context_block
+            with _span("RAG retrieval", run_id=run_id):
+                rag_block = build_context_block(
+                    retrieve_docs(task, project),
+                    retrieve_responses(task, project),
+                )
+            if rag_block:
+                system_prompt += "\n\n" + rag_block
+        except Exception:
+            pass
 
         t0 = time.monotonic()
         with _span(f"{decision.provider} · API", run_id=run_id):
