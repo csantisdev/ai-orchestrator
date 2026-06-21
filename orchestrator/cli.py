@@ -491,7 +491,8 @@ def serve(
             extra_projects = projects_list()
             from orchestrator.db import read_contexts_with_steps
             contexts = read_contexts_with_steps(project=sel_project or None)
-            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects, contexts=contexts)
+            registered = list(index_module.list_projects().keys())
+            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects, contexts=contexts, registered_projects=registered)
             body = html.encode("utf-8")
             try:
                 self.send_response(200)
@@ -503,6 +504,25 @@ def serve(
                 pass
 
         def do_POST(self):
+            if self.path == "/index-docs":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json_mod.loads(self.rfile.read(length))
+                    proj = body.get("project", "").strip()
+                    if not proj:
+                        self._json({"error": "project required"}, 400)
+                        return
+                    proj_path = index_module.get_project_path(proj)
+                    from orchestrator.rag import index_project
+                    from pathlib import Path as _Path
+                    n = index_project(proj, _Path(proj_path))
+                    self._json({"chunks": n, "project": proj})
+                except ProjectNotFoundError:
+                    self._json({"error": f"Proyecto no registrado: {proj}"}, 404)
+                except Exception as exc:
+                    self._json({"error": str(exc)}, 500)
+                return
+
             if self.path != "/run":
                 self._json({"error": "not found"}, 404)
                 return
