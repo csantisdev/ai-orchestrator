@@ -467,6 +467,10 @@ def serve(
                     ch_fut = ex.submit(chroma_stats)
                     payload = db_fut.result()
                     payload["chroma"] = ch_fut.result()
+                try:
+                    payload["registered_projects"] = sorted(index_module.list_projects().keys())
+                except Exception:
+                    payload["registered_projects"] = []
                 self._json(payload)
                 return
 
@@ -495,8 +499,7 @@ def serve(
             extra_projects = projects_list()
             from orchestrator.db import read_contexts_with_steps
             contexts = read_contexts_with_steps(project=sel_project or None)
-            registered = list(index_module.list_projects().keys())
-            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects, contexts=contexts, registered_projects=registered)
+            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects, contexts=contexts)
             body = html.encode("utf-8")
             try:
                 self.send_response(200)
