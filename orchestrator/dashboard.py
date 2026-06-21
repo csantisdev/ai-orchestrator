@@ -533,7 +533,7 @@ function openDetail(runId) {
             </tr></thead>
             <tbody>
               ${data.alignments.map(a => `<tr class="detail-tbody-row">
-                <td class="td-sm-ts">${escHtml(a.ts ? a.ts.slice(11,19) : '—')}</td>
+                <td class="td-sm-ts">${a.ts ? new Date(a.ts).toLocaleString("es",{hour12:false,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : '—'}</td>
                 <td class="td-sm-text">${escHtml(a.checkpoint || '—')}</td>
                 <td class="td-sm-muted">${escHtml(a.agent || '—')}</td>
                 <td class="td-sm" style="text-align:center">${a.confirmed ? '<span style="color:#22c55e;font-weight:700;font-size:14px">✓</span>' : '<span style="color:#f87171;font-weight:700;font-size:14px">✗</span>'}</td>
@@ -554,7 +554,7 @@ function openDetail(runId) {
             </tr></thead>
             <tbody>
               ${data.tool_calls.map(tc => `<tr class="detail-tbody-row">
-                <td class="td-sm-ts">${escHtml(tc.ts ? tc.ts.slice(11,19) : '—')}</td>
+                <td class="td-sm-ts">${tc.ts ? new Date(tc.ts).toLocaleString("es",{hour12:false,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : '—'}</td>
                 <td class="td-sm-mono">${escHtml(tc.tool_name || '—')}</td>
                 <td class="td-sm" style="text-align:center"><span style="font-size:10px;padding:2px 7px;border-radius:20px;background:${tc.status==='ok'?'rgba(34,197,94,0.12)':'rgba(248,113,113,0.12)'};color:${tc.status==='ok'?'#22c55e':'#f87171'};font-weight:600">${escHtml(tc.status || '—')}</span></td>
                 <td class="td-sm text-muted" style="text-align:right;font-variant-numeric:tabular-nums">${tc.duration_ms != null ? tc.duration_ms : '—'}</td>
@@ -859,6 +859,15 @@ function indexDocs() {
   });
 }
 
+function fmtTs(iso) {
+  try {
+    return new Date(iso).toLocaleString("es", {
+      day:"2-digit", month:"2-digit", year:"2-digit",
+      hour:"2-digit", minute:"2-digit", hour12:false,
+    });
+  } catch { return iso ? iso.slice(0,16) : "—"; }
+}
+
 function renderInspector(data) {
   const el = document.getElementById("inspector-content");
   const chroma = data.chroma || {};
@@ -924,7 +933,7 @@ function renderInspector(data) {
     const trs = rows.map(r => `<tr style="border-bottom:1px solid var(--border-faint)">${
       cols.map(c => {
         const val = r[c.key] ?? "—";
-        const sval = String(val);
+        const sval = c.fmt ? c.fmt(val) : String(val);
         const display = c.max && sval.length > c.max ? sval.slice(0, c.max) + "…" : sval;
         return `<td style="padding:7px 10px;font-size:12px;color:${c.color||"var(--text-secondary)"};${c.mono?"font-family:'JetBrains Mono',monospace":""}">
           ${escHtml(display)}
@@ -942,7 +951,7 @@ function renderInspector(data) {
     {label:"Archivo",     key:"source_path",color:"var(--text-secondary)",mono:true,max:60},
     {label:"Chunks",      key:"chunk_count",color:"#22c55e"},
     {label:"Colección",   key:"collection", color:"var(--text-muted)"},
-    {label:"Indexado",    key:"ts",         color:"var(--text-faint)",mono:true,max:19},
+    {label:"Indexado",    key:"ts",         color:"var(--text-faint)",mono:true,fmt:fmtTs},
   ]);
 
   html += mkTable("Contextos", data.contexts, [
@@ -950,7 +959,7 @@ function renderInspector(data) {
     {label:"Proyecto",key:"project",     color:"var(--text-primary)"},
     {label:"Título",  key:"title",       color:"var(--text-detail)",max:50},
     {label:"Estado",  key:"status",      color:"#22c55e"},
-    {label:"Creado",  key:"ts",          color:"var(--text-faint)",mono:true,max:19},
+    {label:"Creado",  key:"ts",          color:"var(--text-faint)",mono:true,fmt:fmtTs},
   ]);
 
   html += mkTable("Pasos", data.steps, [
@@ -965,7 +974,7 @@ function renderInspector(data) {
 
   html += mkTable("Alineamientos", data.alignments, [
     {label:"ID",         key:"id",         color:"var(--text-faint)",mono:true},
-    {label:"Hora",       key:"ts",         color:"var(--text-faint)",mono:true,max:19},
+    {label:"Hora",       key:"ts",         color:"var(--text-faint)",mono:true,fmt:fmtTs},
     {label:"Paso",       key:"step_title", color:"var(--text-secondary)",max:35},
     {label:"Agente",     key:"agent",      color:"var(--text-detail)"},
     {label:"OK",         key:"confirmed",  color:"#22c55e"},
@@ -974,7 +983,7 @@ function renderInspector(data) {
 
   html += mkTable("Tool Calls", data.tool_calls, [
     {label:"ID",          key:"id",          color:"var(--text-faint)",mono:true},
-    {label:"Hora",        key:"ts",          color:"var(--text-faint)",mono:true,max:19},
+    {label:"Hora",        key:"ts",          color:"var(--text-faint)",mono:true,fmt:fmtTs},
     {label:"Paso",        key:"step_title",  color:"var(--text-secondary)",max:35},
     {label:"Herramienta", key:"tool_name",   color:"var(--text-primary)",mono:true},
     {label:"Estado",      key:"status",      color:"#22c55e"},
@@ -1099,7 +1108,8 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     tokens_display = f"{total_tokens // 1000}K" if total_tokens >= 1000 else str(total_tokens)
     cost_display = f"${total_cost:.4f}" if total_cost > 0 else "—"
     cache_display = f"{cache_pct}%" if cache_pct else "—"
-    now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    now_dt = datetime.now().astimezone()
+    now = now_dt.strftime("%d/%m/%Y %H:%M ") + now_dt.strftime("%Z")
 
     _css = _build_css()
     _js = _build_js()
