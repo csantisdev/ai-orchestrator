@@ -264,6 +264,33 @@ def _build_css() -> str:
       --text-code:#e8d5b0;--text-detail:#d4bc95;
       --overlay-bg:rgba(0,0,0,.7);--shadow-panel:-4px 0 40px rgba(0,0,0,.6);
     }
+    [data-theme="a11y"]{
+      --bg-base:#000000;--bg-surface:#0d0d0d;--bg-elevated:#000000;
+      --bg-input:#141414;--bg-code:#000000;
+      --border:#ffffff;--border-subtle:#cccccc;--border-faint:#999999;
+      --text-primary:#ffffff;--text-secondary:#f0f0f0;
+      --text-muted:#dddddd;--text-faint:#bbbbbb;
+      --text-code:#ffffff;--text-detail:#eeeeee;
+      --overlay-bg:rgba(0,0,0,.92);--shadow-panel:-4px 0 40px rgba(255,255,255,.12);
+    }
+    [data-theme="a11y"] *{letter-spacing:.03em}
+    [data-theme="a11y"] body{font-size:15px}
+    [data-theme="a11y"] select,
+    [data-theme="a11y"] input,
+    [data-theme="a11y"] textarea{border-width:2px;font-size:14px}
+    [data-theme="a11y"] .btn{outline:2px solid currentColor;outline-offset:2px}
+    [data-theme="a11y"] *:focus-visible{outline:3px solid #ffff00;outline-offset:2px}
+    [data-theme="a11y"] a{text-decoration:underline}
+    [data-theme="a11y"] .badge{outline:2px solid currentColor;outline-offset:1px;font-weight:700}
+    [data-theme="a11y"] .badge-running{background:rgba(0,120,255,.25);color:#60b0ff}
+    [data-theme="a11y"] .badge-pending{background:rgba(255,180,0,.25);color:#ffcc00}
+    [data-theme="a11y"] .badge-failed{background:rgba(255,120,0,.25);color:#ff8800}
+    [data-theme="a11y"] thead tr{border-top:2px solid var(--border);border-bottom:2px solid var(--border)}
+    [data-theme="a11y"] tbody tr{border-bottom:1px solid var(--border-subtle)}
+    [data-theme="a11y"] tbody tr:hover{background:rgba(255,255,255,.08);outline:2px solid var(--border);outline-offset:-2px}
+    [data-theme="a11y"] .card{border-width:2px}
+    [data-theme="a11y"] .panel{border-width:2px}
+    [data-theme="a11y"] .detail-panel{border-left-width:3px}
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',system-ui,sans-serif;background:var(--bg-base);color:var(--text-primary);-webkit-font-smoothing:antialiased;padding-bottom:48px}
     .activity-bar{position:fixed;bottom:0;left:0;right:0;background:var(--bg-elevated);border-top:1px solid var(--border);z-index:200;font-family:'JetBrains Mono',monospace}
@@ -1109,6 +1136,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
       <option value="midnight">Midnight</option>
       <option value="nord">Nord</option>
       <option value="espresso">Espresso</option>
+      <option value="a11y">Alto contraste</option>
     </select>
     <span class="meta">{now}</span>
   </div>
