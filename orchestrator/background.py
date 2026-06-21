@@ -34,7 +34,7 @@ def submit_run(
 
     thread = threading.Thread(
         target=_worker,
-        args=(run_id, project, task, config, model, ctx),
+        args=(run_id, project, task, config, model, ctx, step_id),
         daemon=True,
     )
     thread.start()
@@ -48,6 +48,7 @@ def _worker(
     config: dict,
     forced_model: Optional[str],
     ctx,
+    step_id: Optional[int] = None,
 ) -> None:
     try:
         from orchestrator import context as context_module
@@ -128,17 +129,17 @@ def _worker(
         except Exception:
             pass
 
-        BUS.publish(
-            "run_done",
-            json.dumps({
-                "run_id": run_id,
-                "project": project,
-                "provider": result.provider,
-                "model": result.model,
-                "duration_ms": duration_ms,
-                "cost_usd": cost_usd,
-            }),
-        )
+        event = {
+            "run_id": run_id,
+            "project": project,
+            "provider": result.provider,
+            "model": result.model,
+            "duration_ms": duration_ms,
+            "cost_usd": cost_usd,
+        }
+        if step_id is not None:
+            event["step_id"] = step_id
+        BUS.publish("run_done", json.dumps(event))
 
         budget_usd = getattr(ctx, "daily_budget_usd", None) if ctx else None
         budget = check_budget(project, config, daily_budget_usd=budget_usd)

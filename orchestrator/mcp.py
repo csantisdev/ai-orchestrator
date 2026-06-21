@@ -95,6 +95,53 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "create_context",
+        "description": (
+            "Crea un nuevo contexto de trabajo para un proyecto con pasos opcionales. "
+            "Úsalo al inicio de una tarea estructurada para habilitar el tracking de pasos, "
+            "alineamientos y tool calls desde el agente — sin necesidad de CLI."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["project", "title"],
+            "properties": {
+                "project":     {"type": "string", "description": "Alias del proyecto registrado."},
+                "title":       {"type": "string", "description": "Objetivo o título del contexto."},
+                "description": {"type": "string", "default": ""},
+                "steps": {
+                    "type": "array",
+                    "description": "Pasos iniciales del contexto (opcional).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title":    {"type": "string"},
+                            "provider": {"type": "string", "default": ""},
+                        },
+                        "required": ["title"],
+                    },
+                },
+            },
+        },
+    },
+    {
+        "name": "add_step",
+        "description": (
+            "Agrega un paso a un contexto existente. "
+            "Útil para extender el plan de trabajo durante la ejecución."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["context_id", "title"],
+            "properties": {
+                "context_id":  {"type": "integer"},
+                "title":       {"type": "string"},
+                "provider":    {"type": "string", "default": ""},
+                "description": {"type": "string", "default": ""},
+                "order_idx":   {"type": "integer", "description": "Posición del paso. Si se omite, se agrega al final."},
+            },
+        },
+    },
 ]
 
 
@@ -173,6 +220,41 @@ def _tool_record_tool_call(args: dict) -> dict:
     return {"id": cur.lastrowid, "ts": ts}
 
 
+def _tool_create_context(args: dict) -> dict:
+    from orchestrator.db import insert_context, insert_step
+    project = args.get("project", "").strip()
+    title = args.get("title", "").strip()
+    if not project or not title:
+        raise ValueError("project y title son requeridos")
+    ctx_id = insert_context(project, title, args.get("description", ""))
+    steps_out = []
+    for i, s in enumerate(args.get("steps", []) or [], 1):
+        step_title = (s.get("title", "") if isinstance(s, dict) else str(s)).strip()
+        provider = s.get("provider", "") if isinstance(s, dict) else ""
+        if step_title:
+            sid = insert_step(ctx_id, i, step_title, provider=provider)
+            steps_out.append({"id": sid, "order_idx": i, "title": step_title, "provider": provider})
+    return {"context_id": ctx_id, "project": project, "title": title, "steps": steps_out}
+
+
+def _tool_add_step(args: dict) -> dict:
+    from orchestrator.db import _conn, insert_step
+    context_id = args.get("context_id")
+    title = args.get("title", "").strip()
+    if not context_id or not title:
+        raise ValueError("context_id y title son requeridos")
+    conn = _conn()
+    row = conn.execute(
+        "SELECT COALESCE(MAX(order_idx), 0) FROM steps WHERE context_id=?",
+        (context_id,),
+    ).fetchone()
+    order_idx = args.get("order_idx") or (row[0] + 1)
+    provider = args.get("provider", "")
+    description = args.get("description", "")
+    sid = insert_step(context_id, order_idx, title, description=description, provider=provider)
+    return {"step_id": sid, "context_id": context_id, "order_idx": order_idx, "title": title, "provider": provider}
+
+
 def _tool_advance_step(args: dict) -> dict:
     from orchestrator.db import _conn, _write_lock
     conn = _conn()
@@ -219,6 +301,8 @@ _HANDLERS.update({
     "confirm_alignment":  _tool_confirm_alignment,
     "record_tool_call":   _tool_record_tool_call,
     "advance_step":       _tool_advance_step,
+    "create_context":     _tool_create_context,
+    "add_step":           _tool_add_step,
 })
 
 
