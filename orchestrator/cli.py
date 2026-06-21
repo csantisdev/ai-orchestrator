@@ -629,6 +629,29 @@ def serve(
                     self._json({"error": str(exc)}, 500)
                 return
 
+            if self.path == "/create-context":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json_mod.loads(self.rfile.read(length))
+                    proj = body.get("project", "").strip()
+                    title = body.get("title", "").strip()
+                    if not proj or not title:
+                        self._json({"error": "project y title son requeridos"}, 400)
+                        return
+                    from orchestrator.db import insert_context, insert_step
+                    ctx_id = insert_context(proj, title, body.get("description", ""))
+                    steps_out = []
+                    for i, s in enumerate(body.get("steps", []) or [], 1):
+                        step_title = (s.get("title", "") if isinstance(s, dict) else str(s)).strip()
+                        provider = s.get("provider", "") if isinstance(s, dict) else ""
+                        if step_title:
+                            sid = insert_step(ctx_id, i, step_title, provider=provider)
+                            steps_out.append({"id": sid, "order_idx": i, "title": step_title, "provider": provider})
+                    self._json({"context_id": ctx_id, "project": proj, "title": title, "steps": steps_out}, 201)
+                except Exception as exc:
+                    self._json({"error": str(exc)}, 500)
+                return
+
             if self.path != "/run":
                 self._json({"error": "not found"}, 404)
                 return
