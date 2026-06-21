@@ -340,6 +340,10 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orchestrator Dashboard</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicons/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicons/favicon-16x16.png">
+  <link rel="apple-touch-icon" href="/static/img/favicons/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -433,7 +437,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 <body>
 
 <div class="header">
-  <h1><span style="color:#22c55e;font-family:'JetBrains Mono',monospace;font-size:14px;margin-right:8px">▸</span>Orchestrator</h1>
+  <h1><img src="/static/img/logo.png" alt="Orchestrator" style="height:28px;vertical-align:middle;margin-right:4px"></h1>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <form method="get" style="display:flex;align-items:center;gap:8px">
       <label style="font-size:12px;color:#71717a;font-weight:500">Proyecto</label>
