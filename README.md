@@ -2,10 +2,6 @@
 
 <img src="docs/img/banner.png" alt="ai-orchestrator" width="100%">
 
-<br>
-
-<img src="docs/img/logo.png" alt="ai-orchestrator" height="48">
-
 <br><br>
 
 **Orquestador local de agentes IA**  
