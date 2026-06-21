@@ -176,7 +176,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
             fc, fbg = _STEP_STATUS_STYLE.get(st, ("#6b7280", "#f3f4f6"))
             provider = _text(step.get("provider"))
             is_active = st == "in_progress"
-            left_border = "border-left:2px solid #38bdf8;" if is_active else "border-left:2px solid #27272a;"
+            left_border = "border-left:2px solid #38bdf8;" if is_active else "border-left:2px solid var(--border);"
             active_bg = "background:rgba(56,189,248,0.06);" if is_active else ""
             prov_html = ""
             if provider:
@@ -185,8 +185,8 @@ def _build_contexts_section(contexts: list[dict]) -> str:
                 prov_html = f'<span style="font-size:10px;background:{pbg};color:{pc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(provider)}</span>'
             steps_html += (
                 f'<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;{left_border}{active_bg}border-radius:6px;margin-bottom:2px">'
-                f'<span style="font-size:11px;font-weight:700;color:#52525b;min-width:18px;text-align:center;font-family:\'JetBrains Mono\',monospace">{step.get("order_idx","?")}</span>'
-                f'<span style="font-size:12px;color:#d1d5db;flex:1">{_escape(_text(step.get("title")))}</span>'
+                f'<span class="step-idx">{step.get("order_idx","?")}</span>'
+                f'<span class="step-title">{_escape(_text(step.get("title")))}</span>'
                 f'{prov_html}'
                 f'<span style="font-size:10px;background:{fbg};color:{fc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(st)}</span>'
                 f'</div>'
@@ -194,15 +194,15 @@ def _build_contexts_section(contexts: list[dict]) -> str:
 
         desc_html = ""
         if ctx.get("description"):
-            desc_html = f'<p style="font-size:12px;color:#71717a;margin-bottom:10px;line-height:1.5">{_escape(_text(ctx.get("description")))}</p>'
+            desc_html = f'<p class="ctx-desc">{_escape(_text(ctx.get("description")))}</p>'
 
-        body_html = steps_html if steps_html else '<p style="font-size:12px;color:#52525b;padding:8px 0">Sin pasos definidos.</p>'
+        body_html = steps_html if steps_html else '<p class="ctx-desc" style="padding:8px 0">Sin pasos definidos.</p>'
 
         cards += (
-            f'<div style="background:#18181b;border:1px solid #27272a;border-radius:12px;padding:14px;margin-bottom:10px">'
+            f'<div class="ctx-card">'
             f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
-            f'<span style="font-size:13px;font-weight:600;color:#f8fafc;flex:1">{_escape(_text(ctx.get("title"), "(sin título)"))}</span>'
-            f'<span style="font-size:11px;color:#52525b;font-family:\'JetBrains Mono\',monospace">{_escape(_text(ctx.get("project")))}</span>'
+            f'<span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">{_escape(_text(ctx.get("title"), "(sin título)"))}</span>'
+            f'<span style="font-size:11px;color:var(--text-faint);font-family:\'JetBrains Mono\',monospace">{_escape(_text(ctx.get("project")))}</span>'
             f'<span style="font-size:10px;background:{sbg};color:{sc};padding:2px 8px;border-radius:20px;font-weight:600">{_escape(ctx_status)}</span>'
             f'</div>'
             f'{desc_html}'
@@ -217,6 +217,727 @@ def _build_contexts_section(contexts: list[dict]) -> str:
         f'</div>'
     )
 
+
+def _build_css() -> str:
+    return """\n    :root{
+      --bg-base:#09090b;--bg-surface:#111827;--bg-elevated:#0c0c0e;
+      --bg-input:#18181b;--bg-code:#0f172a;
+      --border:#27272a;--border-subtle:#1f1f23;--border-faint:#18181b;
+      --text-primary:#f8fafc;--text-secondary:#a1a1aa;
+      --text-muted:#71717a;--text-faint:#52525b;
+      --text-code:#e2e8f0;--text-detail:#d1d5db;
+      --overlay-bg:rgba(0,0,0,.65);--shadow-panel:-4px 0 40px rgba(0,0,0,.6);
+    }
+    [data-theme="light"]{
+      --bg-base:#f8fafc;--bg-surface:#ffffff;--bg-elevated:#f1f5f9;
+      --bg-input:#f4f4f5;--bg-code:#f0f4f8;
+      --border:#e4e4e7;--border-subtle:#e4e4e7;--border-faint:#e2e8f0;
+      --text-primary:#0f172a;--text-secondary:#52525b;
+      --text-muted:#71717a;--text-faint:#a1a1aa;
+      --text-code:#1e293b;--text-detail:#374151;
+      --overlay-bg:rgba(0,0,0,.35);--shadow-panel:-4px 0 40px rgba(0,0,0,.1);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg-base);color:var(--text-primary);-webkit-font-smoothing:antialiased;padding-bottom:48px}
+    .activity-bar{position:fixed;bottom:0;left:0;right:0;background:var(--bg-elevated);border-top:1px solid var(--border);z-index:200;font-family:'JetBrains Mono',monospace}
+    .activity-hdr{display:flex;align-items:center;gap:10px;padding:0 16px;height:40px;cursor:pointer;user-select:none;transition:background .1s}
+    .activity-hdr:hover{background:var(--bg-surface)}
+    .act-dot{width:7px;height:7px;border-radius:50%;background:var(--border);flex-shrink:0;transition:background .2s}
+    .act-dot.live{background:#22c55e}
+    .act-dot.pulse{animation:_adot .6s ease-in-out 3}
+    @keyframes _adot{0%,100%{opacity:1}50%{opacity:.2}}
+    .act-title{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.7px;flex-shrink:0}
+    .act-summary{font-size:11px;color:var(--text-faint);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}
+    .act-toggle{font-size:10px;color:var(--text-faint);flex-shrink:0}
+    #activity-log{max-height:200px;overflow-y:auto;border-top:1px solid var(--bg-input)}
+    .tr-row{display:grid;grid-template-columns:80px 44px 14px 1fr 64px;gap:8px;padding:4px 16px;align-items:center;font-size:11px;border-bottom:1px solid var(--bg-elevated)}
+    .tr-ts{color:var(--border);font-variant-numeric:tabular-nums}
+    .tr-run{color:var(--text-faint);text-align:right}
+    .tr-icon{text-align:center;font-size:12px}
+    .tr-name{color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .tr-dur{color:var(--text-faint);text-align:right;font-variant-numeric:tabular-nums}
+    .tr-running .tr-icon{color:#f59e0b}.tr-running .tr-name{color:var(--text-primary)}
+    .tr-done .tr-icon{color:#22c55e}
+    .tr-error .tr-icon{color:#f87171}.tr-error .tr-name{color:#f87171}
+    .header{background:var(--bg-surface);border-bottom:1px solid var(--border);color:var(--text-primary);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .header h1{font-size:16px;font-weight:700;letter-spacing:-.4px;color:var(--text-primary)}
+    .header .meta{font-size:11px;color:var(--text-muted)}
+    .container{max-width:1500px;margin:0 auto;padding:20px 16px}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+    .card{background:var(--bg-surface);border-radius:16px;border:1px solid var(--border);padding:18px}
+    .card .label{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted);font-weight:600;margin-bottom:8px}
+    .card .value{font-size:28px;font-weight:700;color:var(--text-primary);line-height:1}
+    .card .sub{font-size:11px;color:var(--text-faint);margin-top:5px}
+    .grid-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:20px}
+    .panel{background:var(--bg-surface);border-radius:16px;border:1px solid var(--border);padding:18px}
+    .panel h2{font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:14px;text-transform:uppercase;letter-spacing:.7px}
+    .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+    select,input,textarea{border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:13px;background:var(--bg-input);color:var(--text-primary);font-family:inherit}
+    textarea{width:100%;min-height:80px;resize:vertical}
+    select:focus,input:focus,textarea:focus{outline:none;border-color:#22c55e}
+    .btn{padding:7px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s}
+    .btn-primary{background:#22c55e;color:#09090b}
+    .btn-primary:hover{opacity:.85}
+    .btn-secondary{background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border)}
+    .btn-secondary:hover{background:var(--border)}
+    table{width:100%;border-collapse:collapse}
+    thead tr{background:var(--bg-elevated);border-bottom:1px solid var(--border)}
+    th{padding:9px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted);font-weight:600;white-space:nowrap}
+    tbody tr{border-bottom:1px solid var(--border-faint);transition:background .1s}
+    tbody tr:hover{background:var(--bg-input)}
+    .empty{text-align:center;padding:40px;color:var(--text-muted);font-size:14px}
+    .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+    .badge-running{background:rgba(56,189,248,0.12);color:#38bdf8;animation:pulse 1.5s ease-in-out infinite}
+    .badge-pending{background:rgba(251,191,36,0.12);color:#fcd34d}
+    .badge-failed{background:rgba(248,113,113,0.12);color:#f87171}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .sender-panel{background:var(--bg-surface);border-radius:16px;border:1px solid var(--border);padding:18px;margin-bottom:20px;display:none}
+    .sender-panel.open{display:block}
+    .sender-form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media(max-width:700px){.sender-form{grid-template-columns:1fr}}
+    .sender-form .full{grid-column:1/-1}
+    .detail-overlay{display:none;position:fixed;inset:0;background:var(--overlay-bg);z-index:100;backdrop-filter:blur(3px)}
+    .detail-overlay.open{display:flex;align-items:flex-start;justify-content:flex-end}
+    .detail-panel{background:var(--bg-surface);width:min(660px,95vw);height:100vh;overflow-y:auto;padding:24px;box-shadow:var(--shadow-panel);border-left:1px solid var(--border)}
+    .detail-panel h3{font-size:15px;font-weight:700;margin-bottom:16px;color:var(--text-primary)}
+    .detail-section{margin-bottom:18px}
+    .detail-section label{display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted);margin-bottom:8px}
+    .detail-section pre{background:var(--bg-code);border:1px solid var(--border);border-radius:12px;padding:14px;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow-y:auto;font-family:'JetBrains Mono','Consolas',monospace;color:var(--text-code);line-height:1.65}
+    .budget-bar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:8px}
+    .budget-fill{height:100%;border-radius:3px;transition:width .4s}
+    .close-btn{float:right;background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);padding:0 4px}
+    .close-btn:hover{color:var(--text-primary)}
+    .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:#22c55e;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    #toast{position:fixed;bottom:20px;right:20px;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);padding:10px 18px;border-radius:10px;font-size:13px;display:none;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+    .tabnav{background:var(--bg-surface);border-bottom:1px solid var(--border)}
+    .tabnav-inner{max-width:1500px;margin:0 auto;padding:0 16px;display:flex;gap:2px}
+    .tab-btn{background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);font-size:13px;font-weight:500;padding:12px 14px;cursor:pointer;font-family:inherit;transition:color .15s,border-color .15s}
+    .tab-btn:hover{color:var(--text-primary)}
+    .tab-active{color:var(--text-primary);border-bottom-color:#22c55e}
+    .insp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+    .insp-stat{background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:14px}
+    .insp-stat .col-name{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted);margin-bottom:8px;font-weight:600}
+    .insp-stat .col-count{font-size:26px;font-weight:700;color:var(--text-primary);line-height:1}
+    .insp-stat .col-sub{font-size:11px;color:var(--text-faint);margin-top:4px}
+    .insp-stat .col-projects{margin-top:10px;border-top:1px solid var(--border);padding-top:8px}
+    .insp-stat .col-proj-row{display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--border-subtle)}
+    .chip{background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:20px;font-size:11px}
+    .chip-mono{background:var(--bg-input);color:var(--text-secondary);padding:3px 10px;border-radius:20px;font-size:11px;font-family:'JetBrains Mono',monospace}
+    .td-ts{padding:9px 12px;color:var(--text-faint);font-size:11px;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+    .td-project{padding:9px 12px;font-weight:600;font-size:13px;color:var(--text-primary)}
+    .td-muted{padding:9px 12px;font-size:12px;color:var(--text-muted)}
+    .ctx-card{background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px}
+    .ctx-desc{font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5}
+    .step-idx{font-size:11px;font-weight:700;color:var(--text-faint);min-width:18px;text-align:center;font-family:'JetBrains Mono',monospace}
+    .step-title{font-size:12px;color:var(--text-detail);flex:1}
+    .budget-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:6px}
+    .detail-text{font-size:13px;color:var(--text-secondary);line-height:1.5}
+    .detail-thead-row{color:var(--text-faint);border-bottom:1px solid var(--border)}
+    .detail-tbody-row{border-bottom:1px solid var(--border-faint)}
+    .td-sm{padding:5px 8px}
+    .td-sm-ts{padding:5px 8px;color:var(--text-faint);white-space:nowrap;font-family:'JetBrains Mono',monospace}
+    .td-sm-text{padding:5px 8px;color:var(--text-detail)}
+    .td-sm-muted{padding:5px 8px;color:var(--text-secondary)}
+    .td-sm-mono{padding:5px 8px;font-weight:600;color:var(--text-primary);font-family:'JetBrains Mono',monospace}
+    .theme-btn{background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:13px;padding:4px 10px;cursor:pointer;font-family:inherit;transition:color .15s,border-color .15s}
+    .theme-btn:hover{color:var(--text-primary);border-color:var(--text-muted)}
+    .text-muted{color:var(--text-muted)}
+    .text-faint{color:var(--text-faint)}
+    .text-primary{color:var(--text-primary)}
+"""
+
+def _build_js() -> str:
+    return """\nconst evtSource = new EventSource("/events");
+evtSource.addEventListener("run_started", e => {
+  const d = JSON.parse(e.data);
+  prependPendingRow(d);
+});
+evtSource.addEventListener("run_done", e => {
+  const d = JSON.parse(e.data);
+  updateRow(d);
+  showToast("Run #" + d.run_id + " completado — " + (d.provider || "?") + " " + (d.cost_usd ? "$" + d.cost_usd.toFixed(4) : ""));
+});
+evtSource.addEventListener("run_failed", e => {
+  const d = JSON.parse(e.data);
+  markFailed(d);
+  showToast("Run #" + d.run_id + " falló: " + d.error, true);
+});
+evtSource.addEventListener("budget_warning", e => {
+  const d = JSON.parse(e.data);
+  updateBudgetGauge(d);
+});
+
+function prependPendingRow(d) {
+  const tbody = document.getElementById("runs-body");
+  const empty = document.getElementById("empty-msg");
+  if (empty) empty.style.display = "none";
+  const table = document.getElementById("runs-table");
+  if (table) table.style.display = "";
+  const tr = document.createElement("tr");
+  tr.dataset.runId = d.run_id;
+  tr.style.cursor = "pointer";
+  tr.onclick = () => openDetail(d.run_id);
+  tr.innerHTML = `
+    <td class="td-ts">ahora</td>
+    <td class="td-project">${escHtml(d.project)}</td>
+    <td style="padding:9px 12px"><span class="badge badge-pending">… pending</span></td>
+    <td colspan="7" class="td-muted"><span class="spinner"></span> esperando respuesta...</td>
+  `;
+  tbody.insertBefore(tr, tbody.firstChild);
+}
+
+function updateRow(d) {
+  const tr = document.querySelector(`tr[data-run-id="${d.run_id}"]`);
+  if (!tr) return;
+  tr.cells[2].innerHTML = '<span class="badge" style="background:rgba(34,197,94,0.12);color:#22c55e">done</span>';
+  if (tr.cells[3]) {
+    tr.cells[3].colSpan = 1;
+    tr.cells[3].textContent = d.model ? d.model.split("/").pop() : "?";
+    for (let i = 4; i < 10; i++) {
+      if (!tr.cells[i]) {
+        const td = tr.insertCell(i);
+        td.style.padding = "8px 10px";
+        td.style.fontSize = "12px";
+        td.style.textAlign = i < 7 ? "right" : "left";
+      }
+    }
+    tr.cells[4].textContent = d.duration_ms ? (d.duration_ms >= 1000 ? (d.duration_ms/1000).toFixed(1)+"s" : d.duration_ms+"ms") : "—";
+    tr.cells[6].textContent = d.cost_usd ? "$" + parseFloat(d.cost_usd).toFixed(4) : "—";
+  }
+}
+
+function markFailed(d) {
+  const tr = document.querySelector(`tr[data-run-id="${d.run_id}"]`);
+  if (!tr) return;
+  tr.cells[2].innerHTML = '<span class="badge badge-failed">✗ failed</span>';
+  if (tr.cells[3]) tr.cells[3].textContent = d.error || "error";
+}
+
+function updateBudgetGauge(d) {
+  const sec = document.getElementById("budgetSection");
+  const pct = Math.min(d.pct * 100, 100).toFixed(0);
+  const color = d.pct >= 1.0 ? "#ef4444" : d.pct >= 0.8 ? "#f59e0b" : "#22c55e";
+  sec.innerHTML = `<div class="panel" style="margin-bottom:20px">
+    <h2>Presupuesto diario — ${escHtml(d.project)}</h2>
+    <div class="budget-meta">
+      <span>Gastado: <strong class="text-primary">$${parseFloat(d.spent_usd).toFixed(4)}</strong></span>
+      <span>Límite: <strong class="text-primary">$${parseFloat(d.limit_usd).toFixed(2)}</strong></span>
+      <span style="color:${color};font-weight:700">${pct}%</span>
+    </div>
+    <div class="budget-bar"><div class="budget-fill" style="width:${pct}%;background:${color}"></div></div>
+  </div>`;
+}
+
+function openDetail(runId) {
+  if (!runId) return;
+  const overlay = document.getElementById("detailOverlay");
+  const content = document.getElementById("detailContent");
+  overlay.classList.add("open");
+  content.innerHTML = '<p class="text-muted" style="font-size:13px"><span class="spinner"></span> Cargando...</p>';
+  fetch("/run/" + runId)
+    .then(r => r.json())
+    .then(data => {
+      const provColor = {"claude":"#fb923c","deepseek":"#22c55e","openai":"#818cf8"}[data.provider] || "#71717a";
+      const provBg = {"claude":"rgba(251,146,60,0.12)","deepseek":"rgba(34,197,94,0.12)","openai":"rgba(129,140,248,0.12)"}[data.provider] || "rgba(113,113,122,0.12)";
+      content.innerHTML = `
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+          <span class="chip-mono">#${data.id}</span>
+          <span style="background:${provBg};color:${provColor};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(data.provider)}</span>
+          <span class="chip-mono">${escHtml(data.model ? data.model.split('/').pop() : '—')}</span>
+          <span class="chip">${data.duration_ms ? (data.duration_ms/1000).toFixed(1)+"s" : "—"}</span>
+          ${data.cost_usd ? `<span style="background:rgba(34,197,94,0.10);color:#22c55e;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">$${parseFloat(data.cost_usd).toFixed(4)}</span>` : ''}
+        </div>
+        <div class="detail-section">
+          <label>Tarea enviada</label>
+          <pre>${escHtml(data.task || data.task_preview || "(sin texto)")}</pre>
+        </div>
+        <div class="detail-section">
+          <label>Respuesta del modelo</label>
+          <pre>${escHtml(data.response || "(sin respuesta aún)")}</pre>
+        </div>
+        <div class="detail-section">
+          <label>Razón de ruteo</label>
+          <p class="detail-text">${escHtml(data.routing_reason || "—")}</p>
+        </div>
+        ${data.cache_read_tokens ? `<div class="detail-section">
+          <label>Cache Claude</label>
+          <p class="detail-text">
+            Leídos: <strong style="color:#38bdf8">${data.cache_read_tokens}</strong> tokens
+            ${data.cache_creation_tokens ? ` · Escritos: <strong style="color:#22c55e">${data.cache_creation_tokens}</strong>` : ''}
+          </p>
+        </div>` : ''}
+        ${data.alignments && data.alignments.length ? `<div class="detail-section">
+          <label>Checkpoints de alineación</label>
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead><tr class="detail-thead-row">
+              <th class="td-sm">Hora</th>
+              <th class="td-sm">Checkpoint</th>
+              <th class="td-sm">Agente</th>
+              <th class="td-sm" style="text-align:center">OK</th>
+              <th class="td-sm">Mensaje</th>
+            </tr></thead>
+            <tbody>
+              ${data.alignments.map(a => `<tr class="detail-tbody-row">
+                <td class="td-sm-ts">${escHtml(a.ts ? a.ts.slice(11,19) : '—')}</td>
+                <td class="td-sm-text">${escHtml(a.checkpoint || '—')}</td>
+                <td class="td-sm-muted">${escHtml(a.agent || '—')}</td>
+                <td class="td-sm" style="text-align:center">${a.confirmed ? '<span style="color:#22c55e;font-weight:700;font-size:14px">✓</span>' : '<span style="color:#f87171;font-weight:700;font-size:14px">✗</span>'}</td>
+                <td class="td-sm-muted">${escHtml(a.message || '')}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+        ${data.tool_calls && data.tool_calls.length ? `<div class="detail-section">
+          <label>Herramientas invocadas</label>
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead><tr class="detail-thead-row">
+              <th class="td-sm">Hora</th>
+              <th class="td-sm">Herramienta</th>
+              <th class="td-sm" style="text-align:center">Estado</th>
+              <th class="td-sm" style="text-align:right">ms</th>
+              <th class="td-sm">Salida</th>
+            </tr></thead>
+            <tbody>
+              ${data.tool_calls.map(tc => `<tr class="detail-tbody-row">
+                <td class="td-sm-ts">${escHtml(tc.ts ? tc.ts.slice(11,19) : '—')}</td>
+                <td class="td-sm-mono">${escHtml(tc.tool_name || '—')}</td>
+                <td class="td-sm" style="text-align:center"><span style="font-size:10px;padding:2px 7px;border-radius:20px;background:${tc.status==='ok'?'rgba(34,197,94,0.12)':'rgba(248,113,113,0.12)'};color:${tc.status==='ok'?'#22c55e':'#f87171'};font-weight:600">${escHtml(tc.status || '—')}</span></td>
+                <td class="td-sm text-muted" style="text-align:right;font-variant-numeric:tabular-nums">${tc.duration_ms != null ? tc.duration_ms : '—'}</td>
+                <td class="td-sm-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(tc.output ? String(tc.output).slice(0,80) : '')}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+      `;
+    })
+    .catch(() => { content.innerHTML = '<p style="color:#ef4444;font-size:13px">Error al cargar detalle.</p>'; });
+}
+
+function closeDetail(e) {
+  if (e && e.target !== document.getElementById("detailOverlay")) return;
+  document.getElementById("detailOverlay").classList.remove("open");
+}
+
+function toggleSender() {
+  document.getElementById("senderPanel").classList.toggle("open");
+  document.getElementById("contextPanel").classList.remove("open");
+}
+
+function toggleContextForm() {
+  document.getElementById("contextPanel").classList.toggle("open");
+  document.getElementById("senderPanel").classList.remove("open");
+}
+
+let _ctxStepCount = 0;
+function addCtxStep() {
+  _ctxStepCount++;
+  const container = document.getElementById("ctxSteps");
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;gap:8px;margin-bottom:8px;align-items:center";
+  row.innerHTML = `
+    <input type="text" placeholder="Título del paso..." style="flex:1" class="ctx-step-title">
+    <select class="ctx-step-provider">
+      <option value="">auto</option>
+      <option value="claude">claude</option>
+      <option value="deepseek">deepseek</option>
+      <option value="openai">openai</option>
+    </select>
+    <button onclick="this.parentElement.remove()" class="close-btn" title="Quitar paso">✕</button>
+  `;
+  container.appendChild(row);
+}
+
+function submitContext() {
+  const project = document.getElementById("ctxProject").value;
+  const title   = document.getElementById("ctxTitle").value.trim();
+  const desc    = document.getElementById("ctxDesc").value.trim();
+  const status  = document.getElementById("ctxStatus");
+  if (!project) { status.textContent = "Seleccioná un proyecto."; return; }
+  if (!title)   { status.textContent = "El título no puede estar vacío."; return; }
+  const steps = Array.from(document.querySelectorAll("#ctxSteps > div")).map(row => ({
+    title:    row.querySelector(".ctx-step-title").value.trim(),
+    provider: row.querySelector(".ctx-step-provider").value,
+  })).filter(s => s.title);
+  status.innerHTML = '<span class="spinner"></span> Creando...';
+  fetch("/create-context", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({project, title, description: desc, steps}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { status.textContent = "Error: " + d.error; return; }
+    status.textContent = "Contexto #" + d.context_id + " creado con " + (d.steps || []).length + " paso(s).";
+    document.getElementById("ctxTitle").value = "";
+    document.getElementById("ctxDesc").value = "";
+    document.getElementById("ctxSteps").innerHTML = "";
+    _ctxStepCount = 0;
+    showToast("Contexto '" + d.title + "' creado para " + d.project);
+  })
+  .catch(() => { status.textContent = "Error al crear."; });
+}
+
+function submitTask() {
+  const project = document.getElementById("senderProject").value;
+  const task    = document.getElementById("senderTask").value.trim();
+  const model   = document.getElementById("senderModel").value;
+  const status  = document.getElementById("senderStatus");
+  if (!project) { status.textContent = "Seleccioná un proyecto."; return; }
+  if (!task)    { status.textContent = "La tarea no puede estar vacía."; return; }
+  status.innerHTML = '<span class="spinner"></span> Enviando...';
+  fetch("/run", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({project, task, model: model || undefined}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    status.textContent = "Run #" + d.run_id + " enviado.";
+    document.getElementById("senderTask").value = "";
+  })
+  .catch(() => { status.textContent = "Error al enviar."; });
+}
+
+function showToast(msg, isError) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.style.background = isError ? "#ef4444" : "";
+  t.style.display = "block";
+  setTimeout(() => { t.style.display = "none"; }, 4000);
+}
+
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+(function() {
+  const saved = localStorage.getItem("theme");
+  if (saved === "light") { document.documentElement.setAttribute("data-theme", "light"); }
+})();
+
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute("data-theme") === "light";
+  if (isLight) {
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.setItem("theme", "dark");
+    document.getElementById("themeToggle").textContent = "☀";
+  } else {
+    document.documentElement.setAttribute("data-theme", "light");
+    localStorage.setItem("theme", "light");
+    document.getElementById("themeToggle").textContent = "☾";
+  }
+}
+
+(function() {
+  if (localStorage.getItem("theme") === "light") {
+    const btn = document.getElementById("themeToggle");
+    if (btn) btn.textContent = "☾";
+  }
+})();
+
+function escHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ── Activity bar ─────────────────────────────────────────────────────────────
+let _actOpen = false;
+const _traceMap = {};
+
+evtSource.addEventListener("trace", e => _handleTrace(JSON.parse(e.data)));
+
+function toggleActivity() {
+  _actOpen = !_actOpen;
+  document.getElementById("activity-log").style.display = _actOpen ? "block" : "none";
+  document.getElementById("act-toggle").textContent  = _actOpen ? "▲" : "▼";
+}
+
+function _traceKey(d) {
+  return ("tr_" + d.name + (d.run_id != null ? "_" + d.run_id : "")).replace(/[^a-z0-9_]/gi, "_");
+}
+
+function _fmtTs(iso) {
+  try { return new Date(iso).toLocaleTimeString("es", {hour12:false, fractionalSecondDigits:2}); }
+  catch { return iso.slice(11, 22); }
+}
+
+function _handleTrace(d) {
+  const key  = _traceKey(d);
+  const log  = document.getElementById("activity-log");
+  const dot  = document.getElementById("act-dot");
+  const runLabel = d.run_id != null ? "#" + d.run_id : "";
+  const detLabel = d.detail ? " · " + escHtml(d.detail) : "";
+
+  if (d.status === "running") {
+    const row = document.createElement("div");
+    row.id = key;
+    row.className = "tr-row tr-running";
+    row.innerHTML =
+      `<span class="tr-ts">${_fmtTs(d.ts)}</span>` +
+      `<span class="tr-run">${escHtml(runLabel)}</span>` +
+      `<span class="tr-icon">▶</span>` +
+      `<span class="tr-name">${escHtml(d.name)}${detLabel}</span>` +
+      `<span class="tr-dur"></span>`;
+    _traceMap[key] = row;
+    log.insertBefore(row, log.firstChild);
+    while (log.children.length > 80) log.removeChild(log.lastChild);
+    if (!_actOpen) { _actOpen = true; log.style.display = "block"; document.getElementById("act-toggle").textContent = "▲"; }
+  } else {
+    const icon = d.status === "done" ? "✓" : "✗";
+    const dur  = d.duration_ms != null ? d.duration_ms + "ms" : "";
+    const cls  = "tr-row tr-" + d.status;
+    const existing = _traceMap[key] || document.getElementById(key);
+    if (existing) {
+      existing.className = cls;
+      existing.querySelector(".tr-icon").textContent = icon;
+      existing.querySelector(".tr-dur").textContent  = dur;
+      delete _traceMap[key];
+    }
+  }
+
+  const icon2 = d.status === "done" ? "✓" : d.status === "error" ? "✗" : "▶";
+  const dur2  = d.duration_ms ? " " + d.duration_ms + "ms" : "";
+  document.getElementById("act-summary").textContent = icon2 + " " + d.name + (runLabel ? " " + runLabel : "") + dur2;
+  dot.classList.add("live");
+  dot.classList.remove("pulse");
+  void dot.offsetWidth;
+  dot.classList.add("pulse");
+}
+
+let _inspectorLoaded = false;
+function switchTab(name) {
+  document.getElementById("tab-main").style.display      = name === "main"      ? "" : "none";
+  document.getElementById("tab-inspector").style.display = name === "inspector" ? "" : "none";
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
+  document.getElementById("tab-btn-" + name).classList.add("tab-active");
+  if (name === "inspector" && !_inspectorLoaded) {
+    _inspectorLoaded = true;
+    loadInspector();
+  }
+}
+
+function loadInspector() {
+  const el = document.getElementById("inspector-content");
+  el.innerHTML = '<p style="color:#71717a;font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
+  fetch("/inspect")
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        el.innerHTML = `<p style="color:#f87171;font-size:13px">Error del servidor: ${escHtml(data.error)}</p>`;
+        return;
+      }
+      renderInspector(data);
+    })
+    .catch(err => {
+      el.innerHTML = `<p style="color:#f87171;font-size:13px">Error de conexión: ${escHtml(String(err))}</p>`;
+    });
+}
+
+function reloadInspector() {
+  const el = document.getElementById("inspector-content");
+  el.innerHTML = '<p style="color:#71717a;font-size:13px"><span class="spinner"></span>&nbsp;Actualizando...</p>';
+  fetch("/inspect")
+    .then(r => r.json())
+    .then(renderInspector)
+    .catch(() => { el.innerHTML = '<p style="color:#f87171;font-size:13px">Error al recargar.</p>'; });
+}
+
+function pickFolder(alias) {
+  const btn    = document.getElementById("reg-pick-" + alias);
+  const input  = document.getElementById("reg-path-" + alias);
+  const status = document.getElementById("reg-status-" + alias);
+  const orig   = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  fetch("/pick-folder")
+    .then(r => r.json())
+    .then(d => {
+      if (d.path) {
+        input.value = d.path;
+        status.textContent = "";
+        input.focus();
+      } else {
+        status.textContent = d.error ? "✗ " + d.error : "Cancelado.";
+        status.style.color = "#71717a";
+      }
+    })
+    .catch(() => { status.textContent = "✗ Sin respuesta."; status.style.color = "#f87171"; })
+    .finally(() => { btn.disabled = false; btn.innerHTML = orig; });
+}
+
+function registerProject(alias) {
+  const input  = document.getElementById("reg-path-" + alias);
+  const status = document.getElementById("reg-status-" + alias);
+  const path = input ? input.value.trim() : "";
+  if (!path) { status.textContent = "Ingresá la ruta."; status.style.color = "#f87171"; return; }
+  status.innerHTML = '<span class="spinner"></span>';
+  fetch("/add-project", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({alias, path}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { status.textContent = "✗ " + d.error; status.style.color = "#f87171"; }
+    else {
+      status.textContent = "✓ registrado";
+      status.style.color = "#22c55e";
+      const row = document.getElementById("reg-row-" + alias);
+      if (row) row.style.opacity = "0.4";
+      setTimeout(reloadInspector, 900);
+    }
+  })
+  .catch(() => { status.textContent = "✗ Error de conexión."; status.style.color = "#f87171"; });
+}
+
+function indexDocs() {
+  const sel = document.getElementById("insp-project-sel");
+  const status = document.getElementById("insp-action-status");
+  const proj = sel ? sel.value : "";
+  if (!proj) { status.textContent = "Seleccioná un proyecto."; return; }
+  status.innerHTML = '<span class="spinner"></span>&nbsp;Indexando...';
+  document.getElementById("insp-index-btn").disabled = true;
+  fetch("/index-docs", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({project: proj}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { status.textContent = "Error: " + d.error; }
+    else { status.textContent = "✓ " + d.chunks + " chunks indexados para '" + d.project + "'."; }
+    document.getElementById("insp-index-btn").disabled = false;
+    reloadInspector();
+  })
+  .catch(() => {
+    status.textContent = "Error de conexión.";
+    document.getElementById("insp-index-btn").disabled = false;
+  });
+}
+
+function renderInspector(data) {
+  const el = document.getElementById("inspector-content");
+  const chroma = data.chroma || {};
+  const COLS = ["runs","docs","responses"];
+  const colLabels = {runs:"Routing memory",docs:"Docs (RAG)",responses:"Respuestas"};
+  const registered = new Set(data.registered_projects || []);
+  const allProjects = data.all_projects || [];
+  const projOpts = allProjects.map(p => {
+    const indexable = registered.has(p);
+    const label = indexable ? p : p + " (sin ruta)";
+    return `<option value="${escHtml(p)}" ${indexable ? "" : 'style="color:#71717a"'}>${escHtml(label)}</option>`;
+  }).join("");
+  let html = `<div class="panel" style="margin-bottom:16px">
+    <h2>Acciones</h2>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="insp-project-sel" style="min-width:160px">
+        <option value="">— proyecto —</option>${projOpts}
+      </select>
+      <button id="insp-index-btn" class="btn btn-primary" onclick="indexDocs()">Indexar docs</button>
+      <span id="insp-action-status" style="font-size:12px;color:#71717a"></span>
+      <button class="btn btn-secondary" onclick="reloadInspector()" style="margin-left:auto">↻ Recargar</button>
+    </div>
+  </div>
+  <div class="panel" style="margin-bottom:20px">
+    <h2>ChromaDB — Colecciones vectoriales</h2>
+    <div class="insp-grid">`;
+  COLS.forEach(col => {
+    const c = chroma[col] || {};
+    const bp = c.by_project || {};
+    const bpRows = Object.entries(bp).map(([p,n]) =>
+      `<div class="col-proj-row"><span style="color:#a1a1aa">${escHtml(p)}</span><span style="color:#22c55e;font-weight:600">${n}</span></div>`
+    ).join("");
+    html += `<div class="insp-stat">
+      <div class="col-name">${colLabels[col] || col}</div>
+      <div class="col-count">${c.count ?? "—"}</div>
+      <div class="col-sub">documentos indexados</div>
+      ${bpRows ? '<div class="col-projects">' + bpRows + '</div>' : ""}
+    </div>`;
+  });
+  html += `</div></div></div>`;
+
+  const unregistered = allProjects.filter(p => !registered.has(p));
+  if (unregistered.length > 0) {
+    const regRows = unregistered.map(p => `
+      <div style="display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #18181b" id="reg-row-${escHtml(p)}">
+        <span style="font-size:12px;color:#f8fafc;min-width:140px;font-family:'JetBrains Mono',monospace;flex-shrink:0">${escHtml(p)}</span>
+        <input type="text" id="reg-path-${escHtml(p)}" placeholder="Ruta al directorio del proyecto" style="flex:1;min-width:0">
+        <button id="reg-pick-${escHtml(p)}" class="btn btn-secondary" title="Seleccionar carpeta…" style="padding:0 10px;font-size:15px;flex-shrink:0" onclick="pickFolder('${escHtml(p)}')">&#128193;</button>
+        <button class="btn btn-secondary" style="white-space:nowrap;flex-shrink:0" onclick="registerProject('${escHtml(p)}')">Registrar</button>
+        <span id="reg-status-${escHtml(p)}" style="font-size:12px;min-width:80px;flex-shrink:0"></span>
+      </div>`).join("");
+    html += `<div class="panel" style="margin-bottom:16px">
+      <h2>Proyectos sin ruta registrada</h2>
+      <p style="font-size:12px;color:#71717a;margin-bottom:10px">Ingresá la ruta local para habilitarlos en el router y en el indexador RAG.</p>
+      ${regRows}
+    </div>`;
+  }
+
+  function mkTable(title, rows, cols) {
+    const n = (rows||[]).length;
+    if (!n) return `<div class="panel" style="margin-bottom:16px"><h2>${title} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">(0)</span></h2><p style="color:#52525b;font-size:13px">Sin registros.</p></div>`;
+    const ths = cols.map(c => `<th style="text-align:left;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px">${c.label}</th>`).join("");
+    const trs = rows.map(r => `<tr style="border-bottom:1px solid #18181b">${
+      cols.map(c => {
+        const val = r[c.key] ?? "—";
+        const sval = String(val);
+        const display = c.max && sval.length > c.max ? sval.slice(0, c.max) + "…" : sval;
+        return `<td style="padding:7px 10px;font-size:12px;color:${c.color||"#a1a1aa"};${c.mono?"font-family:'JetBrains Mono',monospace":""}">
+          ${escHtml(display)}
+        </td>`;
+      }).join("")
+    }</tr>`).join("");
+    return `<div class="panel" style="margin-bottom:16px;overflow-x:auto">
+      <h2>${title} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">${n} filas</span></h2>
+      <table><thead><tr style="background:#0c0c0e;border-bottom:1px solid #27272a">${ths}</tr></thead><tbody>${trs}</tbody></table>
+    </div>`;
+  }
+
+  html += mkTable("Chunks indexados (RAG)", data.chunks, [
+    {label:"Proyecto",    key:"project",    color:"#f8fafc"},
+    {label:"Archivo",     key:"source_path",color:"#a1a1aa",mono:true,max:60},
+    {label:"Chunks",      key:"chunk_count",color:"#22c55e"},
+    {label:"Colección",   key:"collection", color:"#71717a"},
+    {label:"Indexado",    key:"ts",         color:"#52525b",mono:true,max:19},
+  ]);
+
+  html += mkTable("Contextos", data.contexts, [
+    {label:"ID",      key:"id",          color:"#52525b",mono:true},
+    {label:"Proyecto",key:"project",     color:"#f8fafc"},
+    {label:"Título",  key:"title",       color:"#d1d5db",max:50},
+    {label:"Estado",  key:"status",      color:"#22c55e"},
+    {label:"Creado",  key:"ts",          color:"#52525b",mono:true,max:19},
+  ]);
+
+  html += mkTable("Pasos", data.steps, [
+    {label:"ID",       key:"id",            color:"#52525b",mono:true},
+    {label:"Proyecto", key:"project",       color:"#f8fafc"},
+    {label:"Contexto", key:"context_title", color:"#a1a1aa",max:30},
+    {label:"#",        key:"order_idx",     color:"#71717a",mono:true},
+    {label:"Título",   key:"title",         color:"#d1d5db",max:40},
+    {label:"Estado",   key:"status",        color:"#38bdf8"},
+    {label:"Provider", key:"provider",      color:"#71717a"},
+  ]);
+
+  html += mkTable("Alineamientos", data.alignments, [
+    {label:"ID",         key:"id",         color:"#52525b",mono:true},
+    {label:"Hora",       key:"ts",         color:"#52525b",mono:true,max:19},
+    {label:"Paso",       key:"step_title", color:"#a1a1aa",max:35},
+    {label:"Agente",     key:"agent",      color:"#d1d5db"},
+    {label:"OK",         key:"confirmed",  color:"#22c55e"},
+    {label:"Checkpoint", key:"checkpoint", color:"#71717a",max:50},
+  ]);
+
+  html += mkTable("Tool Calls", data.tool_calls, [
+    {label:"ID",          key:"id",          color:"#52525b",mono:true},
+    {label:"Hora",        key:"ts",          color:"#52525b",mono:true,max:19},
+    {label:"Paso",        key:"step_title",  color:"#a1a1aa",max:35},
+    {label:"Herramienta", key:"tool_name",   color:"#f8fafc",mono:true},
+    {label:"Estado",      key:"status",      color:"#22c55e"},
+    {label:"ms",          key:"duration_ms", color:"#71717a"},
+  ]);
+
+  el.innerHTML = html;
+}
+"""
 
 def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None, contexts: list[dict] | None = None) -> str:
     selected_project = _text(selected_project)
@@ -334,105 +1055,22 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     cache_display = f"{cache_pct}%" if cache_pct else "—"
     now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
 
+    _css = _build_css()
+    _js = _build_js()
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orchestrator Dashboard</title>
+  <script>try{{if(localStorage.getItem("theme")==="light")document.documentElement.setAttribute("data-theme","light")}}catch(e){{}}</script>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicons/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicons/favicon-16x16.png">
   <link rel="apple-touch-icon" href="/static/img/favicons/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <style>
-    *{{box-sizing:border-box;margin:0;padding:0}}
-    body{{font-family:'Inter',system-ui,sans-serif;background:#09090b;color:#f8fafc;-webkit-font-smoothing:antialiased;padding-bottom:48px}}
-    .activity-bar{{position:fixed;bottom:0;left:0;right:0;background:#0c0c0e;border-top:1px solid #27272a;z-index:200;font-family:'JetBrains Mono',monospace}}
-    .activity-hdr{{display:flex;align-items:center;gap:10px;padding:0 16px;height:40px;cursor:pointer;user-select:none;transition:background .1s}}
-    .activity-hdr:hover{{background:#111827}}
-    .act-dot{{width:7px;height:7px;border-radius:50%;background:#27272a;flex-shrink:0;transition:background .2s}}
-    .act-dot.live{{background:#22c55e}}
-    .act-dot.pulse{{animation:_adot .6s ease-in-out 3}}
-    @keyframes _adot{{0%,100%{{opacity:1}}50%{{opacity:.2}}}}
-    .act-title{{font-size:10px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:.7px;flex-shrink:0}}
-    .act-summary{{font-size:11px;color:#52525b;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}}
-    .act-toggle{{font-size:10px;color:#52525b;flex-shrink:0}}
-    #activity-log{{max-height:200px;overflow-y:auto;border-top:1px solid #18181b}}
-    .tr-row{{display:grid;grid-template-columns:80px 44px 14px 1fr 64px;gap:8px;padding:4px 16px;align-items:center;font-size:11px;border-bottom:1px solid #0f0f11}}
-    .tr-ts{{color:#3f3f46;font-variant-numeric:tabular-nums}}
-    .tr-run{{color:#52525b;text-align:right}}
-    .tr-icon{{text-align:center;font-size:12px}}
-    .tr-name{{color:#71717a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-    .tr-dur{{color:#52525b;text-align:right;font-variant-numeric:tabular-nums}}
-    .tr-running .tr-icon{{color:#f59e0b}}.tr-running .tr-name{{color:#f8fafc}}
-    .tr-done .tr-icon{{color:#22c55e}}
-    .tr-error .tr-icon{{color:#f87171}}.tr-error .tr-name{{color:#f87171}}
-    .header{{background:#111827;border-bottom:1px solid #27272a;color:#f8fafc;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}}
-    .header h1{{font-size:16px;font-weight:700;letter-spacing:-.4px;color:#f8fafc}}
-    .header .meta{{font-size:11px;color:#71717a}}
-    .container{{max-width:1500px;margin:0 auto;padding:20px 16px}}
-    .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}}
-    .card{{background:#111827;border-radius:16px;border:1px solid #27272a;padding:18px}}
-    .card .label{{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#71717a;font-weight:600;margin-bottom:8px}}
-    .card .value{{font-size:28px;font-weight:700;color:#f8fafc;line-height:1}}
-    .card .sub{{font-size:11px;color:#52525b;margin-top:5px}}
-    .grid-charts{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:20px}}
-    .panel{{background:#111827;border-radius:16px;border:1px solid #27272a;padding:18px}}
-    .panel h2{{font-size:10px;font-weight:700;color:#71717a;margin-bottom:14px;text-transform:uppercase;letter-spacing:.7px}}
-    .toolbar{{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}}
-    select,input,textarea{{border:1px solid #27272a;border-radius:8px;padding:7px 12px;font-size:13px;background:#18181b;color:#f8fafc;font-family:inherit}}
-    textarea{{width:100%;min-height:80px;resize:vertical}}
-    select:focus,input:focus,textarea:focus{{outline:none;border-color:#22c55e}}
-    .btn{{padding:7px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s}}
-    .btn-primary{{background:#22c55e;color:#09090b}}
-    .btn-primary:hover{{opacity:.85}}
-    .btn-secondary{{background:#18181b;color:#f8fafc;border:1px solid #27272a}}
-    .btn-secondary:hover{{background:#27272a}}
-    table{{width:100%;border-collapse:collapse}}
-    thead tr{{background:#0c0c0e;border-bottom:1px solid #27272a}}
-    th{{padding:9px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#71717a;font-weight:600;white-space:nowrap}}
-    tbody tr{{border-bottom:1px solid #18181b;transition:background .1s}}
-    tbody tr:hover{{background:#18181b}}
-    .empty{{text-align:center;padding:40px;color:#71717a;font-size:14px}}
-    .badge{{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}}
-    .badge-running{{background:rgba(56,189,248,0.12);color:#38bdf8;animation:pulse 1.5s ease-in-out infinite}}
-    .badge-pending{{background:rgba(251,191,36,0.12);color:#fcd34d}}
-    .badge-failed{{background:rgba(248,113,113,0.12);color:#f87171}}
-    @keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:.4}}}}
-    .sender-panel{{background:#111827;border-radius:16px;border:1px solid #27272a;padding:18px;margin-bottom:20px;display:none}}
-    .sender-panel.open{{display:block}}
-    .sender-form{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
-    @media(max-width:700px){{.sender-form{{grid-template-columns:1fr}}}}
-    .sender-form .full{{grid-column:1/-1}}
-    .detail-overlay{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;backdrop-filter:blur(3px)}}
-    .detail-overlay.open{{display:flex;align-items:flex-start;justify-content:flex-end}}
-    .detail-panel{{background:#111827;width:min(660px,95vw);height:100vh;overflow-y:auto;padding:24px;box-shadow:-4px 0 40px rgba(0,0,0,.6);border-left:1px solid #27272a}}
-    .detail-panel h3{{font-size:15px;font-weight:700;margin-bottom:16px;color:#f8fafc}}
-    .detail-section{{margin-bottom:18px}}
-    .detail-section label{{display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:#71717a;margin-bottom:8px}}
-    .detail-section pre{{background:#0f172a;border:1px solid #27272a;border-radius:12px;padding:14px;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow-y:auto;font-family:'JetBrains Mono','Consolas',monospace;color:#e2e8f0;line-height:1.65}}
-    .budget-bar{{height:5px;background:#27272a;border-radius:3px;overflow:hidden;margin-top:8px}}
-    .budget-fill{{height:100%;border-radius:3px;transition:width .4s}}
-    .close-btn{{float:right;background:none;border:none;font-size:20px;cursor:pointer;color:#71717a;padding:0 4px}}
-    .close-btn:hover{{color:#f8fafc}}
-    .spinner{{display:inline-block;width:14px;height:14px;border:2px solid #27272a;border-top-color:#22c55e;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}}
-    @keyframes spin{{to{{transform:rotate(360deg)}}}}
-    #toast{{position:fixed;bottom:20px;right:20px;background:#18181b;color:#f8fafc;border:1px solid #27272a;padding:10px 18px;border-radius:10px;font-size:13px;display:none;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.5)}}
-    .tabnav{{background:#111827;border-bottom:1px solid #27272a}}
-    .tabnav-inner{{max-width:1500px;margin:0 auto;padding:0 16px;display:flex;gap:2px}}
-    .tab-btn{{background:none;border:none;border-bottom:2px solid transparent;color:#71717a;font-size:13px;font-weight:500;padding:12px 14px;cursor:pointer;font-family:inherit;transition:color .15s,border-color .15s}}
-    .tab-btn:hover{{color:#f8fafc}}
-    .tab-active{{color:#f8fafc;border-bottom-color:#22c55e}}
-    .insp-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}}
-    .insp-stat{{background:#18181b;border:1px solid #27272a;border-radius:12px;padding:14px}}
-    .insp-stat .col-name{{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#71717a;margin-bottom:8px;font-weight:600}}
-    .insp-stat .col-count{{font-size:26px;font-weight:700;color:#f8fafc;line-height:1}}
-    .insp-stat .col-sub{{font-size:11px;color:#52525b;margin-top:4px}}
-    .insp-stat .col-projects{{margin-top:10px;border-top:1px solid #27272a;padding-top:8px}}
-    .insp-stat .col-proj-row{{display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid #1f1f23}}
-  </style>
+  <style>{_css}</style>
 </head>
 <body>
 
@@ -445,7 +1083,8 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     </form>
     <button class="btn btn-secondary" onclick="toggleSender()">+ Nueva tarea</button>
     <button class="btn btn-secondary" onclick="toggleContextForm()">+ Nuevo contexto</button>
-    <a href="/docs" style="font-size:12px;color:#71717a;text-decoration:none;padding:4px 8px;border:1px solid #27272a;border-radius:6px;font-weight:500" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#71717a'">Docs</a>
+    <a href="/docs" class="theme-btn" style="text-decoration:none">Docs</a>
+    <button class="theme-btn" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema">☀</button>
     <span class="meta">{now}</span>
   </div>
 </div>
@@ -461,14 +1100,14 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 <div class="container">
 
   <div class="sender-panel" id="senderPanel">
-    <h2 style="font-size:13px;font-weight:700;color:#374151;margin-bottom:14px;text-transform:uppercase;letter-spacing:.4px">Enviar tarea</h2>
+    <h2 style="font-size:13px;font-weight:700;color:var(--text-muted);margin-bottom:14px;text-transform:uppercase;letter-spacing:.4px">Enviar tarea</h2>
     <div class="sender-form">
       <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
         <select id="senderProject" style="width:100%">{project_options_form}</select>
       </div>
       <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Modelo (opcional)</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Modelo (opcional)</label>
         <select id="senderModel" style="width:100%">
           <option value="">Router automático</option>
           <option value="claude">Claude</option>
@@ -477,39 +1116,39 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
         </select>
       </div>
       <div class="full">
-        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Tarea</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Tarea</label>
         <textarea id="senderTask" placeholder="Describí la tarea que querés resolver..."></textarea>
       </div>
       <div class="full" style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-primary" onclick="submitTask()">Enviar</button>
-        <span id="senderStatus" style="font-size:12px;color:#71717a"></span>
+        <span id="senderStatus" class="text-muted" style="font-size:12px"></span>
       </div>
     </div>
   </div>
 
   <div class="sender-panel" id="contextPanel">
-    <h2 style="font-size:13px;font-weight:700;color:#374151;margin-bottom:14px;text-transform:uppercase;letter-spacing:.4px">Nuevo contexto</h2>
+    <h2 style="font-size:13px;font-weight:700;color:var(--text-muted);margin-bottom:14px;text-transform:uppercase;letter-spacing:.4px">Nuevo contexto</h2>
     <div class="sender-form">
       <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
         <select id="ctxProject" style="width:100%">{project_options_form}</select>
       </div>
       <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Título</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Título</label>
         <input id="ctxTitle" type="text" placeholder="Objetivo del contexto..." style="width:100%">
       </div>
       <div class="full">
-        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Descripción (opcional)</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Descripción (opcional)</label>
         <input id="ctxDesc" type="text" placeholder="Detalle adicional..." style="width:100%">
       </div>
       <div class="full">
-        <label style="display:block;font-size:11px;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Pasos</label>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Pasos</label>
         <div id="ctxSteps"></div>
         <button class="btn btn-secondary" onclick="addCtxStep()" style="margin-top:8px;font-size:12px;padding:5px 12px">+ Paso</button>
       </div>
       <div class="full" style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-primary" onclick="submitContext()">Crear contexto</button>
-        <span id="ctxStatus" style="font-size:12px;color:#71717a"></span>
+        <span id="ctxStatus" class="text-muted" style="font-size:12px"></span>
       </div>
     </div>
   </div>
@@ -584,571 +1223,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <div id="activity-log" style="display:none"></div>
 </div>
 
-<script>
-const evtSource = new EventSource("/events");
-evtSource.addEventListener("run_started", e => {{
-  const d = JSON.parse(e.data);
-  prependPendingRow(d);
-}});
-evtSource.addEventListener("run_done", e => {{
-  const d = JSON.parse(e.data);
-  updateRow(d);
-  showToast("Run #" + d.run_id + " completado — " + (d.provider || "?") + " " + (d.cost_usd ? "$" + d.cost_usd.toFixed(4) : ""));
-}});
-evtSource.addEventListener("run_failed", e => {{
-  const d = JSON.parse(e.data);
-  markFailed(d);
-  showToast("Run #" + d.run_id + " falló: " + d.error, true);
-}});
-evtSource.addEventListener("budget_warning", e => {{
-  const d = JSON.parse(e.data);
-  updateBudgetGauge(d);
-}});
-
-function prependPendingRow(d) {{
-  const tbody = document.getElementById("runs-body");
-  const empty = document.getElementById("empty-msg");
-  if (empty) empty.style.display = "none";
-  const table = document.getElementById("runs-table");
-  if (table) table.style.display = "";
-  const tr = document.createElement("tr");
-  tr.dataset.runId = d.run_id;
-  tr.style.cursor = "pointer";
-  tr.onclick = () => openDetail(d.run_id);
-  tr.innerHTML = `
-    <td style="padding:9px 12px;color:#52525b;font-size:11px;white-space:nowrap;font-family:'JetBrains Mono',monospace">ahora</td>
-    <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#f8fafc">${{escHtml(d.project)}}</td>
-    <td style="padding:9px 12px"><span class="badge badge-pending">… pending</span></td>
-    <td colspan="7" style="padding:9px 12px;font-size:12px;color:#71717a"><span class="spinner"></span> esperando respuesta...</td>
-  `;
-  tbody.insertBefore(tr, tbody.firstChild);
-}}
-
-function updateRow(d) {{
-  const tr = document.querySelector(`tr[data-run-id="${{d.run_id}}"]`);
-  if (!tr) return;
-  tr.cells[2].innerHTML = '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600">done</span>';
-  if (tr.cells[3]) {{
-    tr.cells[3].colSpan = 1;
-    tr.cells[3].textContent = d.model ? d.model.split("/").pop() : "?";
-    for (let i = 4; i < 10; i++) {{
-      if (!tr.cells[i]) {{
-        const td = tr.insertCell(i);
-        td.style.padding = "8px 10px";
-        td.style.fontSize = "12px";
-        td.style.textAlign = i < 7 ? "right" : "left";
-      }}
-    }}
-    tr.cells[4].textContent = d.duration_ms ? (d.duration_ms >= 1000 ? (d.duration_ms/1000).toFixed(1)+"s" : d.duration_ms+"ms") : "—";
-    tr.cells[6].textContent = d.cost_usd ? "$" + parseFloat(d.cost_usd).toFixed(4) : "—";
-  }}
-}}
-
-function markFailed(d) {{
-  const tr = document.querySelector(`tr[data-run-id="${{d.run_id}}"]`);
-  if (!tr) return;
-  tr.cells[2].innerHTML = '<span class="badge badge-failed">✗ failed</span>';
-  if (tr.cells[3]) tr.cells[3].textContent = d.error || "error";
-}}
-
-function updateBudgetGauge(d) {{
-  const sec = document.getElementById("budgetSection");
-  const pct = Math.min(d.pct * 100, 100).toFixed(0);
-  const color = d.pct >= 1.0 ? "#ef4444" : d.pct >= 0.8 ? "#f59e0b" : "#22c55e";
-  sec.innerHTML = `<div class="panel" style="margin-bottom:20px">
-    <h2>Presupuesto diario — ${{escHtml(d.project)}}</h2>
-    <div style="display:flex;justify-content:space-between;font-size:12px;color:#71717a;margin-bottom:6px">
-      <span>Gastado: <strong style="color:#f8fafc">$${{parseFloat(d.spent_usd).toFixed(4)}}</strong></span>
-      <span>Límite: <strong style="color:#f8fafc">$${{parseFloat(d.limit_usd).toFixed(2)}}</strong></span>
-      <span style="color:${{color}};font-weight:700">${{pct}}%</span>
-    </div>
-    <div class="budget-bar"><div class="budget-fill" style="width:${{pct}}%;background:${{color}}"></div></div>
-  </div>`;
-}}
-
-function openDetail(runId) {{
-  if (!runId) return;
-  const overlay = document.getElementById("detailOverlay");
-  const content = document.getElementById("detailContent");
-  overlay.classList.add("open");
-  content.innerHTML = '<p style="color:#9ca3af;font-size:13px"><span class="spinner"></span> Cargando...</p>';
-  fetch("/run/" + runId)
-    .then(r => r.json())
-    .then(data => {{
-      const provColor = {{"claude":"#fb923c","deepseek":"#22c55e","openai":"#818cf8"}}[data.provider] || "#71717a";
-      const provBg = {{"claude":"rgba(251,146,60,0.12)","deepseek":"rgba(34,197,94,0.12)","openai":"rgba(129,140,248,0.12)"}}[data.provider] || "rgba(113,113,122,0.12)";
-      content.innerHTML = `
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-          <span style="background:#18181b;color:#a1a1aa;padding:3px 10px;border-radius:20px;font-size:11px;font-family:'JetBrains Mono',monospace">#${{data.id}}</span>
-          <span style="background:${{provBg}};color:${{provColor}};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${{escHtml(data.provider)}}</span>
-          <span style="background:#18181b;color:#a1a1aa;padding:3px 10px;border-radius:20px;font-size:11px;font-family:'JetBrains Mono',monospace">${{escHtml(data.model ? data.model.split('/').pop() : '—')}}</span>
-          <span style="background:#18181b;color:#a1a1aa;padding:3px 10px;border-radius:20px;font-size:12px">${{data.duration_ms ? (data.duration_ms/1000).toFixed(1)+"s" : "—"}}</span>
-          ${{data.cost_usd ? `<span style="background:rgba(34,197,94,0.10);color:#22c55e;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">$${{parseFloat(data.cost_usd).toFixed(4)}}</span>` : ''}}
-        </div>
-        <div class="detail-section">
-          <label>Tarea enviada</label>
-          <pre>${{escHtml(data.task || data.task_preview || "(sin texto)")}}</pre>
-        </div>
-        <div class="detail-section">
-          <label>Respuesta del modelo</label>
-          <pre>${{escHtml(data.response || "(sin respuesta aún)")}}</pre>
-        </div>
-        <div class="detail-section">
-          <label>Razón de ruteo</label>
-          <p style="font-size:13px;color:#a1a1aa;line-height:1.5">${{escHtml(data.routing_reason || "—")}}</p>
-        </div>
-        ${{data.cache_read_tokens ? `<div class="detail-section">
-          <label>Cache Claude</label>
-          <p style="font-size:13px;color:#a1a1aa">
-            Leídos: <strong style="color:#38bdf8">${{data.cache_read_tokens}}</strong> tokens
-            ${{data.cache_creation_tokens ? ` · Escritos: <strong style="color:#22c55e">${{data.cache_creation_tokens}}</strong>` : ''}}
-          </p>
-        </div>` : ''}}
-        ${{data.alignments && data.alignments.length ? `<div class="detail-section">
-          <label>Checkpoints de alineación</label>
-          <table style="width:100%;font-size:12px;border-collapse:collapse">
-            <thead><tr style="color:#52525b;border-bottom:1px solid #27272a">
-              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Hora</th>
-              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Checkpoint</th>
-              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Agente</th>
-              <th style="text-align:center;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">OK</th>
-              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Mensaje</th>
-            </tr></thead>
-            <tbody>
-              ${{data.alignments.map(a => `<tr style="border-bottom:1px solid #18181b">
-                <td style="padding:5px 8px;color:#52525b;white-space:nowrap;font-family:'JetBrains Mono',monospace">${{escHtml(a.ts ? a.ts.slice(11,19) : '—')}}</td>
-                <td style="padding:5px 8px;color:#d1d5db">${{escHtml(a.checkpoint || '—')}}</td>
-                <td style="padding:5px 8px;color:#a1a1aa">${{escHtml(a.agent || '—')}}</td>
-                <td style="padding:5px 8px;text-align:center">${{a.confirmed ? '<span style="color:#22c55e;font-weight:700;font-size:14px">✓</span>' : '<span style="color:#f87171;font-weight:700;font-size:14px">✗</span>'}}</td>
-                <td style="padding:5px 8px;color:#a1a1aa">${{escHtml(a.message || '')}}</td>
-              </tr>`).join('')}}
-            </tbody>
-          </table>
-        </div>` : ''}}
-        ${{data.tool_calls && data.tool_calls.length ? `<div class="detail-section">
-          <label>Herramientas invocadas</label>
-          <table style="width:100%;font-size:12px;border-collapse:collapse">
-            <thead><tr style="color:#52525b;border-bottom:1px solid #27272a">
-              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Hora</th>
-              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Herramienta</th>
-              <th style="text-align:center;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Estado</th>
-              <th style="text-align:right;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">ms</th>
-              <th style="text-align:left;padding:5px 8px;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Salida</th>
-            </tr></thead>
-            <tbody>
-              ${{data.tool_calls.map(tc => `<tr style="border-bottom:1px solid #18181b">
-                <td style="padding:5px 8px;color:#52525b;white-space:nowrap;font-family:'JetBrains Mono',monospace">${{escHtml(tc.ts ? tc.ts.slice(11,19) : '—')}}</td>
-                <td style="padding:5px 8px;font-weight:600;color:#f8fafc;font-family:'JetBrains Mono',monospace">${{escHtml(tc.tool_name || '—')}}</td>
-                <td style="padding:5px 8px;text-align:center"><span style="font-size:10px;padding:2px 7px;border-radius:20px;background:${{tc.status==='ok'?'rgba(34,197,94,0.12)':'rgba(248,113,113,0.12)'}};color:${{tc.status==='ok'?'#22c55e':'#f87171'}};font-weight:600">${{escHtml(tc.status || '—')}}</span></td>
-                <td style="padding:5px 8px;text-align:right;color:#71717a;font-variant-numeric:tabular-nums">${{tc.duration_ms != null ? tc.duration_ms : '—'}}</td>
-                <td style="padding:5px 8px;color:#a1a1aa;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{escHtml(tc.output ? String(tc.output).slice(0,80) : '')}}</td>
-              </tr>`).join('')}}
-            </tbody>
-          </table>
-        </div>` : ''}}
-      `;
-    }})
-    .catch(() => {{ content.innerHTML = '<p style="color:#ef4444;font-size:13px">Error al cargar detalle.</p>'; }});
-}}
-
-function closeDetail(e) {{
-  if (e && e.target !== document.getElementById("detailOverlay")) return;
-  document.getElementById("detailOverlay").classList.remove("open");
-}}
-
-function toggleSender() {{
-  document.getElementById("senderPanel").classList.toggle("open");
-  document.getElementById("contextPanel").classList.remove("open");
-}}
-
-function toggleContextForm() {{
-  document.getElementById("contextPanel").classList.toggle("open");
-  document.getElementById("senderPanel").classList.remove("open");
-}}
-
-let _ctxStepCount = 0;
-function addCtxStep() {{
-  _ctxStepCount++;
-  const container = document.getElementById("ctxSteps");
-  const row = document.createElement("div");
-  row.style.cssText = "display:flex;gap:8px;margin-bottom:8px;align-items:center";
-  row.innerHTML = `
-    <input type="text" placeholder="Título del paso..." style="flex:1;border:1px solid #27272a;border-radius:8px;padding:7px 12px;font-size:13px;background:#18181b;color:#f8fafc;font-family:inherit" class="ctx-step-title">
-    <select style="border:1px solid #27272a;border-radius:8px;padding:7px 12px;font-size:13px;background:#18181b;color:#f8fafc;font-family:inherit" class="ctx-step-provider">
-      <option value="">auto</option>
-      <option value="claude">claude</option>
-      <option value="deepseek">deepseek</option>
-      <option value="openai">openai</option>
-    </select>
-    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#71717a;cursor:pointer;font-size:16px;padding:0 4px" title="Quitar paso">✕</button>
-  `;
-  container.appendChild(row);
-}}
-
-function submitContext() {{
-  const project = document.getElementById("ctxProject").value;
-  const title   = document.getElementById("ctxTitle").value.trim();
-  const desc    = document.getElementById("ctxDesc").value.trim();
-  const status  = document.getElementById("ctxStatus");
-  if (!project) {{ status.textContent = "Seleccioná un proyecto."; return; }}
-  if (!title)   {{ status.textContent = "El título no puede estar vacío."; return; }}
-  const steps = Array.from(document.querySelectorAll("#ctxSteps > div")).map(row => ({{
-    title:    row.querySelector(".ctx-step-title").value.trim(),
-    provider: row.querySelector(".ctx-step-provider").value,
-  }})).filter(s => s.title);
-  status.innerHTML = '<span class="spinner"></span> Creando...';
-  fetch("/create-context", {{
-    method: "POST",
-    headers: {{"Content-Type": "application/json"}},
-    body: JSON.stringify({{project, title, description: desc, steps}}),
-  }})
-  .then(r => r.json())
-  .then(d => {{
-    if (d.error) {{ status.textContent = "Error: " + d.error; return; }}
-    status.textContent = "Contexto #" + d.context_id + " creado con " + (d.steps || []).length + " paso(s).";
-    document.getElementById("ctxTitle").value = "";
-    document.getElementById("ctxDesc").value = "";
-    document.getElementById("ctxSteps").innerHTML = "";
-    _ctxStepCount = 0;
-    showToast("Contexto '" + d.title + "' creado para " + d.project);
-  }})
-  .catch(() => {{ status.textContent = "Error al crear."; }});
-}}
-
-function submitTask() {{
-  const project = document.getElementById("senderProject").value;
-  const task    = document.getElementById("senderTask").value.trim();
-  const model   = document.getElementById("senderModel").value;
-  const status  = document.getElementById("senderStatus");
-  if (!project) {{ status.textContent = "Seleccioná un proyecto."; return; }}
-  if (!task)    {{ status.textContent = "La tarea no puede estar vacía."; return; }}
-  status.innerHTML = '<span class="spinner"></span> Enviando...';
-  fetch("/run", {{
-    method: "POST",
-    headers: {{"Content-Type": "application/json"}},
-    body: JSON.stringify({{project, task, model: model || undefined}}),
-  }})
-  .then(r => r.json())
-  .then(d => {{
-    status.textContent = "Run #" + d.run_id + " enviado.";
-    document.getElementById("senderTask").value = "";
-  }})
-  .catch(() => {{ status.textContent = "Error al enviar."; }});
-}}
-
-function showToast(msg, isError) {{
-  const t = document.getElementById("toast");
-  t.textContent = msg;
-  t.style.background = isError ? "#ef4444" : "#1f2937";
-  t.style.display = "block";
-  setTimeout(() => {{ t.style.display = "none"; }}, 4000);
-}}
-
-function escHtml(s) {{
-  if (s == null) return "";
-  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}}
-
-// ── Activity bar ─────────────────────────────────────────────────────────────
-let _actOpen = false;
-const _traceMap = {{}};
-
-evtSource.addEventListener("trace", e => _handleTrace(JSON.parse(e.data)));
-
-function toggleActivity() {{
-  _actOpen = !_actOpen;
-  document.getElementById("activity-log").style.display = _actOpen ? "block" : "none";
-  document.getElementById("act-toggle").textContent  = _actOpen ? "▲" : "▼";
-}}
-
-function _traceKey(d) {{
-  return ("tr_" + d.name + (d.run_id != null ? "_" + d.run_id : "")).replace(/[^a-z0-9_]/gi, "_");
-}}
-
-function _fmtTs(iso) {{
-  try {{ return new Date(iso).toLocaleTimeString("es", {{hour12:false, fractionalSecondDigits:2}}); }}
-  catch {{ return iso.slice(11, 22); }}
-}}
-
-function _handleTrace(d) {{
-  const key  = _traceKey(d);
-  const log  = document.getElementById("activity-log");
-  const dot  = document.getElementById("act-dot");
-  const runLabel = d.run_id != null ? "#" + d.run_id : "";
-  const detLabel = d.detail ? " · " + escHtml(d.detail) : "";
-
-  if (d.status === "running") {{
-    const row = document.createElement("div");
-    row.id = key;
-    row.className = "tr-row tr-running";
-    row.innerHTML =
-      `<span class="tr-ts">${{_fmtTs(d.ts)}}</span>` +
-      `<span class="tr-run">${{escHtml(runLabel)}}</span>` +
-      `<span class="tr-icon">▶</span>` +
-      `<span class="tr-name">${{escHtml(d.name)}}${{detLabel}}</span>` +
-      `<span class="tr-dur"></span>`;
-    _traceMap[key] = row;
-    log.insertBefore(row, log.firstChild);
-    while (log.children.length > 80) log.removeChild(log.lastChild);
-    if (!_actOpen) {{ _actOpen = true; log.style.display = "block"; document.getElementById("act-toggle").textContent = "▲"; }}
-  }} else {{
-    const icon = d.status === "done" ? "✓" : "✗";
-    const dur  = d.duration_ms != null ? d.duration_ms + "ms" : "";
-    const cls  = "tr-row tr-" + d.status;
-    const existing = _traceMap[key] || document.getElementById(key);
-    if (existing) {{
-      existing.className = cls;
-      existing.querySelector(".tr-icon").textContent = icon;
-      existing.querySelector(".tr-dur").textContent  = dur;
-      delete _traceMap[key];
-    }}
-  }}
-
-  const icon2 = d.status === "done" ? "✓" : d.status === "error" ? "✗" : "▶";
-  const dur2  = d.duration_ms ? " " + d.duration_ms + "ms" : "";
-  document.getElementById("act-summary").textContent = icon2 + " " + d.name + (runLabel ? " " + runLabel : "") + dur2;
-  dot.classList.add("live");
-  dot.classList.remove("pulse");
-  void dot.offsetWidth;
-  dot.classList.add("pulse");
-}}
-
-let _inspectorLoaded = false;
-function switchTab(name) {{
-  document.getElementById("tab-main").style.display      = name === "main"      ? "" : "none";
-  document.getElementById("tab-inspector").style.display = name === "inspector" ? "" : "none";
-  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
-  document.getElementById("tab-btn-" + name).classList.add("tab-active");
-  if (name === "inspector" && !_inspectorLoaded) {{
-    _inspectorLoaded = true;
-    loadInspector();
-  }}
-}}
-
-function loadInspector() {{
-  const el = document.getElementById("inspector-content");
-  el.innerHTML = '<p style="color:#71717a;font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
-  fetch("/inspect")
-    .then(r => r.json())
-    .then(data => {{
-      if (data.error) {{
-        el.innerHTML = `<p style="color:#f87171;font-size:13px">Error del servidor: ${{escHtml(data.error)}}</p>`;
-        return;
-      }}
-      renderInspector(data);
-    }})
-    .catch(err => {{
-      el.innerHTML = `<p style="color:#f87171;font-size:13px">Error de conexión: ${{escHtml(String(err))}}</p>`;
-    }});
-}}
-
-function reloadInspector() {{
-  const el = document.getElementById("inspector-content");
-  el.innerHTML = '<p style="color:#71717a;font-size:13px"><span class="spinner"></span>&nbsp;Actualizando...</p>';
-  fetch("/inspect")
-    .then(r => r.json())
-    .then(renderInspector)
-    .catch(() => {{ el.innerHTML = '<p style="color:#f87171;font-size:13px">Error al recargar.</p>'; }});
-}}
-
-function pickFolder(alias) {{
-  const btn    = document.getElementById("reg-pick-" + alias);
-  const input  = document.getElementById("reg-path-" + alias);
-  const status = document.getElementById("reg-status-" + alias);
-  const orig   = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>';
-  fetch("/pick-folder")
-    .then(r => r.json())
-    .then(d => {{
-      if (d.path) {{
-        input.value = d.path;
-        status.textContent = "";
-        input.focus();
-      }} else {{
-        status.textContent = d.error ? "✗ " + d.error : "Cancelado.";
-        status.style.color = "#71717a";
-      }}
-    }})
-    .catch(() => {{ status.textContent = "✗ Sin respuesta."; status.style.color = "#f87171"; }})
-    .finally(() => {{ btn.disabled = false; btn.innerHTML = orig; }});
-}}
-
-function registerProject(alias) {{
-  const input  = document.getElementById("reg-path-" + alias);
-  const status = document.getElementById("reg-status-" + alias);
-  const path = input ? input.value.trim() : "";
-  if (!path) {{ status.textContent = "Ingresá la ruta."; status.style.color = "#f87171"; return; }}
-  status.innerHTML = '<span class="spinner"></span>';
-  fetch("/add-project", {{
-    method: "POST",
-    headers: {{"Content-Type": "application/json"}},
-    body: JSON.stringify({{alias, path}}),
-  }})
-  .then(r => r.json())
-  .then(d => {{
-    if (d.error) {{ status.textContent = "✗ " + d.error; status.style.color = "#f87171"; }}
-    else {{
-      status.textContent = "✓ registrado";
-      status.style.color = "#22c55e";
-      const row = document.getElementById("reg-row-" + alias);
-      if (row) row.style.opacity = "0.4";
-      setTimeout(reloadInspector, 900);
-    }}
-  }})
-  .catch(() => {{ status.textContent = "✗ Error de conexión."; status.style.color = "#f87171"; }});
-}}
-
-function indexDocs() {{
-  const sel = document.getElementById("insp-project-sel");
-  const status = document.getElementById("insp-action-status");
-  const proj = sel ? sel.value : "";
-  if (!proj) {{ status.textContent = "Seleccioná un proyecto."; return; }}
-  status.innerHTML = '<span class="spinner"></span>&nbsp;Indexando...';
-  document.getElementById("insp-index-btn").disabled = true;
-  fetch("/index-docs", {{
-    method: "POST",
-    headers: {{"Content-Type": "application/json"}},
-    body: JSON.stringify({{project: proj}}),
-  }})
-  .then(r => r.json())
-  .then(d => {{
-    if (d.error) {{ status.textContent = "Error: " + d.error; }}
-    else {{ status.textContent = "✓ " + d.chunks + " chunks indexados para '" + d.project + "'."; }}
-    document.getElementById("insp-index-btn").disabled = false;
-    reloadInspector();
-  }})
-  .catch(() => {{
-    status.textContent = "Error de conexión.";
-    document.getElementById("insp-index-btn").disabled = false;
-  }});
-}}
-
-function renderInspector(data) {{
-  const el = document.getElementById("inspector-content");
-  const chroma = data.chroma || {{}};
-  const COLS = ["runs","docs","responses"];
-  const colLabels = {{runs:"Routing memory",docs:"Docs (RAG)",responses:"Respuestas"}};
-  const registered = new Set(data.registered_projects || []);
-  const allProjects = data.all_projects || [];
-  const projOpts = allProjects.map(p => {{
-    const indexable = registered.has(p);
-    const label = indexable ? p : p + " (sin ruta)";
-    return `<option value="${{escHtml(p)}}" ${{indexable ? "" : 'style="color:#71717a"'}}>${{escHtml(label)}}</option>`;
-  }}).join("");
-  let html = `<div class="panel" style="margin-bottom:16px">
-    <h2>Acciones</h2>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <select id="insp-project-sel" style="min-width:160px">
-        <option value="">— proyecto —</option>${{projOpts}}
-      </select>
-      <button id="insp-index-btn" class="btn btn-primary" onclick="indexDocs()">Indexar docs</button>
-      <span id="insp-action-status" style="font-size:12px;color:#71717a"></span>
-      <button class="btn btn-secondary" onclick="reloadInspector()" style="margin-left:auto">↻ Recargar</button>
-    </div>
-  </div>
-  <div class="panel" style="margin-bottom:20px">
-    <h2>ChromaDB — Colecciones vectoriales</h2>
-    <div class="insp-grid">`;
-  COLS.forEach(col => {{
-    const c = chroma[col] || {{}};
-    const bp = c.by_project || {{}};
-    const bpRows = Object.entries(bp).map(([p,n]) =>
-      `<div class="col-proj-row"><span style="color:#a1a1aa">${{escHtml(p)}}</span><span style="color:#22c55e;font-weight:600">${{n}}</span></div>`
-    ).join("");
-    html += `<div class="insp-stat">
-      <div class="col-name">${{colLabels[col] || col}}</div>
-      <div class="col-count">${{c.count ?? "—"}}</div>
-      <div class="col-sub">documentos indexados</div>
-      ${{bpRows ? '<div class="col-projects">' + bpRows + '</div>' : ""}}
-    </div>`;
-  }});
-  html += `</div></div></div>`;
-
-  const unregistered = allProjects.filter(p => !registered.has(p));
-  if (unregistered.length > 0) {{
-    const regRows = unregistered.map(p => `
-      <div style="display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #18181b" id="reg-row-${{escHtml(p)}}">
-        <span style="font-size:12px;color:#f8fafc;min-width:140px;font-family:'JetBrains Mono',monospace;flex-shrink:0">${{escHtml(p)}}</span>
-        <input type="text" id="reg-path-${{escHtml(p)}}" placeholder="Ruta al directorio del proyecto" style="flex:1;min-width:0">
-        <button id="reg-pick-${{escHtml(p)}}" class="btn btn-secondary" title="Seleccionar carpeta…" style="padding:0 10px;font-size:15px;flex-shrink:0" onclick="pickFolder('${{escHtml(p)}}')">&#128193;</button>
-        <button class="btn btn-secondary" style="white-space:nowrap;flex-shrink:0" onclick="registerProject('${{escHtml(p)}}')">Registrar</button>
-        <span id="reg-status-${{escHtml(p)}}" style="font-size:12px;min-width:80px;flex-shrink:0"></span>
-      </div>`).join("");
-    html += `<div class="panel" style="margin-bottom:16px">
-      <h2>Proyectos sin ruta registrada</h2>
-      <p style="font-size:12px;color:#71717a;margin-bottom:10px">Ingresá la ruta local para habilitarlos en el router y en el indexador RAG.</p>
-      ${{regRows}}
-    </div>`;
-  }}
-
-  function mkTable(title, rows, cols) {{
-    const n = (rows||[]).length;
-    if (!n) return `<div class="panel" style="margin-bottom:16px"><h2>${{title}} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">(0)</span></h2><p style="color:#52525b;font-size:13px">Sin registros.</p></div>`;
-    const ths = cols.map(c => `<th style="text-align:left;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px">${{c.label}}</th>`).join("");
-    const trs = rows.map(r => `<tr style="border-bottom:1px solid #18181b">${{
-      cols.map(c => {{
-        const val = r[c.key] ?? "—";
-        const sval = String(val);
-        const display = c.max && sval.length > c.max ? sval.slice(0, c.max) + "…" : sval;
-        return `<td style="padding:7px 10px;font-size:12px;color:${{c.color||"#a1a1aa"}};${{c.mono?"font-family:'JetBrains Mono',monospace":""}}">
-          ${{escHtml(display)}}
-        </td>`;
-      }}).join("")
-    }}</tr>`).join("");
-    return `<div class="panel" style="margin-bottom:16px;overflow-x:auto">
-      <h2>${{title}} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">${{n}} filas</span></h2>
-      <table><thead><tr style="background:#0c0c0e;border-bottom:1px solid #27272a">${{ths}}</tr></thead><tbody>${{trs}}</tbody></table>
-    </div>`;
-  }}
-
-  html += mkTable("Chunks indexados (RAG)", data.chunks, [
-    {{label:"Proyecto",    key:"project",    color:"#f8fafc"}},
-    {{label:"Archivo",     key:"source_path",color:"#a1a1aa",mono:true,max:60}},
-    {{label:"Chunks",      key:"chunk_count",color:"#22c55e"}},
-    {{label:"Colección",   key:"collection", color:"#71717a"}},
-    {{label:"Indexado",    key:"ts",         color:"#52525b",mono:true,max:19}},
-  ]);
-
-  html += mkTable("Contextos", data.contexts, [
-    {{label:"ID",      key:"id",          color:"#52525b",mono:true}},
-    {{label:"Proyecto",key:"project",     color:"#f8fafc"}},
-    {{label:"Título",  key:"title",       color:"#d1d5db",max:50}},
-    {{label:"Estado",  key:"status",      color:"#22c55e"}},
-    {{label:"Creado",  key:"ts",          color:"#52525b",mono:true,max:19}},
-  ]);
-
-  html += mkTable("Pasos", data.steps, [
-    {{label:"ID",       key:"id",            color:"#52525b",mono:true}},
-    {{label:"Proyecto", key:"project",       color:"#f8fafc"}},
-    {{label:"Contexto", key:"context_title", color:"#a1a1aa",max:30}},
-    {{label:"#",        key:"order_idx",     color:"#71717a",mono:true}},
-    {{label:"Título",   key:"title",         color:"#d1d5db",max:40}},
-    {{label:"Estado",   key:"status",        color:"#38bdf8"}},
-    {{label:"Provider", key:"provider",      color:"#71717a"}},
-  ]);
-
-  html += mkTable("Alineamientos", data.alignments, [
-    {{label:"ID",         key:"id",         color:"#52525b",mono:true}},
-    {{label:"Hora",       key:"ts",         color:"#52525b",mono:true,max:19}},
-    {{label:"Paso",       key:"step_title", color:"#a1a1aa",max:35}},
-    {{label:"Agente",     key:"agent",      color:"#d1d5db"}},
-    {{label:"OK",         key:"confirmed",  color:"#22c55e"}},
-    {{label:"Checkpoint", key:"checkpoint", color:"#71717a",max:50}},
-  ]);
-
-  html += mkTable("Tool Calls", data.tool_calls, [
-    {{label:"ID",          key:"id",          color:"#52525b",mono:true}},
-    {{label:"Hora",        key:"ts",          color:"#52525b",mono:true,max:19}},
-    {{label:"Paso",        key:"step_title",  color:"#a1a1aa",max:35}},
-    {{label:"Herramienta", key:"tool_name",   color:"#f8fafc",mono:true}},
-    {{label:"Estado",      key:"status",      color:"#22c55e"}},
-    {{label:"ms",          key:"duration_ms", color:"#71717a"}},
-  ]);
-
-  el.innerHTML = html;
-}}
-</script>
+<script>{_js}</script>
 
 </body>
 </html>"""
