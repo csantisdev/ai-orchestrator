@@ -99,6 +99,7 @@ def insert_run(
     model: str = "",
     status: str = "pending",
     parent_run_id: Optional[int] = None,
+    step_id: Optional[int] = None,
 ) -> int:
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
@@ -106,9 +107,9 @@ def insert_run(
     with _write_lock:
         cur = conn.execute(
             """INSERT INTO runs
-               (ts, project, provider, model, status, task, task_preview, parent_run_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (ts, project, provider, model, status, task, preview, parent_run_id),
+               (ts, project, provider, model, status, task, task_preview, parent_run_id, step_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ts, project, provider, model, status, task, preview, parent_run_id, step_id),
         )
         conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
@@ -217,3 +218,51 @@ def projects_list() -> list[str]:
         "SELECT DISTINCT project FROM runs ORDER BY project"
     ).fetchall()
     return [r["project"] for r in rows]
+
+
+def read_contexts_with_steps(project: Optional[str] = None) -> list[dict]:
+    conn = _conn()
+    if project:
+        ctx_rows = conn.execute(
+            "SELECT * FROM contexts WHERE project=? ORDER BY ts DESC LIMIT 20",
+            (project,),
+        ).fetchall()
+    else:
+        ctx_rows = conn.execute(
+            "SELECT * FROM contexts WHERE status='active' ORDER BY ts DESC LIMIT 10"
+        ).fetchall()
+    result = []
+    for ctx in ctx_rows:
+        ctx_dict = dict(ctx)
+        steps = conn.execute(
+            "SELECT * FROM steps WHERE context_id=? ORDER BY order_idx",
+            (ctx["id"],),
+        ).fetchall()
+        ctx_dict["steps"] = [dict(s) for s in steps]
+        result.append(ctx_dict)
+    return result
+
+
+def insert_context(project: str, title: str, description: str = "", metadata: str = "{}") -> int:
+    conn = _conn()
+    ts = datetime.now(timezone.utc).isoformat()
+    with _write_lock:
+        cur = conn.execute(
+            """INSERT INTO contexts (ts, updated_at, project, title, description, status, metadata)
+               VALUES (?, ?, ?, ?, ?, 'active', ?)""",
+            (ts, ts, project, title, description, metadata),
+        )
+        conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+
+def insert_step(context_id: int, order_idx: int, title: str, description: str = "", provider: str = "") -> int:
+    conn = _conn()
+    with _write_lock:
+        cur = conn.execute(
+            """INSERT INTO steps (context_id, order_idx, title, description, status, provider)
+               VALUES (?, ?, ?, ?, 'pending', ?)""",
+            (context_id, order_idx, title, description, provider),
+        )
+        conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
