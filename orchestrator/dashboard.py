@@ -180,7 +180,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
             active_bg = "background:rgba(56,189,248,0.06);" if is_active else ""
             prov_html = ""
             if provider:
-                pc = PROVIDER_COLORS.get(provider, "#71717a")
+                pc = PROVIDER_COLORS.get(provider, "var(--text-muted)")
                 pbg = PROVIDER_BG.get(provider, "rgba(113,113,122,0.12)")
                 prov_html = f'<span style="font-size:10px;background:{pbg};color:{pc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(provider)}</span>'
             steps_html += (
@@ -212,7 +212,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
 
     return (
         f'<div class="panel" style="margin-bottom:20px">'
-        f'<h2>Contextos <span style="font-weight:400;text-transform:none;font-size:11px;color:#52525b;letter-spacing:0">({len(contexts)})</span></h2>'
+        f'<h2>Contextos <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-faint);letter-spacing:0">({len(contexts)})</span></h2>'
         f'{cards}'
         f'</div>'
     )
@@ -438,7 +438,7 @@ function openDetail(runId) {
   fetch("/run/" + runId)
     .then(r => r.json())
     .then(data => {
-      const provColor = {"claude":"#fb923c","deepseek":"#22c55e","openai":"#818cf8"}[data.provider] || "#71717a";
+      const provColor = {"claude":"#fb923c","deepseek":"#22c55e","openai":"#818cf8"}[data.provider] || "var(--text-muted)";
       const provBg = {"claude":"rgba(251,146,60,0.12)","deepseek":"rgba(34,197,94,0.12)","openai":"rgba(129,140,248,0.12)"}[data.provider] || "rgba(113,113,122,0.12)";
       content.innerHTML = `
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
@@ -716,7 +716,7 @@ function switchTab(name) {
 
 function loadInspector() {
   const el = document.getElementById("inspector-content");
-  el.innerHTML = '<p style="color:#71717a;font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
+  el.innerHTML = '<p class="text-muted" style="font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
   fetch("/inspect")
     .then(r => r.json())
     .then(data => {
@@ -733,7 +733,7 @@ function loadInspector() {
 
 function reloadInspector() {
   const el = document.getElementById("inspector-content");
-  el.innerHTML = '<p style="color:#71717a;font-size:13px"><span class="spinner"></span>&nbsp;Actualizando...</p>';
+  el.innerHTML = '<p class="text-muted" style="font-size:13px"><span class="spinner"></span>&nbsp;Actualizando...</p>';
   fetch("/inspect")
     .then(r => r.json())
     .then(renderInspector)
@@ -756,7 +756,7 @@ function pickFolder(alias) {
         input.focus();
       } else {
         status.textContent = d.error ? "✗ " + d.error : "Cancelado.";
-        status.style.color = "#71717a";
+        status.style.color = "var(--text-muted)";
       }
     })
     .catch(() => { status.textContent = "✗ Sin respuesta."; status.style.color = "#f87171"; })
@@ -823,7 +823,7 @@ function renderInspector(data) {
   const projOpts = allProjects.map(p => {
     const indexable = registered.has(p);
     const label = indexable ? p : p + " (sin ruta)";
-    return `<option value="${escHtml(p)}" ${indexable ? "" : 'style="color:#71717a"'}>${escHtml(label)}</option>`;
+    return `<option value="${escHtml(p)}" ${indexable ? "" : 'style="color:var(--text-muted)"'}>${escHtml(label)}</option>`;
   }).join("");
   let html = `<div class="panel" style="margin-bottom:16px">
     <h2>Acciones</h2>
@@ -832,7 +832,7 @@ function renderInspector(data) {
         <option value="">— proyecto —</option>${projOpts}
       </select>
       <button id="insp-index-btn" class="btn btn-primary" onclick="indexDocs()">Indexar docs</button>
-      <span id="insp-action-status" style="font-size:12px;color:#71717a"></span>
+      <span id="insp-action-status" class="text-muted" style="font-size:12px"></span>
       <button class="btn btn-secondary" onclick="reloadInspector()" style="margin-left:auto">↻ Recargar</button>
     </div>
   </div>
@@ -843,7 +843,7 @@ function renderInspector(data) {
     const c = chroma[col] || {};
     const bp = c.by_project || {};
     const bpRows = Object.entries(bp).map(([p,n]) =>
-      `<div class="col-proj-row"><span style="color:#a1a1aa">${escHtml(p)}</span><span style="color:#22c55e;font-weight:600">${n}</span></div>`
+      `<div class="col-proj-row"><span class="text-faint">${escHtml(p)}</span><span style="color:#22c55e;font-weight:600">${n}</span></div>`
     ).join("");
     html += `<div class="insp-stat">
       <div class="col-name">${colLabels[col] || col}</div>
@@ -857,8 +857,8 @@ function renderInspector(data) {
   const unregistered = allProjects.filter(p => !registered.has(p));
   if (unregistered.length > 0) {
     const regRows = unregistered.map(p => `
-      <div style="display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #18181b" id="reg-row-${escHtml(p)}">
-        <span style="font-size:12px;color:#f8fafc;min-width:140px;font-family:'JetBrains Mono',monospace;flex-shrink:0">${escHtml(p)}</span>
+      <div style="display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-faint)" id="reg-row-${escHtml(p)}">
+        <span style="font-size:12px;color:var(--text-primary);min-width:140px;font-family:'JetBrains Mono',monospace;flex-shrink:0">${escHtml(p)}</span>
         <input type="text" id="reg-path-${escHtml(p)}" placeholder="Ruta al directorio del proyecto" style="flex:1;min-width:0">
         <button id="reg-pick-${escHtml(p)}" class="btn btn-secondary" title="Seleccionar carpeta…" style="padding:0 10px;font-size:15px;flex-shrink:0" onclick="pickFolder('${escHtml(p)}')">&#128193;</button>
         <button class="btn btn-secondary" style="white-space:nowrap;flex-shrink:0" onclick="registerProject('${escHtml(p)}')">Registrar</button>
@@ -866,73 +866,73 @@ function renderInspector(data) {
       </div>`).join("");
     html += `<div class="panel" style="margin-bottom:16px">
       <h2>Proyectos sin ruta registrada</h2>
-      <p style="font-size:12px;color:#71717a;margin-bottom:10px">Ingresá la ruta local para habilitarlos en el router y en el indexador RAG.</p>
+      <p class="text-muted" style="font-size:12px;margin-bottom:10px">Ingresá la ruta local para habilitarlos en el router y en el indexador RAG.</p>
       ${regRows}
     </div>`;
   }
 
   function mkTable(title, rows, cols) {
     const n = (rows||[]).length;
-    if (!n) return `<div class="panel" style="margin-bottom:16px"><h2>${title} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">(0)</span></h2><p style="color:#52525b;font-size:13px">Sin registros.</p></div>`;
+    if (!n) return `<div class="panel" style="margin-bottom:16px"><h2>${title} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)">(0)</span></h2><p class="text-faint" style="font-size:13px">Sin registros.</p></div>`;
     const ths = cols.map(c => `<th style="text-align:left;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px">${c.label}</th>`).join("");
-    const trs = rows.map(r => `<tr style="border-bottom:1px solid #18181b">${
+    const trs = rows.map(r => `<tr style="border-bottom:1px solid var(--border-faint)">${
       cols.map(c => {
         const val = r[c.key] ?? "—";
         const sval = String(val);
         const display = c.max && sval.length > c.max ? sval.slice(0, c.max) + "…" : sval;
-        return `<td style="padding:7px 10px;font-size:12px;color:${c.color||"#a1a1aa"};${c.mono?"font-family:'JetBrains Mono',monospace":""}">
+        return `<td style="padding:7px 10px;font-size:12px;color:${c.color||"var(--text-secondary)"};${c.mono?"font-family:'JetBrains Mono',monospace":""}">
           ${escHtml(display)}
         </td>`;
       }).join("")
     }</tr>`).join("");
     return `<div class="panel" style="margin-bottom:16px;overflow-x:auto">
-      <h2>${title} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">${n} filas</span></h2>
-      <table><thead><tr style="background:#0c0c0e;border-bottom:1px solid #27272a">${ths}</tr></thead><tbody>${trs}</tbody></table>
+      <h2>${title} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)">${n} filas</span></h2>
+      <table><thead><tr style="background:var(--bg-elevated);border-bottom:1px solid var(--border)">${ths}</tr></thead><tbody>${trs}</tbody></table>
     </div>`;
   }
 
   html += mkTable("Chunks indexados (RAG)", data.chunks, [
-    {label:"Proyecto",    key:"project",    color:"#f8fafc"},
-    {label:"Archivo",     key:"source_path",color:"#a1a1aa",mono:true,max:60},
+    {label:"Proyecto",    key:"project",    color:"var(--text-primary)"},
+    {label:"Archivo",     key:"source_path",color:"var(--text-secondary)",mono:true,max:60},
     {label:"Chunks",      key:"chunk_count",color:"#22c55e"},
-    {label:"Colección",   key:"collection", color:"#71717a"},
-    {label:"Indexado",    key:"ts",         color:"#52525b",mono:true,max:19},
+    {label:"Colección",   key:"collection", color:"var(--text-muted)"},
+    {label:"Indexado",    key:"ts",         color:"var(--text-faint)",mono:true,max:19},
   ]);
 
   html += mkTable("Contextos", data.contexts, [
-    {label:"ID",      key:"id",          color:"#52525b",mono:true},
-    {label:"Proyecto",key:"project",     color:"#f8fafc"},
-    {label:"Título",  key:"title",       color:"#d1d5db",max:50},
+    {label:"ID",      key:"id",          color:"var(--text-faint)",mono:true},
+    {label:"Proyecto",key:"project",     color:"var(--text-primary)"},
+    {label:"Título",  key:"title",       color:"var(--text-detail)",max:50},
     {label:"Estado",  key:"status",      color:"#22c55e"},
-    {label:"Creado",  key:"ts",          color:"#52525b",mono:true,max:19},
+    {label:"Creado",  key:"ts",          color:"var(--text-faint)",mono:true,max:19},
   ]);
 
   html += mkTable("Pasos", data.steps, [
-    {label:"ID",       key:"id",            color:"#52525b",mono:true},
-    {label:"Proyecto", key:"project",       color:"#f8fafc"},
-    {label:"Contexto", key:"context_title", color:"#a1a1aa",max:30},
-    {label:"#",        key:"order_idx",     color:"#71717a",mono:true},
-    {label:"Título",   key:"title",         color:"#d1d5db",max:40},
+    {label:"ID",       key:"id",            color:"var(--text-faint)",mono:true},
+    {label:"Proyecto", key:"project",       color:"var(--text-primary)"},
+    {label:"Contexto", key:"context_title", color:"var(--text-secondary)",max:30},
+    {label:"#",        key:"order_idx",     color:"var(--text-muted)",mono:true},
+    {label:"Título",   key:"title",         color:"var(--text-detail)",max:40},
     {label:"Estado",   key:"status",        color:"#38bdf8"},
-    {label:"Provider", key:"provider",      color:"#71717a"},
+    {label:"Provider", key:"provider",      color:"var(--text-muted)"},
   ]);
 
   html += mkTable("Alineamientos", data.alignments, [
-    {label:"ID",         key:"id",         color:"#52525b",mono:true},
-    {label:"Hora",       key:"ts",         color:"#52525b",mono:true,max:19},
-    {label:"Paso",       key:"step_title", color:"#a1a1aa",max:35},
-    {label:"Agente",     key:"agent",      color:"#d1d5db"},
+    {label:"ID",         key:"id",         color:"var(--text-faint)",mono:true},
+    {label:"Hora",       key:"ts",         color:"var(--text-faint)",mono:true,max:19},
+    {label:"Paso",       key:"step_title", color:"var(--text-secondary)",max:35},
+    {label:"Agente",     key:"agent",      color:"var(--text-detail)"},
     {label:"OK",         key:"confirmed",  color:"#22c55e"},
-    {label:"Checkpoint", key:"checkpoint", color:"#71717a",max:50},
+    {label:"Checkpoint", key:"checkpoint", color:"var(--text-muted)",max:50},
   ]);
 
   html += mkTable("Tool Calls", data.tool_calls, [
-    {label:"ID",          key:"id",          color:"#52525b",mono:true},
-    {label:"Hora",        key:"ts",          color:"#52525b",mono:true,max:19},
-    {label:"Paso",        key:"step_title",  color:"#a1a1aa",max:35},
-    {label:"Herramienta", key:"tool_name",   color:"#f8fafc",mono:true},
+    {label:"ID",          key:"id",          color:"var(--text-faint)",mono:true},
+    {label:"Hora",        key:"ts",          color:"var(--text-faint)",mono:true,max:19},
+    {label:"Paso",        key:"step_title",  color:"var(--text-secondary)",max:35},
+    {label:"Herramienta", key:"tool_name",   color:"var(--text-primary)",mono:true},
     {label:"Estado",      key:"status",      color:"#22c55e"},
-    {label:"ms",          key:"duration_ms", color:"#71717a"},
+    {label:"ms",          key:"duration_ms", color:"var(--text-muted)"},
   ]);
 
   el.innerHTML = html;
@@ -1001,13 +1001,13 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
         <div style="margin-bottom:10px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
             <span style="font-size:12px;font-weight:600;color:{color};background:{bg};padding:2px 9px;border-radius:20px">{safe_key}</span>
-            <span style="font-size:12px;color:#71717a;font-variant-numeric:tabular-nums">{count}</span>
+            <span class="text-muted" style="font-size:12px;font-variant-numeric:tabular-nums">{count}</span>
           </div>
-          <div style="height:5px;background:#27272a;border-radius:3px;overflow:hidden">
+          <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
             <div style="height:100%;width:{pct}%;background:{color};border-radius:3px;opacity:.85"></div>
           </div>
         </div>"""
-        return bars or '<p style="color:#71717a;font-size:13px">Sin datos</p>'
+        return bars or '<p class="text-muted" style="font-size:13px">Sin datos</p>'
 
     provider_bars = _chart_bars(by_provider, max_prov, lambda p: (PROVIDER_COLORS.get(p, "#888"), PROVIDER_BG.get(p, "#f8f8f8")))
     model_bars    = _chart_bars(by_model, max_model, _model_color)
@@ -1028,15 +1028,15 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
         status_html = _status_badge(r.get("status", "done"))
         run_id = r.get("id", "")
         rows += f"""<tr data-run-id="{_escape(run_id)}" onclick="openDetail({_escape(run_id) if run_id else '0'})" style="cursor:pointer">
-          <td style="padding:9px 12px;color:#71717a;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums;font-family:'JetBrains Mono',monospace">{_fmt_ts(r.get('ts',''))}</td>
-          <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#f8fafc">{_escape(_text(r.get('project'), '—'))}</td>
+          <td class="td-ts">{_fmt_ts(r.get('ts',''))}</td>
+          <td class="td-project">{_escape(_text(r.get('project'), '—'))}</td>
           <td style="padding:9px 12px">{badge}</td>
-          <td style="padding:9px 12px;font-size:12px;color:#a1a1aa;font-family:'JetBrains Mono',monospace">{_escape(model_short)}</td>
-          <td style="padding:9px 12px;font-size:12px;color:#a1a1aa;text-align:right;font-variant-numeric:tabular-nums">{_fmt_ms(r.get('duration_ms'))}</td>
-          <td style="padding:9px 12px;font-size:12px;color:#a1a1aa;text-align:right;font-variant-numeric:tabular-nums">{_fmt_tokens(r.get('input_tokens'), r.get('output_tokens'))}</td>
+          <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace">{_escape(model_short)}</td>
+          <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:right;font-variant-numeric:tabular-nums">{_fmt_ms(r.get('duration_ms'))}</td>
+          <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:right;font-variant-numeric:tabular-nums">{_fmt_tokens(r.get('input_tokens'), r.get('output_tokens'))}</td>
           <td style="padding:9px 12px;font-size:12px;color:#22c55e;text-align:right;font-weight:500;font-variant-numeric:tabular-nums">{_fmt_cost(r.get('cost_usd'))}</td>
-          <td style="padding:9px 12px;font-size:12px;color:#a1a1aa;text-align:center">{_fmt_cache_pct(r.get('cache_read_tokens'), r.get('input_tokens'))}</td>
-          <td style="padding:9px 12px;font-size:12px;color:#71717a;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{_escape(task_value)}">{_escape(task)}</td>
+          <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:center">{_fmt_cache_pct(r.get('cache_read_tokens'), r.get('input_tokens'))}</td>
+          <td class="td-muted" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{_escape(task_value)}">{_escape(task)}</td>
           <td style="padding:9px 12px;font-size:11px">{status_html}</td>
         </tr>"""
 
@@ -1078,7 +1078,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <h1><img src="/static/img/logo.png" alt="Orchestrator" style="height:28px;vertical-align:middle;margin-right:4px"></h1>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <form method="get" style="display:flex;align-items:center;gap:8px">
-      <label style="font-size:12px;color:#71717a;font-weight:500">Proyecto</label>
+      <label style="font-size:12px;color:var(--text-muted);font-weight:500">Proyecto</label>
       <select name="project" onchange="this.form.submit()">{project_options}</select>
     </form>
     <button class="btn btn-secondary" onclick="toggleSender()">+ Nueva tarea</button>
@@ -1188,7 +1188,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   {contexts_section}
 
   <div class="panel" style="margin-bottom:20px;overflow-x:auto">
-    <h2>Runs <span id="runs-count" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#52525b">({len(filtered_rev[:100])} de {total})</span></h2>
+    <h2>Runs <span id="runs-count" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)">({len(filtered_rev[:100])} de {total})</span></h2>
     {'<table id="runs-table"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body">' + rows + '</tbody></table>' if rows else '<table id="runs-table" style="display:none"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body"></tbody></table><p class="empty" id="empty-msg">No hay runs aún. Usá el botón <strong>+ Nueva tarea</strong> para enviar una.</p>'}
   </div>
 
@@ -1198,7 +1198,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 <div id="tab-inspector" style="display:none">
 <div class="container">
   <div id="inspector-content" style="padding-top:4px">
-    <p style="color:#71717a;font-size:13px">Haz clic en la pestaña para cargar.</p>
+    <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
   </div>
 </div>
 </div>
@@ -1207,7 +1207,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <div class="detail-panel" id="detailPanel">
     <button class="close-btn" onclick="closeDetail()">&#x2715;</button>
     <h3>Detalle del run</h3>
-    <div id="detailContent"><p style="color:#71717a;font-size:13px">Cargando...</p></div>
+    <div id="detailContent"><p class="text-muted" style="font-size:13px">Cargando...</p></div>
   </div>
 </div>
 
