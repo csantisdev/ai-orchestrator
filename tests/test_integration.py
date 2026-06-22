@@ -1,4 +1,5 @@
 """Test de integración: db, costs, similarity, contextos y MCP tools."""
+import json
 import threading
 import tempfile
 from pathlib import Path
@@ -193,6 +194,120 @@ def test_mcp_tool_handlers():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_update_context_and_step():
+    import shutil
+    import threading
+    import tempfile
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+    from orchestrator.mcp import (
+        _tool_create_context,
+        _tool_update_context,
+        _tool_update_step,
+        _tool_get_context,
+        _tool_list_steps,
+        _tool_add_step,
+    )
+
+    tmp = tempfile.mkdtemp()
+    original_home = paths_mod.HOME_DIR
+    original_db   = paths_mod.DB_PATH
+    paths_mod.HOME_DIR = paths_mod.Path(tmp)
+    paths_mod.DB_PATH  = paths_mod.Path(tmp) / "runs.db"
+    db_mod._local = threading.local()
+
+    try:
+        db_mod.init_db()
+
+        ctx = _tool_create_context({
+            "project": "test-proj",
+            "title": "Titulo inicial ASCII",
+            "description": "Descripcion inicial",
+        })
+        ctx_id = ctx["context_id"]
+
+        step = _tool_add_step({"context_id": ctx_id, "title": "Paso inicial ASCII"})
+        step_id = step["step_id"]
+
+        # update_context con UTF-8 real
+        res = _tool_update_context({
+            "context_id": ctx_id,
+            "title": "Configuración técnica",
+            "description": "implementación correcta con acentos: á é í ó ú ñ",
+        })
+        assert res["updated"] == ["title", "description"]
+
+        fetched = _tool_get_context({"context_id": ctx_id})
+        assert fetched["title"] == "Configuración técnica"
+        assert "á" in fetched["description"]
+
+        # update_step con UTF-8 real
+        res2 = _tool_update_step({
+            "step_id": step_id,
+            "title": "Implementación del módulo",
+            "notes": "Revisión técnica completada",
+        })
+        assert res2["updated"] == ["title", "notes"]
+
+        steps = _tool_list_steps({"context_id": ctx_id})
+        s = steps["steps"][0]
+        assert s["title"] == "Implementación del módulo"
+        assert s["notes"] == "Revisión técnica completada"
+        assert s["description"] == ""  # no enviado, no tocado
+
+        # omitir todos los campos no hace nada (no error)
+        res3 = _tool_update_context({"context_id": ctx_id})
+        assert res3["updated"] == []
+
+        res4 = _tool_update_step({"step_id": step_id})
+        assert res4["updated"] == []
+
+        # campo vacío explícito sí se guarda (distinto de omitido)
+        res5 = _tool_update_step({"step_id": step_id, "notes": ""})
+        assert res5["updated"] == ["notes"]
+        steps2 = _tool_list_steps({"context_id": ctx_id})
+        assert steps2["steps"][0]["notes"] == ""
+
+        # context_id / step_id inexistente lanza ValueError
+        import pytest
+        with pytest.raises(ValueError, match="not found"):
+            _tool_update_context({"context_id": 99999, "title": "x"})
+        with pytest.raises(ValueError, match="not found"):
+            _tool_update_step({"step_id": 99999, "title": "x"})
+
+    finally:
+        def _close_db(mod):
+            try:
+                if hasattr(mod._local, "conn") and mod._local.conn:
+                    mod._local.conn.close()
+            except Exception:
+                pass
+        _close_db(db_mod)
+        paths_mod.HOME_DIR = original_home
+        paths_mod.DB_PATH  = original_db
+        db_mod._local = threading.local()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_mcp_result_supports_modern_and_legacy_clients():
+    from orchestrator.mcp import (
+        DEFAULT_PROTOCOL_VERSION,
+        SERVER_INSTRUCTIONS,
+        SUPPORTED_PROTOCOL_VERSIONS,
+        _tool_call_result,
+    )
+
+    payload = {"context_id": 7, "status": "active"}
+    result = _tool_call_result(payload)
+
+    assert result["structuredContent"] == payload
+    assert json.loads(result["content"][0]["text"]) == payload
+    assert "get_context" in SERVER_INSTRUCTIONS
+    assert "advance_step" in SERVER_INSTRUCTIONS
+    assert "2024-11-05" in SUPPORTED_PROTOCOL_VERSIONS
+    assert DEFAULT_PROTOCOL_VERSION == "2025-06-18"
+
+
 def test_step_id_propagation():
     import orchestrator.paths as paths_mod
     import orchestrator.db as db_mod
@@ -283,14 +398,27 @@ def test_tool_calls_and_alignments_readable():
 
 def test_rag_chunk_text():
     from orchestrator.rag import chunk_text
+
     text = "A" * 2000
-    chunks = chunk_text(text, source="test.md")
-    assert len(chunks) > 1
+    chunks = chunk_text(text, source="test.md", chunk_size=1500, overlap=200)
+
+    assert [len(c["text"]) for c in chunks] == [1500, 700]
     for c in chunks:
-        assert len(c["text"]) <= 800
+        assert len(c["text"]) <= 1500
         assert c["source"] == "test.md"
     assert chunks[0]["chunk_idx"] == 0
     assert chunks[1]["chunk_idx"] == 1
+    assert chunks[0]["text"][-200:] == chunks[1]["text"][:200]
+
+
+def test_rag_chunk_text_rejects_invalid_configuration():
+    import pytest
+    from orchestrator.rag import chunk_text
+
+    with pytest.raises(ValueError, match="chunk_size"):
+        chunk_text("texto", source="test.md", chunk_size=0)
+    with pytest.raises(ValueError, match="overlap"):
+        chunk_text("texto", source="test.md", chunk_size=100, overlap=100)
 
 
 def test_rag_index_and_retrieve():
@@ -314,7 +442,8 @@ def test_rag_index_and_retrieve():
 
         project_dir = tmp_path / "myproject"
         project_dir.mkdir()
-        (project_dir / "README.md").write_text(
+        readme = project_dir / "README.md"
+        readme.write_text(
             "Este proyecto gestiona licitaciones públicas. "
             "Permite buscar, filtrar y exportar bases de licitación.",
             encoding="utf-8",
@@ -336,6 +465,20 @@ def test_rag_index_and_retrieve():
         block = rag_mod.build_context_block(results, [])
         assert "Documentación relevante" in block
         assert "README.md" in block
+
+        readme.write_text("Documento breve actualizado.", encoding="utf-8")
+        assert rag_mod.index_project("myproject", project_dir) == 1
+        indexed = rag_mod._docs_collection().get(
+            where={
+                "$and": [
+                    {"project": {"$eq": "myproject"}},
+                    {"source": {"$eq": "README.md"}},
+                ]
+            },
+            include=["documents"],
+        )
+        assert indexed["ids"] == ["myproject::README.md::0"]
+        assert indexed["documents"] == ["Documento breve actualizado."]
 
     finally:
         _close_db(db_mod)

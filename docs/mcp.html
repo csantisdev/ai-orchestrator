@@ -124,6 +124,7 @@
     <a href="#conexion">Conexión</a>
     <a href="#tools">Tools</a>
     <a href="#flujo">Flujo</a>
+    <a href="/security">Seguridad</a>
     <a href="/" class="nav-dash">Dashboard →</a>
   </div>
 </nav>
@@ -131,11 +132,12 @@
 <div class="hero">
   <div class="hero-tag">MCP · Model Context Protocol</div>
   <h1>Conectá tu agente al <span>orquestador</span></h1>
-  <p>8 herramientas para que cualquier agente IA lea el plan de trabajo, confirme alineamiento y registre su progreso en tiempo real.</p>
+  <p>10 herramientas para que cualquier agente IA lea el plan de trabajo, confirme alineamiento y registre su progreso en tiempo real.</p>
   <div class="hero-badges">
     <span class="badge badge-sky">JSON-RPC · stdio</span>
     <span class="badge badge-green">Claude Desktop</span>
     <span class="badge badge-green">Claude Code</span>
+    <span class="badge badge-sky">OpenAI Codex</span>
     <span class="badge badge-green">Cursor</span>
     <span class="badge badge-red">ChatGPT (no)</span>
   </div>
@@ -165,6 +167,14 @@
         <span class="support s-yes">✓ nativo</span>
       </div>
       <p>El CLI de Anthropic. Agregá el server con un comando o editando <code>settings.json</code>.</p>
+    </div>
+    <div class="client-card">
+      <div class="client-card-header">
+        <div class="client-icon" style="background:rgba(56,189,248,.15)">C</div>
+        <h4>OpenAI Codex</h4>
+        <span class="support s-yes">✓ nativo</span>
+      </div>
+      <p>Codex CLI, app y extensión IDE comparten la configuración MCP del proyecto en <code>.codex/config.toml</code>.</p>
     </div>
     <div class="client-card">
       <div class="client-card-header">
@@ -235,6 +245,27 @@
 }</pre>
   </div>
 
+  <h3>OpenAI Codex</h3>
+  <p>Archivo por proyecto: <code>.codex/config.toml</code>. El repositorio incluye <code>.codex/config.toml.example</code> como plantilla.</p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">TOML</span>
+      <span class="code-path">.codex/config.toml</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre>[<span class="key">mcp_servers.ai_orchestrator</span>]
+<span class="key">command</span> = <span class="str">"C:\\Fuentes\\ai-orchestrator\\.venv\\Scripts\\python.exe"</span>
+<span class="key">args</span> = [<span class="str">"-u"</span>, <span class="str">"-m"</span>, <span class="str">"orchestrator.mcp"</span>]
+<span class="key">cwd</span> = <span class="str">"C:\\Fuentes\\ai-orchestrator"</span>
+<span class="key">startup_timeout_sec</span> = <span class="num">15</span>
+<span class="key">tool_timeout_sec</span> = <span class="num">60</span>
+<span class="key">enabled</span> = <span class="kw">true</span>
+<span class="key">required</span> = <span class="kw">true</span></pre>
+  </div>
+  <div class="callout callout-info">
+    <strong>Verificación:</strong> Ejecutá <code>codex mcp list</code>. Después de crear o cambiar el archivo, abrí una sesión nueva de Codex para cargar las 8 herramientas.
+  </div>
+
   <h3>Cursor</h3>
   <p>Archivo global: <code>~/.cursor/mcp.json</code> · O por proyecto: <code>.cursor/mcp.json</code></p>
   <div class="code-block">
@@ -262,7 +293,7 @@
 <!-- ── TOOLS ── -->
 <section id="tools">
   <div class="sec-label">Referencia</div>
-  <h2>Los 8 tools disponibles</h2>
+  <h2>Los 10 tools disponibles</h2>
   <p>Hacé click en cada tool para ver sus parámetros y el formato de respuesta.</p>
 
   <div class="tools-list">
@@ -460,6 +491,66 @@
       </div>
     </div>
 
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">update_context</span>
+        <span class="tool-desc">Edita título y/o descripción de un contexto</span>
+        <span class="tool-when tw-plan">Planificación</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Actualiza solo los campos <strong style="color:var(--text)">presentes en la llamada</strong> — los omitidos no se tocan. No modifica estado, timestamps, proyecto ni relaciones. Útil para corregir errores de contenido como mojibake.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>ID del contexto a editar.</td></tr>
+            <tr><td>title</td><td>string</td><td>Nuevo título. Si se omite, no se modifica.</td></tr>
+            <tr><td>description</td><td>string</td><td>Nueva descripción. Si se omite, no se modifica.</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block" style="margin-top:12px">
+          <div class="code-header"><span class="code-lang">JSON — respuesta</span></div>
+          <pre>{
+  <span class="key">"context_id"</span>: <span class="num">7</span>,
+  <span class="key">"updated"</span>: [<span class="str">"title"</span>, <span class="str">"description"</span>],
+  <span class="key">"updated_at"</span>: <span class="str">"2026-06-22T03:45:00+00:00"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">update_step</span>
+        <span class="tool-desc">Edita título, descripción y/o notas de un paso</span>
+        <span class="tool-when tw-plan">Planificación</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Actualiza solo los campos <strong style="color:var(--text)">presentes en la llamada</strong>. No modifica estado, orden ni timestamps del paso. Un campo enviado vacío (<code>""</code>) sí se guarda — es distinto de omitido.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso a editar.</td></tr>
+            <tr><td>title</td><td>string</td><td>Nuevo título. Si se omite, no se modifica.</td></tr>
+            <tr><td>description</td><td>string</td><td>Nueva descripción. Si se omite, no se modifica.</td></tr>
+            <tr><td>notes</td><td>string</td><td>Nuevas notas. Si se omite, no se modifica.</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block" style="margin-top:12px">
+          <div class="code-header"><span class="code-lang">JSON — respuesta</span></div>
+          <pre>{
+  <span class="key">"step_id"</span>: <span class="num">29</span>,
+  <span class="key">"updated"</span>: [<span class="str">"title"</span>]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="callout callout-warn" style="margin-top:24px">
+    <strong>Nota sobre mojibake en Codex (Windows):</strong> El servidor MCP usa transporte stdio. En Windows, el proceso hijo hereda un <code>sys.stdin</code> con encoding <code>cp1252</code> por defecto. Si el cliente MCP (Codex) envía JSON UTF-8 sin forzar el encoding, los bytes de caracteres acentuados (<code>\xc3\xb3</code> = <code>ó</code>) se decodifican como latin-1 y se almacenan como <code>Ã³</code>. El servidor aplica <code>sys.stdin.reconfigure(encoding='utf-8')</code> al arrancar para prevenir esto en sesiones nuevas. Los datos ya almacenados con mojibake se pueden reparar con <code>update_context</code> y <code>update_step</code>.
   </div>
 </section>
 
