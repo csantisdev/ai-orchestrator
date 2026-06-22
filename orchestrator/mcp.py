@@ -158,6 +158,12 @@ TOOLS = [
                     "type": "integer",
                     "description": "ID del step que originó este contexto. Permite trazar la relación entre contextos.",
                 },
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "programado"],
+                    "default": "active",
+                    "description": "Estado inicial. 'programado' indica trabajo planificado pero no iniciado aún.",
+                },
             },
         },
     },
@@ -182,9 +188,9 @@ TOOLS = [
     {
         "name": "update_context",
         "description": (
-            "Edita el título y/o la descripción de un contexto existente. "
+            "Edita el título, descripción y/o estado de un contexto existente. "
             "Solo se actualizan los campos presentes en la llamada — los campos omitidos no se tocan. "
-            "Útil para corregir mojibake u otros errores de contenido sin cambiar estado, timestamps ni relaciones."
+            "Útil para corregir contenido o transicionar un contexto de 'programado' a 'active'."
         ),
         "inputSchema": {
             "type": "object",
@@ -193,6 +199,11 @@ TOOLS = [
                 "context_id":  {"type": "integer", "description": "ID del contexto a editar."},
                 "title":       {"type": "string",  "description": "Nuevo título. Si se omite, no se modifica."},
                 "description": {"type": "string",  "description": "Nueva descripción. Si se omite, no se modifica."},
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "programado", "completed", "abandoned"],
+                    "description": "Nuevo estado. Si se omite, no se modifica.",
+                },
             },
         },
     },
@@ -336,7 +347,10 @@ def _tool_create_context(args: dict) -> dict:
     title = args.get("title", "").strip()
     if not project or not title:
         raise ValueError("project y title son requeridos")
-    ctx_id = insert_context(project, title, args.get("description", ""), parent_step_id=args.get("parent_step_id"))
+    status = args.get("status", "active")
+    if status not in ("active", "programado"):
+        status = "active"
+    ctx_id = insert_context(project, title, args.get("description", ""), parent_step_id=args.get("parent_step_id"), status=status)
     steps_out = []
     for i, s in enumerate(args.get("steps", []) or [], 1):
         step_title = (s.get("title", "") if isinstance(s, dict) else str(s)).strip()
@@ -357,11 +371,17 @@ def _tool_update_context(args: dict) -> dict:
     if row is None:
         raise ValueError(f"context {context_id} not found")
 
+    _VALID_STATUSES = {"active", "programado", "completed", "abandoned"}
     fields, params = [], []
     for col in ("title", "description"):
         if col in args:
             fields.append(f"{col}=?")
             params.append(args[col])
+    if "status" in args:
+        if args["status"] not in _VALID_STATUSES:
+            raise ValueError(f"status inválido: {args['status']!r}")
+        fields.append("status=?")
+        params.append(args["status"])
 
     if not fields:
         return {"context_id": context_id, "updated": []}
@@ -377,7 +397,7 @@ def _tool_update_context(args: dict) -> dict:
         )
         conn.commit()
 
-    updated_fields = [f for f in ("title", "description") if f in args]
+    updated_fields = [f for f in ("title", "description", "status") if f in args]
     return {"context_id": context_id, "updated": updated_fields, "updated_at": ts}
 
 

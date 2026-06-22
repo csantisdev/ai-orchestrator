@@ -154,9 +154,10 @@ _STEP_STATUS_STYLE: dict[str, tuple[str, str]] = {
 }
 
 _CTX_STATUS_STYLE: dict[str, tuple[str, str]] = {
-    "active":    ("#22c55e", "rgba(34,197,94,0.12)"),
-    "completed": ("#71717a", "rgba(113,113,122,0.12)"),
-    "abandoned": ("#f87171", "rgba(248,113,113,0.12)"),
+    "active":      ("#22c55e", "rgba(34,197,94,0.12)"),
+    "programado":  ("#818cf8", "rgba(129,140,248,0.12)"),
+    "completed":   ("#71717a", "rgba(113,113,122,0.12)"),
+    "abandoned":   ("#f87171", "rgba(248,113,113,0.12)"),
 }
 
 
@@ -660,7 +661,7 @@ function openContextDetail(ctxId) {
           <div><span style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Tool Calls</span><div style="margin-top:4px">${tools}</div></div>
         </div>`;
       }).join("") || '<p class="text-muted" style="font-size:13px">Sin pasos.</p>';
-      const CTX_CLR={active:"#22c55e",completed:"#71717a",abandoned:"#f87171"};
+      const CTX_CLR={active:"#22c55e",programado:"#818cf8",completed:"#71717a",abandoned:"#f87171"};
       const cs=CTX_CLR[data.status||"active"]||"#71717a";
       content.innerHTML=`
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
@@ -1565,9 +1566,10 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px">
     <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted)">Estado</span>
     <button class="pg-btn pg-btn-active ctx-filter-btn" id="ctx-filter-all" onclick="setCtxFilter('all')">Todos</button>
-    <button class="pg-btn ctx-filter-btn" id="ctx-filter-active" onclick="setCtxFilter('active')">Active</button>
-    <button class="pg-btn ctx-filter-btn" id="ctx-filter-completed" onclick="setCtxFilter('completed')">Completed</button>
-    <button class="pg-btn ctx-filter-btn" id="ctx-filter-abandoned" onclick="setCtxFilter('abandoned')">Abandoned</button>
+    <button class="pg-btn ctx-filter-btn" id="ctx-filter-active" onclick="setCtxFilter('active')">Activo</button>
+    <button class="pg-btn ctx-filter-btn" id="ctx-filter-programado" onclick="setCtxFilter('programado')">Programado</button>
+    <button class="pg-btn ctx-filter-btn" id="ctx-filter-completed" onclick="setCtxFilter('completed')">Completado</button>
+    <button class="pg-btn ctx-filter-btn" id="ctx-filter-abandoned" onclick="setCtxFilter('abandoned')">Abandonado</button>
   </div>
 
   <div id="contextsSection"></div>
