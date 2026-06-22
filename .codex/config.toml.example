@@ -1,0 +1,33 @@
+[mcp_servers.ai_orchestrator]
+command = ".venv\\Scripts\\python.exe"
+args = ["-u", "-m", "orchestrator.mcp"]
+cwd = "."
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+enabled = true
+required = true
+default_tools_approval_mode = "auto"
+
+[mcp_servers.ai_orchestrator.tools.get_context]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.list_steps]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.confirm_alignment]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.record_tool_call]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.advance_step]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.skip_step]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.create_context]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.add_step]
+approval_mode = "approve"
