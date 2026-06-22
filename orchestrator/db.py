@@ -293,7 +293,7 @@ def read_inspector_data() -> dict:
         "steps": _rows(
             """SELECT s.*, c.title AS context_title, c.project
                FROM steps s JOIN contexts c ON s.context_id = c.id
-               ORDER BY s.context_id, s.order_idx LIMIT 300"""
+               ORDER BY s.context_id DESC, s.order_idx LIMIT 300"""
         ),
         "alignments": _rows(
             """SELECT a.*, s.title AS step_title
