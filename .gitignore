@@ -5,6 +5,32 @@ env/
 
 # Configuración con secretos — NUNCA versionar
 config.yaml
+.env
+.env.*
+
+# Composer auth (tokens de Packagist / GitHub privados)
+auth.json
+
+# Node / npm / Yarn tokens
+.npmrc
+.yarnrc
+.yarnrc.yml
+
+# Google / Firebase
+service_account.json
+google-services.json
+google-credentials.json
+GoogleService-Info.plist
+
+# Infraestructura
+*.tfstate
+*.tfstate.backup
+*.tfvars
+
+# Auth helpers
+.netrc
+.htpasswd
+.sentryclirc
 
 # Índice de proyectos local — es específico de cada máquina
 index.yaml
@@ -37,6 +63,10 @@ dist/
 # MCP config local — contiene paths absolutos específicos de cada máquina
 # Usar .mcp.json.example como referencia para crear el tuyo
 .mcp.json
+
+# Codex local - configuracion MCP especifica de esta maquina
+.codex/config.toml
+.codex/mcp-debug.log
 
 # OS
 .DS_Store

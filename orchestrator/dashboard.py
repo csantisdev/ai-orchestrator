@@ -1431,6 +1431,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <button class="btn btn-secondary" onclick="toggleContextForm()">+ Nuevo contexto</button>
     <a href="/docs" class="theme-btn" style="text-decoration:none">Docs</a>
     <a href="/mcp" class="theme-btn" style="text-decoration:none">MCP</a>
+    <a href="/security" class="theme-btn" style="text-decoration:none">Seguridad</a>
     <select id="themeSelect" class="theme-btn" onchange="setTheme(this.value)" title="Cambiar tema">
       <option value="dark">Dark</option>
       <option value="light">Light</option>

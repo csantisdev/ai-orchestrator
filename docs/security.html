@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ai-orchestrator — Seguridad · Secretos</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#09090b;--surface:#0f0f12;--surface2:#18181b;--border:#27272a;--muted:#71717a;
+      --text:#f8fafc;--text2:#a1a1aa;
+      --green:#22c55e;--orange:#fb923c;--blue:#818cf8;--sky:#38bdf8;--purple:#c084fc;--red:#f87171;--yellow:#fbbf24;
+      --green-bg:rgba(34,197,94,.12);--orange-bg:rgba(251,146,60,.12);
+      --blue-bg:rgba(129,140,248,.12);--sky-bg:rgba(56,189,248,.12);
+      --red-bg:rgba(248,113,113,.12);--purple-bg:rgba(192,132,252,.12);
+      --yellow-bg:rgba(251,191,36,.12);
+    }
+    html{scroll-behavior:smooth}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;line-height:1.6}
+    a{color:var(--sky);text-decoration:none}
+    a:hover{text-decoration:underline}
+    code,pre{font-family:'JetBrains Mono',monospace}
+    code{font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px;color:#e2e8f0}
+
+    nav{position:sticky;top:0;z-index:100;background:rgba(9,9,11,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 32px;display:flex;align-items:center;justify-content:space-between;height:52px}
+    .nav-logo{display:flex;align-items:center;gap:10px}
+    .nav-logo img{height:22px}
+    .nav-links{display:flex;gap:24px;font-size:13px;font-weight:500;color:var(--muted);align-items:center}
+    .nav-links a{color:var(--muted);transition:color .15s}
+    .nav-links a:hover{color:var(--text);text-decoration:none}
+    .nav-active{color:var(--text) !important}
+    .nav-dash{background:var(--green);color:#000;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700}
+    .nav-dash:hover{opacity:.85;text-decoration:none}
+
+    .hero{text-align:center;padding:64px 32px 48px;border-bottom:1px solid var(--border)}
+    .hero-tag{display:inline-block;background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,.25);border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:4px 14px;margin-bottom:20px}
+    .hero h1{font-size:clamp(26px,4vw,42px);font-weight:700;letter-spacing:-.4px;margin-bottom:12px}
+    .hero h1 span{color:var(--red)}
+    .hero p{font-size:15px;color:var(--text2);max-width:560px;margin:0 auto 24px}
+    .hero-badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--border)}
+    .badge-green{background:var(--green-bg);color:var(--green);border-color:rgba(34,197,94,.25)}
+    .badge-orange{background:var(--orange-bg);color:var(--orange);border-color:rgba(251,146,60,.25)}
+    .badge-sky{background:var(--sky-bg);color:var(--sky);border-color:rgba(56,189,248,.25)}
+    .badge-red{background:var(--red-bg);color:var(--red);border-color:rgba(248,113,113,.25)}
+    .badge-purple{background:var(--purple-bg);color:var(--purple);border-color:rgba(192,132,252,.25)}
+
+    .page{max-width:980px;margin:0 auto;padding:0 32px 80px}
+    section{padding-top:64px}
+    section+section{border-top:1px solid var(--border);margin-top:56px}
+    .sec-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--red);margin-bottom:8px}
+    h2{font-size:24px;font-weight:700;letter-spacing:-.3px;margin-bottom:8px}
+    h3{font-size:15px;font-weight:700;margin:28px 0 10px;color:var(--text)}
+    p{color:var(--text2);font-size:14px;margin-bottom:12px}
+    ul{color:var(--text2);font-size:14px;padding-left:20px;line-height:2}
+
+    /* Framework grid */
+    .fw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px;margin-top:24px}
+    .fw-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+    .fw-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+    .fw-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px}
+    .fw-header h4{font-size:14px;font-weight:700;color:var(--text)}
+    .fw-header .fw-sub{font-size:12px;color:var(--muted);margin-top:1px}
+    .rule-list{list-style:none;padding:0;display:flex;flex-direction:column;gap:6px}
+    .rule-list li{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text2)}
+    .rule-list li .ri{flex-shrink:0;margin-top:2px}
+    .rule-list code{font-size:11px;background:var(--surface2);padding:1px 5px;border-radius:3px;color:#e2e8f0}
+    .r-file{color:var(--orange)}
+    .r-dir {color:var(--purple)}
+    .r-ext {color:var(--sky)}
+    .r-pat {color:var(--red)}
+
+    /* Layers diagram */
+    .layers{display:flex;flex-direction:column;gap:0;margin:20px 0}
+    .layer{display:flex;gap:16px;align-items:flex-start;padding:16px 0;border-bottom:1px solid var(--border)}
+    .layer:last-child{border-bottom:none}
+    .layer-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px}
+    .ln-dir{background:var(--purple-bg);color:var(--purple)}
+    .ln-file{background:var(--orange-bg);color:var(--orange)}
+    .ln-ext{background:var(--sky-bg);color:var(--sky)}
+    .ln-content{background:var(--red-bg);color:var(--red)}
+    .layer-body h4{font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px}
+    .layer-body p{font-size:13px;color:var(--muted);margin:0}
+    .layer-body code{font-size:11px}
+
+    /* Code blocks */
+    .code-block{background:#0c0c0f;border:1px solid var(--border);border-radius:10px;margin:12px 0;overflow:hidden}
+    .code-header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--surface)}
+    .code-lang{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+    .code-path{font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace}
+    .copy-btn{font-size:11px;font-weight:600;color:var(--muted);background:none;border:1px solid var(--border);border-radius:5px;padding:2px 8px;cursor:pointer;font-family:inherit;transition:color .12s,border-color .12s}
+    .copy-btn:hover{color:var(--text);border-color:var(--text)}
+    .code-block pre{font-size:12px;line-height:1.7;color:#d4d4d8;white-space:pre;padding:16px 20px;overflow-x:auto}
+    .kw{color:#c084fc}.str{color:#86efac}.cm{color:#3f3f46}.key{color:#7dd3fc}.val{color:#86efac}.num{color:#fdba74}
+
+    .callout{border-left:3px solid var(--green);background:var(--green-bg);border-radius:0 8px 8px 0;padding:12px 16px;margin:16px 0;font-size:14px;color:var(--text2)}
+    .callout strong{color:var(--text)}
+    .callout-warn{border-color:var(--orange);background:var(--orange-bg)}
+    .callout-red{border-color:var(--red);background:var(--red-bg)}
+    .callout-info{border-color:var(--sky);background:var(--sky-bg)}
+
+    /* Pattern table */
+    .pat-table{width:100%;border-collapse:collapse;font-size:12px;margin:12px 0}
+    .pat-table th{text-align:left;padding:6px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:1px solid var(--border)}
+    .pat-table td{padding:8px 12px;border-bottom:1px solid #18181b;vertical-align:top}
+    .pat-table td:first-child{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--red)}
+    .pat-table td:nth-child(2){color:var(--text2)}
+    .pat-table td:last-child{color:var(--muted);font-size:11px}
+
+    footer{border-top:1px solid var(--border);padding:28px 32px;text-align:center;font-size:12px;color:#3f3f46;max-width:980px;margin:0 auto}
+
+    /* SVG logos inline */
+    .logo-python{background:rgba(55,118,171,.15)}
+    .logo-laravel{background:rgba(255,45,32,.15)}
+    .logo-php{background:rgba(119,123,180,.15)}
+    .logo-react{background:rgba(97,218,251,.12)}
+    .logo-node{background:rgba(51,153,51,.15)}
+    .logo-google{background:rgba(66,133,244,.12)}
+    .logo-infra{background:rgba(123,66,188,.15)}
+    .logo-general{background:rgba(113,113,122,.15)}
+    .logo-npm{background:rgba(203,56,55,.15)}
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">
+    <img src="/static/img/logo.png" alt="ai-orchestrator">
+  </div>
+  <div class="nav-links">
+    <a href="/docs">Docs</a>
+    <a href="/mcp">MCP</a>
+    <a href="#capas">Capas</a>
+    <a href="#frameworks">Frameworks</a>
+    <a href="#patrones">Patrones</a>
+    <a href="#remediation">Remediación</a>
+    <a href="/" class="nav-dash">Dashboard →</a>
+  </div>
+</nav>
+
+<div class="hero">
+  <div class="hero-tag">Seguridad · RAG · Git</div>
+  <h1>Protección de <span>secretos</span> en proyectos indexados</h1>
+  <p>Reglas de exclusión aplicadas antes de que cualquier archivo llegue a ChromaDB, a un LLM, o a un commit de git.</p>
+  <div class="hero-badges">
+    <span class="badge badge-orange">4 capas de defensa</span>
+    <span class="badge badge-green">Python · Laravel · React</span>
+    <span class="badge badge-purple">Node · Google · Infra</span>
+    <span class="badge badge-red">0 secretos en RAG</span>
+  </div>
+</div>
+
+<div class="page">
+
+<!-- ── CAPAS ── -->
+<section id="capas">
+  <div class="sec-label">Arquitectura</div>
+  <h2>4 capas de exclusión en cascada</h2>
+  <p>Un archivo se descarta si falla cualquiera de las capas. Solo los archivos que superan las cuatro capas se indexan en ChromaDB.</p>
+
+  <div class="layers">
+    <div class="layer">
+      <div class="layer-num ln-dir">1</div>
+      <div class="layer-body">
+        <h4>Directorios excluidos</h4>
+        <p>Si alguna parte de la ruta pertenece a un directorio protegido, el archivo se descarta sin leer. Cubre dependencias, llaves SSH, credenciales de cloud y config de IDEs.</p>
+        <p style="margin-top:6px">
+          <code>.aws</code> <code>.ssh</code> <code>.kube</code> <code>.gcloud</code>
+          <code>vendor</code> <code>node_modules</code> <code>.venv</code>
+          <code>.git</code> <code>.claude</code> <code>.codex</code>
+          <code>__pycache__</code> <code>build</code> <code>dist</code>
+        </p>
+      </div>
+    </div>
+    <div class="layer">
+      <div class="layer-num ln-file">2</div>
+      <div class="layer-body">
+        <h4>Nombres de archivo sensibles</h4>
+        <p>Lista de nombres exactos que nunca se indexan, independientemente de dónde estén. Ver sección <a href="#frameworks">Por framework</a> para el listado completo.</p>
+        <p style="margin-top:6px">
+          <code>.env</code> <code>config.yaml</code> <code>auth.json</code>
+          <code>.npmrc</code> <code>service_account.json</code>
+          <code>terraform.tfvars</code> <code>kubeconfig</code> <code>…</code>
+        </p>
+      </div>
+    </div>
+    <div class="layer">
+      <div class="layer-num ln-ext">3</div>
+      <div class="layer-body">
+        <h4>Extensiones sensibles</h4>
+        <p>Extensiones que siempre corresponden a material criptográfico o estado de infraestructura.</p>
+        <p style="margin-top:6px">
+          <code>.pem</code> <code>.key</code> <code>.p12</code> <code>.pfx</code>
+          <code>.cer</code> <code>.crt</code> <code>.tfstate</code> <code>.tfvars</code> <code>.plist</code>
+        </p>
+      </div>
+    </div>
+    <div class="layer">
+      <div class="layer-num ln-content">4</div>
+      <div class="layer-body">
+        <h4>Detección por contenido (regex)</h4>
+        <p>Si el archivo pasó las capas anteriores, se lee su texto y se buscan patrones de API keys, tokens hex en URLs, bloques PEM, etc. Ver sección <a href="#patrones">Patrones</a>.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Doble cobertura:</strong> Las mismas reglas aplican tanto al indexado RAG (ChromaDB) como al versionado (Git). Un archivo excluido de RAG también está en <code>.gitignore</code>.
+  </div>
+</section>
+
+<!-- ── FRAMEWORKS ── -->
+<section id="frameworks">
+  <div class="sec-label">Referencia por tecnología</div>
+  <h2>Archivos protegidos por framework</h2>
+  <p>Los íconos de tipo indican si la regla opera por <span style="color:var(--purple)">■ directorio</span>, <span style="color:var(--orange)">■ nombre</span>, <span style="color:var(--sky)">■ extensión</span> o <span style="color:var(--red)">■ contenido</span>.</p>
+
+  <div class="fw-grid">
+
+    <!-- Python -->
+    <div class="fw-card">
+      <div class="fw-header">
+        <div class="fw-icon logo-python">
+          <svg width="22" height="22" viewBox="0 0 256 255" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="py1" x1="12%" y1="12%" x2="88%" y2="88%"><stop offset="0%" stop-color="#387EB8"/><stop offset="100%" stop-color="#366994"/></linearGradient><linearGradient id="py2" x1="12%" y1="12%" x2="88%" y2="88%"><stop offset="0%" stop-color="#FFE052"/><stop offset="100%" stop-color="#FFC331"/></linearGradient></defs>
+            <path fill="url(#py1)" d="M126.9 0C62.1 0 66.1 27.3 66.1 27.3l.1 28.3h61.9v8.5H41.4S0 59.2 0 124.6s36.3 63.1 36.3 63.1h21.7v-30.4s-1.2-36.3 35.7-36.3h61.6s34.5.6 34.5-33.4V35.2S194.6 0 126.9 0zm-34.2 19.8c6.2 0 11.2 5 11.2 11.2s-5 11.2-11.2 11.2-11.2-5-11.2-11.2 5-11.2 11.2-11.2z"/>
+            <path fill="url(#py2)" d="M129.1 255.2c64.8 0 60.8-27.3 60.8-27.3l-.1-28.3h-61.9v-8.5h86.7s41.4 5 41.4-60.4-36.3-63.1-36.3-63.1h-21.7v30.4s1.2 36.3-35.7 36.3H100.7s-34.5-.6-34.5 33.4V220s-4.7 35.2 62.9 35.2zm34.2-19.8c-6.2 0-11.2-5-11.2-11.2s5-11.2 11.2-11.2 11.2 5 11.2 11.2-5 11.2-11.2 11.2z"/>
+          </svg>
+        </div>
+        <div>
+          <h4>Python</h4>
+          <div class="fw-sub">ai-orchestrator</div>
+        </div>
+      </div>
+      <ul class="rule-list">
+        <li><span class="ri r-file">●</span><div><code>config.yaml</code> <code>config.yml</code> — API keys del orquestador</div></li>
+        <li><span class="ri r-file">●</span><div><code>.env</code> <code>.env.*</code> — variables de entorno</div></li>
+        <li><span class="ri r-file">●</span><div><code>secrets.yaml</code> <code>secrets.yml</code></div></li>
+        <li><span class="ri r-file">●</span><div><code>credentials.json</code> — Google OAuth / ADC</div></li>
+        <li><span class="ri r-file">●</span><div><code>service_account.json</code> — Google Service Account</div></li>
+        <li><span class="ri r-dir">●</span><div><code>.venv/</code> <code>__pycache__/</code> <code>build/</code></div></li>
+      </ul>
+    </div>
+
+    <!-- Laravel / PHP -->
+    <div class="fw-card">
+      <div class="fw-header">
+        <div class="fw-icon logo-laravel">
+          <svg width="22" height="22" viewBox="0 0 50 52" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#FF2D20" d="M49.6 14.4c.3.5.4 1 .4 1.6v14.5c0 1.1-.6 2.1-1.5 2.7l-12.2 7v13.9c0 1.1-.6 2.1-1.6 2.7L22.4 64c-.2.1-.4.2-.6.2-.2 0-.4-.1-.6-.2L8.9 56.8c-1-.6-1.6-1.6-1.6-2.7v-41c0-1.1.6-2.1 1.6-2.7L21.2.6c1-.6 2.2-.6 3.2 0l12.3 7.1c1 .6 1.6 1.6 1.6 2.7v13L48.1 11c1-.6 2.2-.6 3.1 0-.5-.3 0 .1-1.6 3.4z" opacity=".6"/>
+            <path fill="#FF2D20" d="M36.3 30.6L24 37.8 11.7 30.6v-14.4l12.3-7.1 12.3 7.1v14.4z"/>
+          </svg>
+        </div>
+        <div>
+          <h4>Laravel / PHP</h4>
+          <div class="fw-sub">restricted-project · request</div>
+        </div>
+      </div>
+      <ul class="rule-list">
+        <li><span class="ri r-file">●</span><div><code>.env</code> <code>.env.backup</code> <code>.env.testing</code> — DB, mail, queues</div></li>
+        <li><span class="ri r-file">●</span><div><code>auth.json</code> — Composer: tokens de Packagist / GitHub privado</div></li>
+        <li><span class="ri r-ext">●</span><div><code>storage/oauth-private.key</code> — Laravel Passport (vía <code>.key</code>)</div></li>
+        <li><span class="ri r-file">●</span><div><code>.htpasswd</code> — autenticación HTTP básica</div></li>
+        <li><span class="ri r-dir">●</span><div><code>vendor/</code> — dependencias PHP (miles de archivos)</div></li>
+        <li><span class="ri r-pat">●</span><div><code>token=&lt;32+ hex chars&gt;</code> — patrón genérico en URLs de documentación</div></li>
+      </ul>
+    </div>
+
+    <!-- Node.js / npm -->
+    <div class="fw-card">
+      <div class="fw-header">
+        <div class="fw-icon logo-node">
+          <svg width="22" height="22" viewBox="0 0 256 292" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#539E43" d="M128 292c-3.4 0-6.6-.9-9.5-2.6L5.2 221.6C1.9 219.7 0 216.2 0 212.4V79.6c0-3.8 1.9-7.3 5.2-9.2L118.5 2.6C121.4.9 124.6 0 128 0s6.6.9 9.5 2.6l113.3 67.8c3.3 1.9 5.2 5.4 5.2 9.2v132.8c0 3.8-2 7.3-5.2 9.2l-113.3 67.8c-2.9 1.7-6.1 2.6-9.5 2.6z"/>
+            <path fill="#FFF" d="M200.3 169.9v-74L128 54.4 55.7 95.9v81.1l72.3 41.6 50.7-29.3V110l-50.7-29.3-21.9 12.6v25.2l21.9-12.6 26.7 15.4v54.3l-26.7 15.4-26.7-15.4V110l-21.9 12.6v54.3l48.6 28.1 48.6-28.1z"/>
+          </svg>
+        </div>
+        <div>
+          <h4>Node.js</h4>
+          <div class="fw-sub">backend / scripts</div>
+        </div>
+      </div>
+      <ul class="rule-list">
+        <li><span class="ri r-file">●</span><div><code>.env</code> <code>.env.local</code> <code>.env.production</code></div></li>
+        <li><span class="ri r-file">●</span><div><code>.npmrc</code> — tokens de npm / GitHub Packages</div></li>
+        <li><span class="ri r-file">●</span><div><code>.yarnrc</code> <code>.yarnrc.yml</code> — tokens de Yarn</div></li>
+        <li><span class="ri r-dir">●</span><div><code>node_modules/</code> — dependencias</div></li>
+        <li><span class="ri r-pat">●</span><div><code>sk-[A-Za-z0-9]{30,}</code> — OpenAI API key en contenido</div></li>
+      </ul>
+    </div>
+
+    <!-- React -->
+    <div class="fw-card">
+      <div class="fw-header">
+        <div class="fw-icon logo-react">
+          <svg width="22" height="22" viewBox="-11.5 -10.2 23 20.4" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="0" cy="0" r="2.05" fill="#61DAFB"/>
+            <g stroke="#61DAFB" stroke-width="1" fill="none">
+              <ellipse rx="11" ry="4.2"/>
+              <ellipse rx="11" ry="4.2" transform="rotate(60)"/>
+              <ellipse rx="11" ry="4.2" transform="rotate(120)"/>
+            </g>
+          </svg>
+        </div>
+        <div>
+          <h4>React</h4>
+          <div class="fw-sub">csantis.dev · qwe · find-the-baby</div>
+        </div>
+      </div>
+      <ul class="rule-list">
+        <li><span class="ri r-file">●</span><div><code>.env</code> <code>.env.local</code> <code>.env.development.local</code> — variables de Vite/CRA/Next</div></li>
+        <li><span class="ri r-file">●</span><div><code>.npmrc</code> <code>.yarnrc</code> — tokens de registro</div></li>
+        <li><span class="ri r-dir">●</span><div><code>node_modules/</code> <code>build/</code> <code>dist/</code></div></li>
+        <li><span class="ri r-pat">●</span><div>Variables <code>REACT_APP_*</code> / <code>VITE_*</code> con tokens en contenido</div></li>
+      </ul>
+    </div>
+
+    <!-- Google / Firebase -->
+    <div class="fw-card">
+      <div class="fw-header">
+        <div class="fw-icon logo-google">
+          <svg width="22" height="22" viewBox="0 0 488 512" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#4285F4" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"/>
+          </svg>
+        </div>
+        <div>
+          <h4>Google / Firebase</h4>
+          <div class="fw-sub">APIs · Cloud · Analytics</div>
+        </div>
+      </div>
+      <ul class="rule-list">
+        <li><span class="ri r-file">●</span><div><code>service_account.json</code> — credenciales de Service Account</div></li>
+        <li><span class="ri r-file">●</span><div><code>google-services.json</code> — config Firebase Android</div></li>
+        <li><span class="ri r-file">●</span><div><code>GoogleService-Info.plist</code> — config Firebase iOS</div></li>
+        <li><span class="ri r-file">●</span><div><code>google-credentials.json</code> <code>firebase-credentials.json</code></div></li>
+        <li><span class="ri r-dir">●</span><div><code>.gcloud/</code> — Application Default Credentials</div></li>
+        <li><span class="ri r-pat">●</span><div><code>APP_USR-[A-Za-z0-9]{10,}</code> — token de MercadoPago en contenido</div></li>
+      </ul>
+    </div>
+
+    <!-- Infraestructura -->
+    <div class="fw-card">
+      <div class="fw-header">
+        <div class="fw-icon logo-infra">
+          <svg width="22" height="22" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#7B42BC" d="M77.9 113.6L51 98.4V68l26.9 15.2v30.4zm0-64L51 34.4V4L77.9 19.2v30.4zM51 98.4L24.1 83.2V52.8L51 68v30.4zm53.8-15.2L77.9 68V37.6l26.9 15.2v30.4zM51 34.4L24.1 19.2V-11.2L51 4v30.4z"/>
+          </svg>
+        </div>
+        <div>
+          <h4>Infraestructura</h4>
+          <div class="fw-sub">Terraform · Kubernetes · AWS</div>
+        </div>
+      </div>
+      <ul class="rule-list">
+        <li><span class="ri r-file">●</span><div><code>terraform.tfvars</code> — variables con secretos de Terraform</div></li>
+        <li><span class="ri r-ext">●</span><div><code>*.tfstate</code> — estado de infra (contiene valores reales)</div></li>
+        <li><span class="ri r-ext">●</span><div><code>*.tfvars</code> — cualquier archivo de variables Terraform</div></li>
+        <li><span class="ri r-file">●</span><div><code>kubeconfig</code> <code>.kubeconfig</code> — acceso a clusters</div></li>
+        <li><span class="ri r-dir">●</span><div><code>.kube/</code> <code>.aws/</code> — credenciales de cloud</div></li>
+      </ul>
+    </div>
+
+    <!-- SSH / General -->
+    <div class="fw-card">
+      <div class="fw-header">
+        <div class="fw-icon logo-general">
+          <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#71717a" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 4l6 2.67V11c0 3.72-2.56 7.18-6 8.38C8.56 18.18 6 14.72 6 11V7.67l6-2.67z"/>
+          </svg>
+        </div>
+        <div>
+          <h4>SSH / General</h4>
+          <div class="fw-sub">Todos los proyectos</div>
+        </div>
+      </div>
+      <ul class="rule-list">
+        <li><span class="ri r-file">●</span><div><code>id_rsa</code> <code>id_ed25519</code> <code>id_ecdsa</code> — claves privadas SSH</div></li>
+        <li><span class="ri r-ext">●</span><div><code>*.pem</code> <code>*.key</code> <code>*.p12</code> <code>*.pfx</code> <code>*.cer</code> <code>*.crt</code> — certificados</div></li>
+        <li><span class="ri r-file">●</span><div><code>.netrc</code> — credenciales FTP/HTTP</div></li>
+        <li><span class="ri r-file">●</span><div><code>.sentryclirc</code> — token de Sentry</div></li>
+        <li><span class="ri r-file">●</span><div><code>.htpasswd</code> — autenticación HTTP básica Apache</div></li>
+        <li><span class="ri r-dir">●</span><div><code>.ssh/</code> — directorio completo de claves</div></li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── PATRONES ── -->
+<section id="patrones">
+  <div class="sec-label">Detección por contenido</div>
+  <h2>Patrones regex de secretos</h2>
+  <p>Última capa de defensa: si un archivo pasa los filtros de nombre y extensión, su contenido se analiza buscando estos patrones. Si hay match, el archivo se descarta sin indexar.</p>
+
+  <table class="pat-table">
+    <thead>
+      <tr><th>Patrón</th><th>Qué detecta</th><th>Ejemplo</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>sk-ant-[A-Za-z0-9\-_]{20,}</td>
+        <td>Anthropic API key</td>
+        <td>sk-ant-api03-…</td>
+      </tr>
+      <tr>
+        <td>sk-[A-Za-z0-9]{30,}</td>
+        <td>OpenAI API key</td>
+        <td>sk-proj-…</td>
+      </tr>
+      <tr>
+        <td>APP_USR-[A-Za-z0-9\-]{10,}</td>
+        <td>MercadoPago Access Token / Public Key</td>
+        <td>APP_USR-1234…</td>
+      </tr>
+      <tr>
+        <td>token\s*=\s*[a-f0-9]{32,}</td>
+        <td>Token hex en URL o .env (ej. ArtisanWebRunner)</td>
+        <td>?token=6c0c53c4…</td>
+      </tr>
+      <tr>
+        <td>-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY</td>
+        <td>Bloque PEM de clave privada</td>
+        <td>-----BEGIN RSA PRIVATE KEY-----</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-warn">
+    <strong>Limitación:</strong> Los patrones son best-effort. Un token con nombre no estándar (ej. <code>MY_CUSTOM_SECRET=xyz</code>) no será detectado a menos que coincida con los patrones de arriba. La regla de oro: nunca escribas valores reales en documentación de deploy — usá placeholders como <code>&lt;TOKEN_AQUI&gt;</code>.
+  </div>
+
+  <h3>Código fuente (rag.py)</h3>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">Python</span>
+      <span class="code-path">orchestrator/rag.py</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre><span class="kw">_SECRET_PATTERN</span> = re.compile(
+    <span class="str">r"(?i)("</span>
+    <span class="str">r"sk-ant-[A-Za-z0-9\-_]{20,}"</span>               <span class="cm"># Anthropic</span>
+    <span class="str">r"|sk-[A-Za-z0-9]{30,}"</span>                      <span class="cm"># OpenAI</span>
+    <span class="str">r"|APP_USR-[A-Za-z0-9\-]{10,}"</span>               <span class="cm"># MercadoPago</span>
+    <span class="str">r"|token\s*=\s*[a-f0-9]{32,}"</span>               <span class="cm"># token=&lt;hex&gt; en URLs (genérico)</span>
+    <span class="str">r"|-----BEGIN\s+(?:RSA |EC |OPENSSH |PGP )PRIVATE KEY"</span>
+    <span class="str">r")"</span>
+)</pre>
+  </div>
+</section>
+
+<!-- ── REMEDIATION ── -->
+<section id="remediation">
+  <div class="sec-label">Respuesta a incidentes</div>
+  <h2>Qué hacer si un secreto quedó expuesto</h2>
+
+  <div class="callout callout-red">
+    <strong>Regla principal:</strong> Asumí que el secreto fue comprometido desde el momento en que apareció en un lugar incorrecto. Rotalo aunque no haya evidencia de uso malicioso.
+  </div>
+
+  <h3>1 — Revocar el secreto</h3>
+  <p>Cada proveedor tiene su portal de revocación:</p>
+  <ul>
+    <li><strong style="color:var(--text)">Anthropic</strong> — <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys</a></li>
+    <li><strong style="color:var(--text)">OpenAI</strong> — <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a></li>
+    <li><strong style="color:var(--text)">DeepSeek</strong> — panel de la cuenta DeepSeek</li>
+    <li><strong style="color:var(--text)">MercadoPago</strong> — dashboard de la cuenta → Credenciales</li>
+    <li><strong style="color:var(--text)">Laravel ArtisanWebRunner</strong> — cambiar <code>ARTISAN_WEB_TOKEN</code> en <code>.env</code> del servidor</li>
+    <li><strong style="color:var(--text)">npm / GitHub</strong> — Settings → Developer Settings → Personal access tokens</li>
+    <li><strong style="color:var(--text)">Google / Firebase</strong> — IAM → Service Accounts → deshabilitar / generar nueva clave</li>
+  </ul>
+
+  <h3>2 — Limpiar el historial</h3>
+  <p>Si el secreto llegó a un commit de git:</p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">bash</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre><span class="cm"># Opción A — reescribir historia con git-filter-repo (recomendado)</span>
+pip install git-filter-repo
+git filter-repo --path archivo-con-secreto --invert-paths
+
+<span class="cm"># Opción B — BFG Repo Cleaner</span>
+bfg --delete-files archivo-con-secreto
+git reflog expire --expire=now --all
+git gc --prune=now --aggressive
+git push --force</pre>
+  </div>
+
+  <h3>3 — Limpiar ChromaDB</h3>
+  <p>Si el secreto fue indexado en el RAG del orquestador, eliminá los chunks manualmente y re-indexá sin el archivo comprometido:</p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">bash</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre><span class="cm"># Reindexar el proyecto (el archivo con secreto ahora es detectado y omitido)</span>
+ai-orchestrator index-docs --project mi-proyecto
+
+<span class="cm"># O desde el dashboard: Inspector → Seleccionar proyecto → Indexar docs</span></pre>
+  </div>
+
+  <h3>4 — Redactar la documentación</h3>
+  <p>Reemplazá el valor real por un placeholder en el archivo fuente:</p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">diff</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre><span style="color:#f87171">- $URL = "https://ejemplo.cl/artisan?token=6c0c53c4VALOR_REAL"</span>
+<span style="color:#22c55e">+ $URL = "https://ejemplo.cl/artisan?token=&lt;ARTISAN_WEB_TOKEN&gt;"</span></pre>
+  </div>
+
+  <div class="callout">
+    <strong>Después de rotar:</strong> El nuevo token no estará en ningún archivo de documentación. Guardalo en tu gestor de contraseñas o en variables de entorno del CI/CD, nunca en texto plano en el repo.
+  </div>
+</section>
+
+</div><!-- /page -->
+
+<footer>
+  ai-orchestrator — MIT License — <a href="/">Dashboard</a> · <a href="/docs">Docs</a> · <a href="/mcp">MCP</a>
+</footer>
+
+<script>
+function copyCode(btn) {
+  const pre = btn.closest(".code-block").querySelector("pre");
+  navigator.clipboard.writeText(pre.innerText).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = "Copiado ✓";
+    btn.style.color = "#22c55e";
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ""; }, 1800);
+  });
+}
+</script>
+
+</body>
+</html>
