@@ -468,8 +468,9 @@ def serve(
                 self._file(target)
                 return
 
-            if path == "/docs":
-                docs_html = self._DOCS_IMG.parent / "index.html"
+            if path in ("/docs", "/mcp"):
+                filename = "index.html" if path == "/docs" else "mcp.html"
+                docs_html = self._DOCS_IMG.parent / filename
                 try:
                     body = docs_html.read_bytes()
                     self.send_response(200)

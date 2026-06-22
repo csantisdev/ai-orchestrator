@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ai-orchestrator — MCP Server</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#09090b;--surface:#0f0f12;--surface2:#18181b;--border:#27272a;--muted:#71717a;
+      --text:#f8fafc;--text2:#a1a1aa;
+      --green:#22c55e;--orange:#fb923c;--blue:#818cf8;--sky:#38bdf8;--purple:#c084fc;--red:#f87171;
+      --green-bg:rgba(34,197,94,.12);--orange-bg:rgba(251,146,60,.12);
+      --blue-bg:rgba(129,140,248,.12);--sky-bg:rgba(56,189,248,.12);
+      --red-bg:rgba(248,113,113,.12);--purple-bg:rgba(192,132,252,.12);
+    }
+    html{scroll-behavior:smooth}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;line-height:1.6}
+    a{color:var(--sky);text-decoration:none}
+    a:hover{text-decoration:underline}
+    code,pre{font-family:'JetBrains Mono',monospace}
+    code{font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px;color:#e2e8f0}
+
+    nav{position:sticky;top:0;z-index:100;background:rgba(9,9,11,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 32px;display:flex;align-items:center;justify-content:space-between;height:52px}
+    .nav-logo{display:flex;align-items:center;gap:10px}
+    .nav-logo img{height:22px}
+    .nav-links{display:flex;gap:24px;font-size:13px;font-weight:500;color:var(--muted);align-items:center}
+    .nav-links a{color:var(--muted);transition:color .15s}
+    .nav-links a:hover{color:var(--text);text-decoration:none}
+    .nav-active{color:var(--text) !important}
+    .nav-dash{background:var(--green);color:#000;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700}
+    .nav-dash:hover{opacity:.85;text-decoration:none}
+
+    .hero{text-align:center;padding:64px 32px 48px;border-bottom:1px solid var(--border)}
+    .hero-tag{display:inline-block;background:var(--sky-bg);color:var(--sky);border:1px solid rgba(56,189,248,.25);border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:4px 14px;margin-bottom:20px}
+    .hero h1{font-size:clamp(26px,4vw,42px);font-weight:700;letter-spacing:-.4px;margin-bottom:12px}
+    .hero h1 span{color:var(--sky)}
+    .hero p{font-size:15px;color:var(--text2);max-width:560px;margin:0 auto 24px}
+    .hero-badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--border)}
+    .badge-green{background:var(--green-bg);color:var(--green);border-color:rgba(34,197,94,.25)}
+    .badge-orange{background:var(--orange-bg);color:var(--orange);border-color:rgba(251,146,60,.25)}
+    .badge-sky{background:var(--sky-bg);color:var(--sky);border-color:rgba(56,189,248,.25)}
+    .badge-red{background:var(--red-bg);color:var(--red);border-color:rgba(248,113,113,.25)}
+
+    .page{max-width:960px;margin:0 auto;padding:0 32px 80px}
+    section{padding-top:64px}
+    section+section{border-top:1px solid var(--border);margin-top:56px}
+    .sec-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--sky);margin-bottom:8px}
+    h2{font-size:24px;font-weight:700;letter-spacing:-.3px;margin-bottom:8px}
+    h3{font-size:15px;font-weight:700;margin:28px 0 10px;color:var(--text)}
+    p{color:var(--text2);font-size:14px;margin-bottom:12px}
+
+    .client-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-top:20px}
+    .client-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+    .client-card-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+    .client-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+    .client-card-header h4{font-size:14px;font-weight:700;color:var(--text)}
+    .client-card-header .support{font-size:10px;font-weight:700;border-radius:20px;padding:2px 8px;margin-left:auto;flex-shrink:0}
+    .s-yes{background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,.25)}
+    .s-no{background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,.25)}
+    .client-card p{font-size:13px;color:var(--muted);margin-bottom:0}
+
+    .code-block{background:#0c0c0f;border:1px solid var(--border);border-radius:10px;margin:12px 0;overflow:hidden}
+    .code-header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--surface)}
+    .code-lang{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+    .code-path{font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace}
+    .copy-btn{font-size:11px;font-weight:600;color:var(--muted);background:none;border:1px solid var(--border);border-radius:5px;padding:2px 8px;cursor:pointer;font-family:inherit;transition:color .12s,border-color .12s}
+    .copy-btn:hover{color:var(--text);border-color:var(--text)}
+    .code-block pre{font-size:13px;line-height:1.7;color:#d4d4d8;white-space:pre;padding:16px 20px;overflow-x:auto}
+    .kw{color:#c084fc}.str{color:#86efac}.cm{color:#3f3f46}.cmd{color:var(--sky)}.flag{color:var(--orange)}.key{color:#7dd3fc}.val{color:#86efac}.num{color:#fdba74}
+
+    .tools-list{display:flex;flex-direction:column;gap:12px;margin-top:20px}
+    .tool-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+    .tool-header{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;user-select:none;transition:background .1s}
+    .tool-header:hover{background:var(--surface2)}
+    .tool-name{font-size:14px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace}
+    .tool-desc{font-size:13px;color:var(--muted);flex:1}
+    .tool-when{font-size:11px;padding:2px 9px;border-radius:20px;font-weight:600;flex-shrink:0}
+    .tw-init{background:var(--sky-bg);color:var(--sky);border:1px solid rgba(56,189,248,.2)}
+    .tw-plan{background:var(--purple-bg);color:var(--purple);border:1px solid rgba(192,132,252,.2)}
+    .tw-work{background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,.2)}
+    .tw-log{background:var(--orange-bg);color:var(--orange);border:1px solid rgba(251,146,60,.2)}
+    .tool-body{border-top:1px solid var(--border);padding:16px 18px;display:none}
+    .tool-body.open{display:block}
+    .param-table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}
+    .param-table th{text-align:left;padding:6px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:1px solid var(--border)}
+    .param-table td{padding:7px 10px;border-bottom:1px solid #18181b;vertical-align:top}
+    .param-table td:first-child{font-family:'JetBrains Mono',monospace;color:var(--text);white-space:nowrap}
+    .param-table td:nth-child(2){color:var(--sky)}
+    .param-table td:nth-child(3){color:var(--text2)}
+    .param-req{color:var(--orange);font-size:10px;font-weight:700;margin-left:4px}
+    .tool-chevron{font-size:12px;color:var(--muted);transition:transform .15s;flex-shrink:0}
+    .tool-chevron.open{transform:rotate(180deg)}
+
+    .flow{display:flex;flex-direction:column;gap:0;margin:20px 0}
+    .flow-step{display:flex;gap:16px;align-items:flex-start;padding:14px 0}
+    .flow-step+.flow-step{border-top:1px solid var(--border)}
+    .flow-num{width:24px;height:24px;border-radius:50%;background:var(--sky-bg);color:var(--sky);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+    .flow-content h4{font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px}
+    .flow-content p{font-size:13px;color:var(--muted);margin:0}
+    .flow-content code{font-size:12px}
+
+    .callout{border-left:3px solid var(--green);background:var(--green-bg);border-radius:0 8px 8px 0;padding:12px 16px;margin:16px 0;font-size:14px;color:var(--text2)}
+    .callout strong{color:var(--text)}
+    .callout-warn{border-color:var(--orange);background:var(--orange-bg)}
+    .callout-info{border-color:var(--sky);background:var(--sky-bg)}
+    .callout-red{border-color:var(--red);background:var(--red-bg)}
+
+    footer{border-top:1px solid var(--border);padding:28px 32px;text-align:center;font-size:12px;color:#3f3f46;max-width:960px;margin:0 auto}
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">
+    <img src="/static/img/logo.png" alt="ai-orchestrator">
+  </div>
+  <div class="nav-links">
+    <a href="/docs">Docs</a>
+    <a href="#conexion">Conexión</a>
+    <a href="#tools">Tools</a>
+    <a href="#flujo">Flujo</a>
+    <a href="/" class="nav-dash">Dashboard →</a>
+  </div>
+</nav>
+
+<div class="hero">
+  <div class="hero-tag">MCP · Model Context Protocol</div>
+  <h1>Conectá tu agente al <span>orquestador</span></h1>
+  <p>8 herramientas para que cualquier agente IA lea el plan de trabajo, confirme alineamiento y registre su progreso en tiempo real.</p>
+  <div class="hero-badges">
+    <span class="badge badge-sky">JSON-RPC · stdio</span>
+    <span class="badge badge-green">Claude Desktop</span>
+    <span class="badge badge-green">Claude Code</span>
+    <span class="badge badge-green">Cursor</span>
+    <span class="badge badge-red">ChatGPT (no)</span>
+  </div>
+</div>
+
+<div class="page">
+
+<!-- ── CONEXIÓN ── -->
+<section id="conexion">
+  <div class="sec-label">Conexión rápida</div>
+  <h2>Configurar el servidor MCP</h2>
+  <p>El servidor usa transporte <strong style="color:var(--text)">stdio</strong> (JSON-RPC sobre stdin/stdout). Cada cliente requiere un bloque de configuración distinto.</p>
+
+  <div class="client-grid">
+    <div class="client-card">
+      <div class="client-card-header">
+        <div class="client-icon" style="background:rgba(251,146,60,.15)">🤖</div>
+        <h4>Claude Desktop</h4>
+        <span class="support s-yes">✓ nativo</span>
+      </div>
+      <p>La app de escritorio de Anthropic soporta MCP de fábrica. Editá su archivo de config y reiniciá.</p>
+    </div>
+    <div class="client-card">
+      <div class="client-card-header">
+        <div class="client-icon" style="background:rgba(34,197,94,.15)">⌨️</div>
+        <h4>Claude Code</h4>
+        <span class="support s-yes">✓ nativo</span>
+      </div>
+      <p>El CLI de Anthropic. Agregá el server con un comando o editando <code>settings.json</code>.</p>
+    </div>
+    <div class="client-card">
+      <div class="client-card-header">
+        <div class="client-icon" style="background:rgba(129,140,248,.15)">🖱️</div>
+        <h4>Cursor</h4>
+        <span class="support s-yes">✓ nativo</span>
+      </div>
+      <p>Editor con agente integrado. Crea un archivo <code>.cursor/mcp.json</code> en el proyecto o en tu home.</p>
+    </div>
+    <div class="client-card">
+      <div class="client-card-header">
+        <div class="client-icon" style="background:rgba(248,113,113,.15)">💬</div>
+        <h4>ChatGPT</h4>
+        <span class="support s-no">✗ no aplica</span>
+      </div>
+      <p>La web de ChatGPT no soporta MCP. Usa Custom GPTs con Actions (OpenAPI spec) — protocolo distinto.</p>
+    </div>
+  </div>
+
+  <h3>Claude Desktop</h3>
+  <p>Archivo: <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows) · <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS)</p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">JSON</span>
+      <span class="code-path">claude_desktop_config.json</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"ai-orchestrator"</span>: {
+      <span class="key">"command"</span>: <span class="str">"C:\\Fuentes\\ai-orchestrator\\.venv\\Scripts\\python.exe"</span>,
+      <span class="key">"args"</span>: [<span class="str">"-m"</span>, <span class="str">"orchestrator.mcp"</span>],
+      <span class="key">"cwd"</span>: <span class="str">"C:\\Fuentes\\ai-orchestrator"</span>
+    }
+  }
+}</pre>
+  </div>
+  <div class="callout callout-warn">
+    <strong>Ruta al intérprete:</strong> Usá la ruta completa al Python del virtualenv (<code>.venv\Scripts\python.exe</code>) para que Claude Desktop encuentre las dependencias instaladas. Reiniciá la app después de guardar.
+  </div>
+
+  <h3>Claude Code (CLI)</h3>
+  <p>Opción A — comando directo (se guarda en <code>~/.claude/settings.json</code>):</p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">bash</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre><span class="cmd">claude</span> mcp add ai-orchestrator <span class="flag">--</span> \
+  C:\Fuentes\ai-orchestrator\.venv\Scripts\python.exe \
+  -m orchestrator.mcp</pre>
+  </div>
+  <p>Opción B — editar <code>.claude/settings.json</code> del proyecto (ya configurado en este repo):</p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">JSON</span>
+      <span class="code-path">.claude/settings.json</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"ai-orchestrator"</span>: {
+      <span class="key">"command"</span>: <span class="str">"python"</span>,
+      <span class="key">"args"</span>: [<span class="str">"-m"</span>, <span class="str">"orchestrator.mcp"</span>],
+      <span class="key">"cwd"</span>: <span class="str">"C:\\Fuentes\\ai-orchestrator"</span>
+    }
+  }
+}</pre>
+  </div>
+
+  <h3>Cursor</h3>
+  <p>Archivo global: <code>~/.cursor/mcp.json</code> · O por proyecto: <code>.cursor/mcp.json</code></p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">JSON</span>
+      <span class="code-path">~/.cursor/mcp.json</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"ai-orchestrator"</span>: {
+      <span class="key">"command"</span>: <span class="str">"C:\\Fuentes\\ai-orchestrator\\.venv\\Scripts\\python.exe"</span>,
+      <span class="key">"args"</span>: [<span class="str">"-m"</span>, <span class="str">"orchestrator.mcp"</span>],
+      <span class="key">"cwd"</span>: <span class="str">"C:\\Fuentes\\ai-orchestrator"</span>
+    }
+  }
+}</pre>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>Verificar conexión:</strong> Después de configurar, pedile al agente <em>"Listá los tools del servidor ai-orchestrator"</em>. Si responde con los 8 tools, la conexión funciona.
+  </div>
+</section>
+
+<!-- ── TOOLS ── -->
+<section id="tools">
+  <div class="sec-label">Referencia</div>
+  <h2>Los 8 tools disponibles</h2>
+  <p>Hacé click en cada tool para ver sus parámetros y el formato de respuesta.</p>
+
+  <div class="tools-list">
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">get_context</span>
+        <span class="tool-desc">Retorna el contexto activo de un proyecto</span>
+        <span class="tool-when tw-init">Inicio de sesión</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Llamalo <strong style="color:var(--text)">antes de empezar a trabajar</strong> para leer el objetivo, descripción y estado actual del contexto. Confirma que el agente está alineado con el plan registrado.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>context_id</td><td>integer</td><td>ID exacto del contexto. Opcional si se pasa <code>project</code>.</td></tr>
+            <tr><td>project</td><td>string</td><td>Alias del proyecto. Retorna el contexto activo más reciente.</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block" style="margin-top:12px">
+          <div class="code-header"><span class="code-lang">JSON — respuesta</span></div>
+          <pre>{
+  <span class="key">"id"</span>: <span class="num">6</span>,
+  <span class="key">"project"</span>: <span class="str">"ai-orchestrator"</span>,
+  <span class="key">"title"</span>: <span class="str">"Implementar pestaña Contextos"</span>,
+  <span class="key">"description"</span>: <span class="str">"Separar contextos del Dashboard principal"</span>,
+  <span class="key">"status"</span>: <span class="str">"active"</span>,
+  <span class="key">"ts"</span>: <span class="str">"2026-06-22T00:07:29.913905+00:00"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">list_steps</span>
+        <span class="tool-desc">Lista los pasos del contexto con su estado actual</span>
+        <span class="tool-when tw-init">Inicio de sesión</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Retorna los pasos ordenados con su estado: <code>pending</code> · <code>in_progress</code> · <code>completed</code> · <code>blocked</code> · <code>skipped</code>. Usalo después de <code>get_context</code> para saber exactamente qué sigue.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>ID del contexto a consultar.</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block" style="margin-top:12px">
+          <div class="code-header"><span class="code-lang">JSON — respuesta</span></div>
+          <pre>{
+  <span class="key">"steps"</span>: [
+    { <span class="key">"id"</span>: <span class="num">27</span>, <span class="key">"order_idx"</span>: <span class="num">1</span>, <span class="key">"title"</span>: <span class="str">"Auditar estado actual"</span>, <span class="key">"status"</span>: <span class="str">"completed"</span> },
+    { <span class="key">"id"</span>: <span class="num">28</span>, <span class="key">"order_idx"</span>: <span class="num">2</span>, <span class="key">"title"</span>: <span class="str">"Implementar mejoras"</span>,    <span class="key">"status"</span>: <span class="str">"in_progress"</span> }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">create_context</span>
+        <span class="tool-desc">Crea un contexto nuevo con pasos opcionales</span>
+        <span class="tool-when tw-plan">Planificación</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Usalo al inicio de una tarea estructurada para que el dashboard y otros agentes puedan seguir el progreso. Los pasos se pueden agregar ahora o después con <code>add_step</code>.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>project<span class="param-req">*</span></td><td>string</td><td>Alias del proyecto registrado en el orquestador.</td></tr>
+            <tr><td>title<span class="param-req">*</span></td><td>string</td><td>Objetivo del contexto (qué se va a hacer).</td></tr>
+            <tr><td>description</td><td>string</td><td>Detalle adicional sobre el alcance.</td></tr>
+            <tr><td>steps</td><td>array</td><td>Lista de <code>&#123;"title": "…", "provider": "claude"&#125;</code>.</td></tr>
+            <tr><td>parent_step_id</td><td>integer</td><td>Step padre para anidar contextos relacionados.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">add_step</span>
+        <span class="tool-desc">Agrega un paso a un contexto existente</span>
+        <span class="tool-when tw-plan">Planificación</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Permite extender el plan durante la ejecución cuando aparecen tareas inesperadas. Si se omite <code>order_idx</code>, se agrega al final.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>Contexto al que se agrega el paso.</td></tr>
+            <tr><td>title<span class="param-req">*</span></td><td>string</td><td>Descripción del paso.</td></tr>
+            <tr><td>provider</td><td>string</td><td><code>claude</code> · <code>deepseek</code> · <code>openai</code> · vacío = auto.</td></tr>
+            <tr><td>order_idx</td><td>integer</td><td>Posición. Si se omite, va al final.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">confirm_alignment</span>
+        <span class="tool-desc">Registra un checkpoint de alineamiento antes de actuar</span>
+        <span class="tool-when tw-work">Durante trabajo</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">El agente declara que está en la ruta correcta antes de ejecutar una acción significativa (escribir a disco, llamar una API, hacer un commit). Si <code>confirmed=false</code>, registra una desviación visible en el dashboard.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso activo.</td></tr>
+            <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>ID del contexto.</td></tr>
+            <tr><td>agent<span class="param-req">*</span></td><td>string</td><td>Nombre del agente, ej. <code>"claude-code"</code>.</td></tr>
+            <tr><td>checkpoint<span class="param-req">*</span></td><td>string</td><td>Qué se está confirmando, ej. <code>"listo para hacer commit"</code>.</td></tr>
+            <tr><td>confirmed</td><td>boolean</td><td>Default <code>true</code>. <code>false</code> registra desviación.</td></tr>
+            <tr><td>message</td><td>string</td><td>Detalle adicional opcional.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">record_tool_call</span>
+        <span class="tool-desc">Registra una herramienta que el agente invocó</span>
+        <span class="tool-when tw-log">Logging</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Auditoria de qué herramientas usó el agente dentro de un paso. Visible en el detalle de contexto del dashboard y en la pestaña Inspector.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso activo.</td></tr>
+            <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>ID del contexto.</td></tr>
+            <tr><td>tool_name<span class="param-req">*</span></td><td>string</td><td>Nombre de la herramienta invocada, ej. <code>"Edit"</code>.</td></tr>
+            <tr><td>input</td><td>object</td><td>Argumentos pasados a la herramienta.</td></tr>
+            <tr><td>output</td><td>string</td><td>Resultado (puede ser truncado).</td></tr>
+            <tr><td>status</td><td>string</td><td><code>"ok"</code> · <code>"error"</code>.</td></tr>
+            <tr><td>duration_ms</td><td>integer</td><td>Tiempo de ejecución en milisegundos.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">advance_step</span>
+        <span class="tool-desc">Marca el paso como completado y activa el siguiente</span>
+        <span class="tool-when tw-work">Durante trabajo</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Llamalo cuando el agente termina un paso. Si no hay más pasos pendientes, el contexto queda en estado <code>completed</code> automáticamente. El dashboard se actualiza vía SSE.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso que se completó.</td></tr>
+            <tr><td>notes</td><td>string</td><td>Resumen de lo hecho (se guarda en el paso).</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block" style="margin-top:12px">
+          <div class="code-header"><span class="code-lang">JSON — respuesta</span></div>
+          <pre>{
+  <span class="key">"completed_step_id"</span>: <span class="num">28</span>,
+  <span class="key">"next_step"</span>: { <span class="key">"id"</span>: <span class="num">29</span>, <span class="key">"title"</span>: <span class="str">"Escribir tests"</span>, <span class="key">"status"</span>: <span class="str">"in_progress"</span> },
+  <span class="key">"context_done"</span>: <span class="kw">false</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">skip_step</span>
+        <span class="tool-desc">Omite un paso sin ejecutarlo</span>
+        <span class="tool-when tw-work">Durante trabajo</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Para pasos que resultaron irrelevantes o ya estaban resueltos. Funciona sobre pasos en estado <code>pending</code> o <code>in_progress</code>. Si estaba activo, activa el siguiente.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso a omitir.</td></tr>
+            <tr><td>reason</td><td>string</td><td>Motivo por el que se omite (se guarda en el paso).</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── FLUJO ── -->
+<section id="flujo">
+  <div class="sec-label">Uso típico</div>
+  <h2>Flujo de una sesión de trabajo</h2>
+  <p>Secuencia recomendada de llamadas para una sesión de agente con tracking completo.</p>
+
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div class="flow-content">
+        <h4>Leer el contexto activo</h4>
+        <p><code>get_context(project="mi-proyecto")</code> → obtenés <code>context_id</code>, título y descripción del plan.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div class="flow-content">
+        <h4>Ver qué paso está activo</h4>
+        <p><code>list_steps(context_id=6)</code> → identificás el paso con <code>status="in_progress"</code> y su <code>step_id</code>.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div class="flow-content">
+        <h4>Confirmar alineamiento antes de actuar</h4>
+        <p><code>confirm_alignment(step_id=28, context_id=6, agent="claude-code", checkpoint="Listo para editar dashboard.py")</code></p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">4</div>
+      <div class="flow-content">
+        <h4>Ejecutar el trabajo y registrar cada herramienta</h4>
+        <p><code>record_tool_call(step_id=28, context_id=6, tool_name="Edit", status="ok", duration_ms=180)</code> — repetir por cada tool significativa.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">5</div>
+      <div class="flow-content">
+        <h4>Avanzar al siguiente paso</h4>
+        <p><code>advance_step(step_id=28, notes="Implementado filtro de estado + tab Contextos")</code> → activa el paso 3 o completa el contexto si no hay más.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Tip:</strong> El dashboard escucha el evento SSE <code>ctx_updated</code> y recarga la sección de contextos en tiempo real. Cada <code>advance_step</code> o <code>skip_step</code> se refleja en el panel sin recargar la página.
+  </div>
+
+  <h3>Sin contexto previo — crear uno desde el agente</h3>
+  <p>Si no hay contexto activo para el proyecto, el agente puede crear uno directamente:</p>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">llamada MCP</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
+    </div>
+    <pre>create_context(
+  project = <span class="str">"mi-proyecto"</span>,
+  title   = <span class="str">"Refactor capa de autenticación"</span>,
+  steps   = [
+    { <span class="key">"title"</span>: <span class="str">"Auditar código existente"</span>,        <span class="key">"provider"</span>: <span class="str">"claude"</span>   },
+    { <span class="key">"title"</span>: <span class="str">"Reescribir middleware JWT"</span>,         <span class="key">"provider"</span>: <span class="str">"claude"</span>   },
+    { <span class="key">"title"</span>: <span class="str">"Actualizar tests de integración"</span>,  <span class="key">"provider"</span>: <span class="str">"deepseek"</span> }
+  ]
+)</pre>
+  </div>
+</section>
+
+<!-- ── CHATGPT NOTE ── -->
+<section id="chatgpt">
+  <div class="sec-label">Nota</div>
+  <h2>¿Por qué ChatGPT no funciona?</h2>
+
+  <div class="callout callout-red">
+    <strong>ChatGPT web y la app móvil no soportan MCP.</strong> El protocolo MCP usa JSON-RPC sobre stdio (proceso local). ChatGPT solo puede conectarse a herramientas externas mediante el sistema de <strong>Custom GPTs / Actions</strong>, que requiere un servidor HTTP con spec OpenAPI — un protocolo completamente distinto.
+  </div>
+
+  <p>Si querés exponer el orquestador a ChatGPT o a la API de OpenAI, las opciones son:</p>
+  <ul style="color:var(--text2);font-size:14px;padding-left:20px;line-height:2">
+    <li><strong style="color:var(--text)">Wrapper HTTP</strong> — crear endpoints REST que envuelvan los tools MCP y publicar una spec OpenAPI. El orquestador ya corre un servidor HTTP; se podría extender.</li>
+    <li><strong style="color:var(--text)">Bridge MCP→OpenAI</strong> — proyectos como <code>mcp-proxy</code> traducen el protocolo en tiempo real, pero requieren configuración adicional.</li>
+    <li><strong style="color:var(--text)">Usar Claude Desktop o Claude Code</strong> — es el camino de menor fricción si el objetivo es integrar con un agente conversacional.</li>
+  </ul>
+</section>
+
+</div><!-- /page -->
+
+<footer>
+  ai-orchestrator — MIT License — <a href="/">Dashboard</a> · <a href="/docs">Docs</a>
+</footer>
+
+<script>
+function toggleTool(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector(".tool-chevron");
+  const isOpen = body.classList.contains("open");
+  body.classList.toggle("open", !isOpen);
+  chevron.classList.toggle("open", !isOpen);
+}
+
+function copyCode(btn) {
+  const pre = btn.closest(".code-block").querySelector("pre");
+  const text = pre.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = "Copiado ✓";
+    btn.style.color = "#22c55e";
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ""; }, 1800);
+  });
+}
+</script>
+
+</body>
+</html>
