@@ -458,6 +458,22 @@ def serve(
                 self.end_headers()
                 return
 
+            if path in ("/static/docs-theme.css", "/static/docs-theme.js"):
+                _fname = path.split("/")[-1]
+                _ct = "text/css; charset=utf-8" if _fname.endswith(".css") else "text/javascript; charset=utf-8"
+                _src = (self._DOCS_IMG.parent / _fname).resolve()
+                if _src.exists():
+                    body = _src.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", _ct)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                return
+
             if path.startswith("/static/img/"):
                 rel = path[len("/static/img/"):].lstrip("/")
                 target = (self._DOCS_IMG / rel).resolve()
