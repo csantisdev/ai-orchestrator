@@ -1295,7 +1295,6 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
         all_projects = sorted(set(all_projects) | set(projects_extra))
 
     filtered = runs if not selected_project else [r for r in runs if _text(r.get("project")) == selected_project]
-    filtered_rev = list(reversed(filtered))
 
     total = len(filtered)
     by_provider: dict[str, int] = {}
