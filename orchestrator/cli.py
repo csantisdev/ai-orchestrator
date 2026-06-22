@@ -554,8 +554,9 @@ def serve(
             if path == "/contexts-html":
                 params2 = urllib.parse.parse_qs(parsed.query)
                 sel2 = params2.get("project", [""])[0]
+                status2 = params2.get("status", [None])[0]
                 from orchestrator.db import read_contexts_with_steps as _rcs
-                ctxs = _rcs(project=sel2 or None)
+                ctxs = _rcs(project=sel2 or None, status=status2)
                 from orchestrator.dashboard import _build_contexts_section
                 frag = _build_contexts_section(ctxs).encode("utf-8")
                 try:
@@ -647,9 +648,7 @@ def serve(
             sel_project = params.get("project", [project or ""])[0]
             runs_list = history_module.read_runs(last=200)
             extra_projects = projects_list()
-            from orchestrator.db import read_contexts_with_steps
-            contexts = read_contexts_with_steps(project=sel_project or None)
-            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects, contexts=contexts)
+            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects)
             body = html.encode("utf-8")
             try:
                 self.send_response(200)

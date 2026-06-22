@@ -220,17 +220,26 @@ def projects_list() -> list[str]:
     return [r["project"] for r in rows]
 
 
-def read_contexts_with_steps(project: Optional[str] = None) -> list[dict]:
+def read_contexts_with_steps(
+    project: Optional[str] = None,
+    status: Optional[str] = None,
+) -> list[dict]:
     conn = _conn()
+    where_parts: list[str] = []
+    params: list = []
     if project:
-        ctx_rows = conn.execute(
-            "SELECT * FROM contexts WHERE project=? ORDER BY ts DESC LIMIT 20",
-            (project,),
-        ).fetchall()
-    else:
-        ctx_rows = conn.execute(
-            "SELECT * FROM contexts WHERE status='active' ORDER BY ts DESC LIMIT 10"
-        ).fetchall()
+        where_parts.append("project=?")
+        params.append(project)
+    if status and status != "all":
+        where_parts.append("status=?")
+        params.append(status)
+    elif status is None and not project:
+        where_parts.append("status='active'")
+    clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    ctx_rows = conn.execute(
+        f"SELECT * FROM contexts {clause} ORDER BY ts DESC LIMIT 50",
+        params,
+    ).fetchall()
     result = []
     for ctx in ctx_rows:
         ctx_dict = dict(ctx)
