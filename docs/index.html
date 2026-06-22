@@ -7,30 +7,15 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/docs-theme.css">
+  <script src="/static/docs-theme.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    :root{
-      --bg:#09090b;--surface:#0f0f12;--border:#27272a;--muted:#71717a;
-      --text:#f8fafc;--text2:#a1a1aa;
-      --green:#22c55e;--orange:#fb923c;--blue:#818cf8;--sky:#38bdf8;--purple:#c084fc;
-      --green-bg:rgba(34,197,94,.12);--orange-bg:rgba(251,146,60,.12);
-      --blue-bg:rgba(129,140,248,.12);--sky-bg:rgba(56,189,248,.12);
-    }
     html{scroll-behavior:smooth}
     body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;line-height:1.6}
     a{color:var(--sky);text-decoration:none}
     a:hover{text-decoration:underline}
     code,pre{font-family:'JetBrains Mono',monospace}
-
-    /* ── Nav ── */
-    nav{position:sticky;top:0;z-index:100;background:rgba(9,9,11,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 32px;display:flex;align-items:center;justify-content:space-between;height:52px}
-    .nav-logo{display:flex;align-items:center;gap:10px}
-    .nav-logo img{height:22px}
-    .nav-links{display:flex;gap:24px;font-size:13px;font-weight:500;color:var(--muted)}
-    .nav-links a{color:var(--muted);transition:color .15s}
-    .nav-links a:hover{color:var(--text);text-decoration:none}
-    .nav-dash{background:var(--green);color:#000;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700}
-    .nav-dash:hover{opacity:.85;text-decoration:none}
 
     /* ── Hero ── */
     .hero{position:relative;overflow:hidden;text-align:center;padding:72px 32px 56px}
@@ -116,8 +101,20 @@
     <a href="#alcances">Alcances</a>
     <a href="#diseno">Diseño</a>
     <a href="#herramientas">Herramientas</a>
-    <a href="#configuracion">Configuración</a>
-    <a href="/mcp">MCP Server</a>
+    <a href="#configuracion">Config</a>
+    <div class="nav-sep"></div>
+    <a href="/docs" class="nav-active">Docs</a>
+    <a href="/mcp">MCP</a>
+    <a href="/security">Seguridad</a>
+    <div class="nav-sep"></div>
+    <select id="docsThemeSelect" class="nav-theme" title="Cambiar tema">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="midnight">Midnight</option>
+      <option value="nord">Nord</option>
+      <option value="espresso">Espresso</option>
+      <option value="a11y">Alto contraste</option>
+    </select>
     <a href="/" class="nav-dash">Dashboard →</a>
   </div>
 </nav>

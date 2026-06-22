@@ -7,32 +7,16 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/docs-theme.css">
+  <script src="/static/docs-theme.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    :root{
-      --bg:#09090b;--surface:#0f0f12;--surface2:#18181b;--border:#27272a;--muted:#71717a;
-      --text:#f8fafc;--text2:#a1a1aa;
-      --green:#22c55e;--orange:#fb923c;--blue:#818cf8;--sky:#38bdf8;--purple:#c084fc;--red:#f87171;
-      --green-bg:rgba(34,197,94,.12);--orange-bg:rgba(251,146,60,.12);
-      --blue-bg:rgba(129,140,248,.12);--sky-bg:rgba(56,189,248,.12);
-      --red-bg:rgba(248,113,113,.12);--purple-bg:rgba(192,132,252,.12);
-    }
     html{scroll-behavior:smooth}
     body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;line-height:1.6}
     a{color:var(--sky);text-decoration:none}
     a:hover{text-decoration:underline}
     code,pre{font-family:'JetBrains Mono',monospace}
     code{font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px;color:#e2e8f0}
-
-    nav{position:sticky;top:0;z-index:100;background:rgba(9,9,11,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 32px;display:flex;align-items:center;justify-content:space-between;height:52px}
-    .nav-logo{display:flex;align-items:center;gap:10px}
-    .nav-logo img{height:22px}
-    .nav-links{display:flex;gap:24px;font-size:13px;font-weight:500;color:var(--muted);align-items:center}
-    .nav-links a{color:var(--muted);transition:color .15s}
-    .nav-links a:hover{color:var(--text);text-decoration:none}
-    .nav-active{color:var(--text) !important}
-    .nav-dash{background:var(--green);color:#000;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700}
-    .nav-dash:hover{opacity:.85;text-decoration:none}
 
     .hero{text-align:center;padding:64px 32px 48px;border-bottom:1px solid var(--border)}
     .hero-tag{display:inline-block;background:var(--sky-bg);color:var(--sky);border:1px solid rgba(56,189,248,.25);border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:4px 14px;margin-bottom:20px}
@@ -120,11 +104,22 @@
     <img src="/static/img/logo.png" alt="ai-orchestrator">
   </div>
   <div class="nav-links">
-    <a href="/docs">Docs</a>
     <a href="#conexion">Conexión</a>
     <a href="#tools">Tools</a>
     <a href="#flujo">Flujo</a>
+    <div class="nav-sep"></div>
+    <a href="/docs">Docs</a>
+    <a href="/mcp" class="nav-active">MCP</a>
     <a href="/security">Seguridad</a>
+    <div class="nav-sep"></div>
+    <select id="docsThemeSelect" class="nav-theme" title="Cambiar tema">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="midnight">Midnight</option>
+      <option value="nord">Nord</option>
+      <option value="espresso">Espresso</option>
+      <option value="a11y">Alto contraste</option>
+    </select>
     <a href="/" class="nav-dash">Dashboard →</a>
   </div>
 </nav>
