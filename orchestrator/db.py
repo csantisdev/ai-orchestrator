@@ -181,7 +181,7 @@ def read_runs(
     rows = conn.execute(
         f"SELECT * FROM runs {where} ORDER BY ts DESC LIMIT ?", params
     ).fetchall()
-    return list(reversed(rows))
+    return list(rows)
 
 
 def get_run(run_id: int) -> Optional[sqlite3.Row]:
