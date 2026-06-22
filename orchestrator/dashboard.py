@@ -162,10 +162,11 @@ _CTX_STATUS_STYLE: dict[str, tuple[str, str]] = {
 
 def _build_contexts_section(contexts: list[dict]) -> str:
     if not contexts:
-        return ""
+        return '<div id="contextsSection"></div>'
 
     cards = ""
     for ctx in contexts:
+        ctx_id = ctx.get("id", "")
         ctx_status = _text(ctx.get("status"), "active")
         sc, sbg = _CTX_STATUS_STYLE.get(ctx_status, ("#6b7280", "#f3f4f6"))
         steps = ctx.get("steps", [])
@@ -183,12 +184,20 @@ def _build_contexts_section(contexts: list[dict]) -> str:
                 pc = PROVIDER_COLORS.get(provider, "var(--text-muted)")
                 pbg = PROVIDER_BG.get(provider, "rgba(113,113,122,0.12)")
                 prov_html = f'<span style="font-size:10px;background:{pbg};color:{pc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(provider)}</span>'
+            action_html = ""
+            if is_active:
+                sid = step.get("id", "")
+                action_html = (
+                    f'<button class="ctx-step-btn ctx-step-advance" onclick="advanceStep({sid},{ctx_id})" title="Marcar completado">✓</button>'
+                    f'<button class="ctx-step-btn ctx-step-skip" onclick="skipStep({sid},{ctx_id})" title="Omitir paso">↷</button>'
+                )
             steps_html += (
                 f'<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;{left_border}{active_bg}border-radius:6px;margin-bottom:2px">'
                 f'<span class="step-idx">{step.get("order_idx","?")}</span>'
                 f'<span class="step-title">{_escape(_text(step.get("title")))}</span>'
                 f'{prov_html}'
                 f'<span style="font-size:10px;background:{fbg};color:{fc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(st)}</span>'
+                f'{action_html}'
                 f'</div>'
             )
 
@@ -204,6 +213,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
             f'<span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">{_escape(_text(ctx.get("title"), "(sin título)"))}</span>'
             f'<span style="font-size:11px;color:var(--text-faint);font-family:\'JetBrains Mono\',monospace">{_escape(_text(ctx.get("project")))}</span>'
             f'<span style="font-size:10px;background:{sbg};color:{sc};padding:2px 8px;border-radius:20px;font-weight:600">{_escape(ctx_status)}</span>'
+            f'<button onclick="openContextDetail({ctx_id})" class="ctx-step-btn" style="font-size:10px;padding:2px 8px;border-radius:20px">→ Detalle</button>'
             f'</div>'
             f'{desc_html}'
             f'<div>{body_html}</div>'
@@ -211,10 +221,10 @@ def _build_contexts_section(contexts: list[dict]) -> str:
         )
 
     return (
-        f'<div class="panel" style="margin-bottom:20px">'
+        f'<div id="contextsSection"><div class="panel" style="margin-bottom:20px">'
         f'<h2>Contextos <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-faint);letter-spacing:0">({len(contexts)})</span></h2>'
         f'{cards}'
-        f'</div>'
+        f'</div></div>'
     )
 
 
@@ -385,6 +395,16 @@ def _build_css() -> str:
     .ctx-desc{font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5}
     .step-idx{font-size:11px;font-weight:700;color:var(--text-faint);min-width:18px;text-align:center;font-family:'JetBrains Mono',monospace}
     .step-title{font-size:12px;color:var(--text-detail);flex:1}
+    .ctx-step-btn{background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:11px;padding:2px 7px;cursor:pointer;font-family:inherit;line-height:1.4;flex-shrink:0;transition:background .12s,color .12s}
+    .ctx-step-btn:hover{background:var(--bg-surface);color:var(--text-primary)}
+    .ctx-step-advance:hover{border-color:#22c55e;color:#22c55e}
+    .ctx-step-skip:hover{border-color:#f59e0b;color:#f59e0b}
+    .pagination-bar{display:flex;align-items:center;gap:6px;padding:10px 0 4px;flex-wrap:wrap}
+    .pg-btn{background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:11px;padding:3px 9px;cursor:pointer;font-family:inherit;transition:background .12s}
+    .pg-btn:hover:not(:disabled){background:var(--border);color:var(--text-primary)}
+    .pg-btn:disabled{opacity:.35;cursor:default}
+    .pg-btn-active{background:#22c55e;color:#09090b;border-color:#22c55e}
+    .pg-btn-active:hover{background:#22c55e}
     .budget-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:6px}
     .detail-text{font-size:13px;color:var(--text-secondary);line-height:1.5}
     .detail-thead-row{color:var(--text-faint);border-bottom:1px solid var(--border)}
@@ -402,7 +422,269 @@ def _build_css() -> str:
 """
 
 def _build_js() -> str:
-    return """\nconst evtSource = new EventSource("/events");
+    return """\n
+// ── Runs table state ─────────────────────────────────────────────────────────
+let _runsPage = 0;
+let _runsPageSize = 10;
+let _runsFilterProject = "";
+let _runsFilterModel = "";
+
+function _fmtRunTs(iso) {
+  try {
+    return new Date(iso).toLocaleString("es",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false});
+  } catch { return (iso||"").slice(0,16); }
+}
+function _fmtRunDur(ms) {
+  if (ms == null) return "—";
+  if (ms >= 60000) return (ms/60000).toFixed(1)+"m";
+  if (ms >= 1000)  return (ms/1000).toFixed(1)+"s";
+  return ms+"ms";
+}
+function _fmtRunTokens(inp,out) {
+  if (inp==null && out==null) return "—";
+  const t=(inp||0)+(out||0);
+  return t>=1000 ? Math.floor(t/1000)+"K" : String(t);
+}
+function _fmtRunCost(v) {
+  if (v==null) return "—";
+  return parseFloat(v)<0.0001 ? "<$0.0001" : "$"+parseFloat(v).toFixed(4);
+}
+function _fmtRunCache(cr,inp) {
+  if (!cr||!inp) return "—";
+  return Math.round(cr/inp*100)+"%";
+}
+
+function renderRunsTable() {
+  const PROV_CLR = {claude:"#fb923c",deepseek:"#22c55e",openai:"#818cf8"};
+  const PROV_BG  = {claude:"rgba(251,146,60,0.15)",deepseek:"rgba(34,197,94,0.15)",openai:"rgba(129,140,248,0.15)"};
+  const data = (window.__runsData||[]).filter(r => {
+    if (_runsFilterProject && r.project !== _runsFilterProject) return false;
+    if (_runsFilterModel && (r.model||"").split("/").pop() !== _runsFilterModel) return false;
+    return true;
+  });
+  const total = data.length;
+  const totalPages = Math.max(1, Math.ceil(total/_runsPageSize));
+  if (_runsPage >= totalPages) _runsPage = totalPages-1;
+  const start = _runsPage*_runsPageSize;
+  const pageData = data.slice(start, start+_runsPageSize);
+
+  const tbody = document.getElementById("runs-body");
+  const table = document.getElementById("runs-table");
+  const empty = document.getElementById("empty-msg");
+  if (!total) {
+    if (table) table.style.display = "none";
+    if (empty) empty.style.display = "";
+    const pg = document.getElementById("runs-pagination");
+    if (pg) pg.innerHTML = "";
+    const cnt = document.getElementById("runs-count");
+    if (cnt) cnt.textContent = "(0)";
+    return;
+  }
+  if (table) table.style.display = "";
+  if (empty) empty.style.display = "none";
+
+  tbody.innerHTML = pageData.map(r => {
+    const prov = r.provider||"?";
+    const clr  = PROV_CLR[prov]||"#888";
+    const bg   = PROV_BG[prov]||"rgba(113,113,122,0.12)";
+    const badge = `<span style="background:${bg};color:${clr};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap">${escHtml(prov)}</span>`;
+    const modelShort = (r.model||"—").split("/").pop();
+    const task = r.task_preview||r.task||"";
+    const taskD = task.length>80 ? task.slice(0,80)+"…" : task;
+    let statusHtml = "";
+    if (r.status==="running") statusHtml='<span class="badge badge-running">⟳ running</span>';
+    else if (r.status==="pending") statusHtml='<span class="badge badge-pending">… pending</span>';
+    else if (r.status==="failed")  statusHtml='<span class="badge badge-failed">✗ failed</span>';
+    return `<tr data-run-id="${r.id}" onclick="openDetail(${r.id})" style="cursor:pointer">
+      <td class="td-ts">${_fmtRunTs(r.ts)}</td>
+      <td class="td-project">${escHtml(r.project||"—")}</td>
+      <td style="padding:9px 12px">${badge}</td>
+      <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace">${escHtml(modelShort)}</td>
+      <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:right;font-variant-numeric:tabular-nums">${_fmtRunDur(r.duration_ms)}</td>
+      <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:right;font-variant-numeric:tabular-nums">${_fmtRunTokens(r.input_tokens,r.output_tokens)}</td>
+      <td style="padding:9px 12px;font-size:12px;color:#22c55e;text-align:right;font-weight:500;font-variant-numeric:tabular-nums">${_fmtRunCost(r.cost_usd)}</td>
+      <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:center">${_fmtRunCache(r.cache_read_tokens,r.input_tokens)}</td>
+      <td class="td-muted" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(task)}">${escHtml(taskD)}</td>
+      <td style="padding:9px 12px;font-size:11px">${statusHtml}</td>
+    </tr>`;
+  }).join("");
+
+  const cnt = document.getElementById("runs-count");
+  if (cnt) cnt.textContent = `(${start+1}–${Math.min(start+_runsPageSize,total)} de ${total})`;
+
+  const pg = document.getElementById("runs-pagination");
+  if (pg) pg.innerHTML = _buildPagination(
+    _runsPage, totalPages, _runsPageSize,
+    `_runsPage=${_runsPage-1};renderRunsTable()`,
+    `_runsPage=${_runsPage+1};renderRunsTable()`,
+    `_runsPageSize=10;_runsPage=0;renderRunsTable()`,
+    `_runsPageSize=25;_runsPage=0;renderRunsTable()`,
+    `_runsPageSize=50;_runsPage=0;renderRunsTable()`,
+    `_runsPageSize=100;_runsPage=0;renderRunsTable()`
+  );
+}
+
+function applyRunFilters() {
+  _runsFilterProject = (document.getElementById("filterProject")||{}).value||"";
+  _runsFilterModel   = (document.getElementById("filterModel")||{}).value||"";
+  _runsPage = 0;
+  renderRunsTable();
+}
+
+function _buildPagination(page, totalPages, pageSize, cbPrev, cbNext, cbSize10, cbSize25, cbSize50, cbSize100) {
+  const sizes = [[10,cbSize10],[25,cbSize25],[50,cbSize50],[100,cbSize100]];
+  const btns = sizes.map(([n,cb]) =>
+    `<button class="pg-btn${n===pageSize?' pg-btn-active':''}" onclick="${cb}">${n}</button>`
+  ).join("");
+  return `<div class="pagination-bar">
+    <button class="pg-btn" onclick="${cbPrev}" ${page<=0?'disabled':''}>← Ant.</button>
+    <span style="font-size:12px;color:var(--text-muted);padding:0 4px">Pág. ${page+1} / ${totalPages}</span>
+    <button class="pg-btn" onclick="${cbNext}" ${page>=totalPages-1?'disabled':''}>Sig. →</button>
+    <span style="font-size:11px;color:var(--text-faint);margin-left:6px">Filas:</span>
+    ${btns}
+  </div>`;
+}
+
+// ── Inspector pagination ──────────────────────────────────────────────────────
+const _inspPages = {};
+const _inspSizes = {};
+
+function mkTablePaged(id, title, rows, cols) {
+  if (!_inspPages[id]) _inspPages[id] = 0;
+  if (!_inspSizes[id]) _inspSizes[id] = 10;
+  const n = (rows||[]).length;
+  if (!n) return `<div class="panel" style="margin-bottom:16px"><h2>${title} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)">(0)</span></h2><p class="text-faint" style="font-size:13px">Sin registros.</p></div>`;
+  const ps = _inspSizes[id];
+  const tp = Math.max(1,Math.ceil(n/ps));
+  if (_inspPages[id]>=tp) _inspPages[id]=tp-1;
+  const pg = _inspPages[id];
+  const slice = rows.slice(pg*ps, pg*ps+ps);
+  const ths = cols.map(c=>`<th style="text-align:left;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px">${c.label}</th>`).join("");
+  const trs = slice.map(r=>`<tr style="border-bottom:1px solid var(--border-faint)">${
+    cols.map(c=>{
+      const val=r[c.key]??"—";
+      const sval=c.fmt?c.fmt(val):String(val);
+      const display=c.max&&sval.length>c.max?sval.slice(0,c.max)+"…":sval;
+      return `<td style="padding:7px 10px;font-size:12px;color:${c.color||"var(--text-secondary)"};${c.mono?"font-family:'JetBrains Mono',monospace":""}">${escHtml(display)}</td>`;
+    }).join("")
+  }</tr>`).join("");
+  const pgHtml = _buildPagination(pg, tp, ps,
+    `_inspPages['${id}']=${pg-1};reloadInspector()`,
+    `_inspPages['${id}']=${pg+1};reloadInspector()`,
+    `_inspSizes['${id}']=10;_inspPages['${id}']=0;reloadInspector()`,
+    `_inspSizes['${id}']=25;_inspPages['${id}']=0;reloadInspector()`,
+    `_inspSizes['${id}']=50;_inspPages['${id}']=0;reloadInspector()`,
+    `_inspSizes['${id}']=100;_inspPages['${id}']=0;reloadInspector()`
+  );
+  return `<div class="panel" style="margin-bottom:16px;overflow-x:auto">
+    <h2>${title} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)">${n} filas</span></h2>
+    <table><thead><tr style="background:var(--bg-elevated);border-bottom:1px solid var(--border)">${ths}</tr></thead><tbody>${trs}</tbody></table>
+    ${pgHtml}
+  </div>`;
+}
+
+// ── Context actions ───────────────────────────────────────────────────────────
+function advanceStep(stepId, ctxId) {
+  fetch("/advance-step",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({step_id:stepId})})
+    .then(r=>r.json())
+    .then(d=>{
+      if (d.error){showToast("Error: "+d.error,true);return;}
+      showToast(d.context_done?"Contexto completado":"Paso avanzado");
+      _refreshContexts();
+    }).catch(()=>showToast("Error de conexión",true));
+}
+
+function skipStep(stepId, ctxId) {
+  fetch("/skip-step",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({step_id:stepId,reason:"omitido desde dashboard"})})
+    .then(r=>r.json())
+    .then(d=>{
+      if (d.error){showToast("Error: "+d.error,true);return;}
+      showToast("Paso omitido");
+      _refreshContexts();
+    }).catch(()=>showToast("Error de conexión",true));
+}
+
+function _refreshContexts() {
+  const proj = _runsFilterProject||"";
+  fetch("/contexts-html"+(proj?"?project="+encodeURIComponent(proj):""))
+    .then(r=>r.text())
+    .then(html=>{
+      const el=document.getElementById("contextsSection");
+      if(el){const tmp=document.createElement("div");tmp.innerHTML=html;el.replaceWith(tmp.firstChild||el);}
+    }).catch(()=>{});
+}
+
+// ── Context detail overlay ───────────────────────────────────────────────────
+function openContextDetail(ctxId) {
+  const overlay = document.getElementById("ctxDetailOverlay");
+  const content = document.getElementById("ctxDetailContent");
+  overlay.classList.add("open");
+  content.innerHTML='<p class="text-muted" style="font-size:13px"><span class="spinner"></span> Cargando...</p>';
+  fetch("/context/"+ctxId)
+    .then(r=>r.json())
+    .then(data=>{
+      const STEP_CLR={pending:"#71717a",in_progress:"#38bdf8",completed:"#22c55e",blocked:"#f87171",skipped:"#52525b"};
+      const stepsHtml=(data.steps||[]).map(s=>{
+        const sc=STEP_CLR[s.status]||"#71717a";
+        const aligns=(s.alignments||[]).map(a=>`<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--border-faint);display:flex;gap:8px">
+          <span style="color:var(--text-faint);white-space:nowrap">${a.ts?new Date(a.ts).toLocaleString("es",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}):"—"}</span>
+          <span style="color:${a.confirmed?"#22c55e":"#f87171"};font-weight:700">${a.confirmed?"✓":"✗"}</span>
+          <span style="color:var(--text-secondary)">${escHtml(a.checkpoint||"")}</span>
+          <span style="color:var(--text-faint)">${escHtml(a.agent||"")}</span>
+        </div>`).join("") || '<span style="font-size:11px;color:var(--text-faint)">Sin alineamientos.</span>';
+        const tools=(s.tool_calls||[]).map(tc=>`<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--border-faint);display:flex;gap:8px">
+          <span style="color:var(--text-faint);white-space:nowrap">${tc.ts?new Date(tc.ts).toLocaleString("es",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}):"—"}</span>
+          <span style="font-family:'JetBrains Mono',monospace;color:var(--text-primary)">${escHtml(tc.tool_name||"")}</span>
+          <span style="color:${tc.status==="ok"?"#22c55e":"#f87171"}">${escHtml(tc.status||"")}</span>
+          <span style="color:var(--text-faint)">${tc.duration_ms!=null?tc.duration_ms+"ms":""}</span>
+        </div>`).join("") || '<span style="font-size:11px;color:var(--text-faint)">Sin tool calls.</span>';
+        return `<div style="margin-bottom:14px;padding:10px;background:var(--bg-elevated);border-radius:10px;border-left:3px solid ${sc}">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <span style="font-size:11px;font-weight:700;color:var(--text-faint);font-family:'JetBrains Mono',monospace">${s.order_idx||"?"}</span>
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${escHtml(s.title||"")}</span>
+            <span style="font-size:10px;background:rgba(0,0,0,.2);color:${sc};padding:2px 8px;border-radius:20px;font-weight:600">${escHtml(s.status||"")}</span>
+          </div>
+          <div style="margin-bottom:6px"><span style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Alineamientos</span><div style="margin-top:4px">${aligns}</div></div>
+          <div><span style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Tool Calls</span><div style="margin-top:4px">${tools}</div></div>
+        </div>`;
+      }).join("") || '<p class="text-muted" style="font-size:13px">Sin pasos.</p>';
+      const CTX_CLR={active:"#22c55e",completed:"#71717a",abandoned:"#f87171"};
+      const cs=CTX_CLR[data.status||"active"]||"#71717a";
+      content.innerHTML=`
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+          <span class="chip-mono">#${data.id}</span>
+          <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${escHtml(data.title||"")}</span>
+          <span style="font-size:10px;background:rgba(0,0,0,.2);color:${cs};padding:2px 8px;border-radius:20px;font-weight:600">${escHtml(data.status||"")}</span>
+        </div>
+        ${data.description?`<p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">${escHtml(data.description)}</p>`:""}
+        <div class="detail-section"><label>Pasos</label>${stepsHtml}</div>
+      `;
+    }).catch(()=>{content.innerHTML='<p style="color:#ef4444;font-size:13px">Error al cargar.</p>';});
+}
+
+function closeCtxDetail(e) {
+  if (e && e.target !== document.getElementById("ctxDetailOverlay")) return;
+  document.getElementById("ctxDetailOverlay").classList.remove("open");
+}
+
+// ── Export CSV ────────────────────────────────────────────────────────────────
+function exportCSV() {
+  const proj = (document.getElementById("filterProject")||{}).value||"";
+  const mdl  = (document.getElementById("filterModel")||{}).value||"";
+  let url = "/export-csv";
+  const params = [];
+  if (proj) params.push("project="+encodeURIComponent(proj));
+  if (mdl)  params.push("model="+encodeURIComponent(mdl));
+  if (params.length) url += "?"+params.join("&");
+  window.location.href = url;
+}
+
+const evtSource = new EventSource("/events");
+evtSource.addEventListener("ctx_updated", e => {
+  const d = JSON.parse(e.data);
+  _refreshContexts();
+});
+
 evtSource.addEventListener("run_started", e => {
   const d = JSON.parse(e.data);
   prependPendingRow(d);
@@ -946,7 +1228,7 @@ function renderInspector(data) {
     </div>`;
   }
 
-  html += mkTable("Chunks indexados (RAG)", data.chunks, [
+  html += mkTablePaged("chunks","Chunks indexados (RAG)", data.chunks, [
     {label:"Proyecto",    key:"project",    color:"var(--text-primary)"},
     {label:"Archivo",     key:"source_path",color:"var(--text-secondary)",mono:true,max:60},
     {label:"Chunks",      key:"chunk_count",color:"#22c55e"},
@@ -954,7 +1236,7 @@ function renderInspector(data) {
     {label:"Indexado",    key:"ts",         color:"var(--text-faint)",mono:true,fmt:fmtTs},
   ]);
 
-  html += mkTable("Contextos", data.contexts, [
+  html += mkTablePaged("contexts","Contextos", data.contexts, [
     {label:"ID",      key:"id",          color:"var(--text-faint)",mono:true},
     {label:"Proyecto",key:"project",     color:"var(--text-primary)"},
     {label:"Título",  key:"title",       color:"var(--text-detail)",max:50},
@@ -962,7 +1244,7 @@ function renderInspector(data) {
     {label:"Creado",  key:"ts",          color:"var(--text-faint)",mono:true,fmt:fmtTs},
   ]);
 
-  html += mkTable("Pasos", data.steps, [
+  html += mkTablePaged("steps","Pasos", data.steps, [
     {label:"ID",       key:"id",            color:"var(--text-faint)",mono:true},
     {label:"Proyecto", key:"project",       color:"var(--text-primary)"},
     {label:"Contexto", key:"context_title", color:"var(--text-secondary)",max:30},
@@ -972,7 +1254,7 @@ function renderInspector(data) {
     {label:"Provider", key:"provider",      color:"var(--text-muted)"},
   ]);
 
-  html += mkTable("Alineamientos", data.alignments, [
+  html += mkTablePaged("alignments","Alineamientos", data.alignments, [
     {label:"ID",         key:"id",         color:"var(--text-faint)",mono:true},
     {label:"Hora",       key:"ts",         color:"var(--text-faint)",mono:true,fmt:fmtTs},
     {label:"Paso",       key:"step_title", color:"var(--text-secondary)",max:35},
@@ -981,7 +1263,7 @@ function renderInspector(data) {
     {label:"Checkpoint", key:"checkpoint", color:"var(--text-muted)",max:50},
   ]);
 
-  html += mkTable("Tool Calls", data.tool_calls, [
+  html += mkTablePaged("tool_calls","Tool Calls", data.tool_calls, [
     {label:"ID",          key:"id",          color:"var(--text-faint)",mono:true},
     {label:"Hora",        key:"ts",          color:"var(--text-faint)",mono:true,fmt:fmtTs},
     {label:"Paso",        key:"step_title",  color:"var(--text-secondary)",max:35},
@@ -1069,31 +1351,19 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     purpose_bars  = _chart_bars(by_purpose, max_purpose, _purpose_color)
     contexts_section = _build_contexts_section(contexts or [])
 
-    rows = ""
-    for r in filtered_rev[:100]:
-        prov  = _text(r.get("provider"), "?")
-        color = PROVIDER_COLORS.get(prov, "#888")
-        bg    = PROVIDER_BG.get(prov, "#f9fafb")
-        badge = f'<span style="background:{bg};color:{color};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap">{_escape(prov)}</span>'
-        model = _text(r.get("model"), "—")
-        model_short = model.split("/")[-1] if "/" in model else model
-        task_value = _text(r.get("task_preview") or r.get("task", ""))
-        task = task_value[:80] + ("…" if len(task_value) > 80 else "")
-        reason = _text(r.get("routing_reason"), "—")
-        status_html = _status_badge(r.get("status", "done"))
-        run_id = r.get("id", "")
-        rows += f"""<tr data-run-id="{_escape(run_id)}" onclick="openDetail({_escape(run_id) if run_id else '0'})" style="cursor:pointer">
-          <td class="td-ts">{_fmt_ts(r.get('ts',''))}</td>
-          <td class="td-project">{_escape(_text(r.get('project'), '—'))}</td>
-          <td style="padding:9px 12px">{badge}</td>
-          <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace">{_escape(model_short)}</td>
-          <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:right;font-variant-numeric:tabular-nums">{_fmt_ms(r.get('duration_ms'))}</td>
-          <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:right;font-variant-numeric:tabular-nums">{_fmt_tokens(r.get('input_tokens'), r.get('output_tokens'))}</td>
-          <td style="padding:9px 12px;font-size:12px;color:#22c55e;text-align:right;font-weight:500;font-variant-numeric:tabular-nums">{_fmt_cost(r.get('cost_usd'))}</td>
-          <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:center">{_fmt_cache_pct(r.get('cache_read_tokens'), r.get('input_tokens'))}</td>
-          <td class="td-muted" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{_escape(task_value)}">{_escape(task)}</td>
-          <td style="padding:9px 12px;font-size:11px">{status_html}</td>
-        </tr>"""
+    import json as _json
+    all_models = sorted(by_model.keys())
+    runs_json = _json.dumps(
+        [{"id": r.get("id"), "ts": _text(r.get("ts")), "project": _text(r.get("project")),
+          "provider": _text(r.get("provider")), "model": _text(r.get("model")),
+          "status": _text(r.get("status","done")), "duration_ms": r.get("duration_ms"),
+          "input_tokens": r.get("input_tokens"), "output_tokens": r.get("output_tokens"),
+          "cost_usd": r.get("cost_usd"), "cache_read_tokens": r.get("cache_read_tokens"),
+          "task_preview": _text(r.get("task_preview") or r.get("task","")),
+          "routing_reason": _text(r.get("routing_reason",""))}
+         for r in runs],
+        ensure_ascii=False, default=str
+    )
 
     project_options = '<option value="">Todos los proyectos</option>'
     for p in all_projects:
@@ -1104,6 +1374,15 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     project_options_form = '<option value="">-- elegir proyecto --</option>'
     for p in all_projects:
         project_options_form += f'<option value="{_escape(p)}">{_escape(p)}</option>'
+
+    filter_project_opts = '<option value="">Todos</option>'
+    for p in all_projects:
+        sel2 = 'selected' if p == selected_project else ''
+        filter_project_opts += f'<option value="{_escape(p)}" {sel2}>{_escape(p)}</option>'
+
+    filter_model_opts = '<option value="">Todos</option>'
+    for m in all_models:
+        filter_model_opts += f'<option value="{_escape(m)}">{_escape(m)}</option>'
 
     tokens_display = f"{total_tokens // 1000}K" if total_tokens >= 1000 else str(total_tokens)
     cost_display = f"${total_cost:.4f}" if total_cost > 0 else "—"
@@ -1251,8 +1530,19 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   {contexts_section}
 
   <div class="panel" style="margin-bottom:20px;overflow-x:auto">
-    <h2>Runs <span id="runs-count" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)">({len(filtered_rev[:100])} de {total})</span></h2>
-    {'<table id="runs-table"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body">' + rows + '</tbody></table>' if rows else '<table id="runs-table" style="display:none"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body"></tbody></table><p class="empty" id="empty-msg">No hay runs aún. Usá el botón <strong>+ Nueva tarea</strong> para enviar una.</p>'}
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <h2 style="margin-bottom:0">Runs <span id="runs-count" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)"></span></h2>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap">
+        <label style="font-size:11px;color:var(--text-muted)">Proyecto</label>
+        <select id="filterProject" onchange="applyRunFilters()" style="font-size:12px;padding:4px 8px">{filter_project_opts}</select>
+        <label style="font-size:11px;color:var(--text-muted)">Modelo</label>
+        <select id="filterModel" onchange="applyRunFilters()" style="font-size:12px;padding:4px 8px">{filter_model_opts}</select>
+        <button class="btn btn-secondary" onclick="exportCSV()" style="font-size:12px;padding:5px 12px">↓ CSV</button>
+      </div>
+    </div>
+    <table id="runs-table" style="display:none"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body"></tbody></table>
+    <p class="empty" id="empty-msg" style="display:none">No hay runs aún. Usá el botón <strong>+ Nueva tarea</strong> para enviar una.</p>
+    <div id="runs-pagination"></div>
   </div>
 
 </div>
@@ -1274,6 +1564,14 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   </div>
 </div>
 
+<div class="detail-overlay" id="ctxDetailOverlay" onclick="closeCtxDetail(event)">
+  <div class="detail-panel" id="ctxDetailPanel">
+    <button class="close-btn" onclick="document.getElementById('ctxDetailOverlay').classList.remove('open')">&#x2715;</button>
+    <h3>Detalle del contexto</h3>
+    <div id="ctxDetailContent"><p class="text-muted" style="font-size:13px">Cargando...</p></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <div class="activity-bar">
@@ -1286,7 +1584,15 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <div id="activity-log" style="display:none"></div>
 </div>
 
+<script>
+window.__runsData = {runs_json};
+</script>
 <script>{_js}</script>
+<script>
+_runsFilterProject = (document.getElementById("filterProject")||{{}}).value||"";
+_runsFilterModel   = "";
+renderRunsTable();
+</script>
 
 </body>
 </html>"""

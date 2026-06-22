@@ -551,6 +551,79 @@ def serve(
                 self._json(payload)
                 return
 
+            if path == "/contexts-html":
+                params2 = urllib.parse.parse_qs(parsed.query)
+                sel2 = params2.get("project", [""])[0]
+                from orchestrator.db import read_contexts_with_steps as _rcs
+                ctxs = _rcs(project=sel2 or None)
+                from orchestrator.dashboard import _build_contexts_section
+                frag = _build_contexts_section(ctxs).encode("utf-8")
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(frag)))
+                    self.end_headers()
+                    self.wfile.write(frag)
+                except (BrokenPipeError, ConnectionAbortedError, OSError):
+                    pass
+                return
+
+            if path.startswith("/context/"):
+                try:
+                    ctx_id = int(path.split("/context/", 1)[-1].rstrip("/"))
+                except ValueError:
+                    self._json({"error": "invalid id"}, 400)
+                    return
+                from orchestrator.db import _conn as _db_conn, read_tool_calls_for_step, read_alignments_for_step
+                conn2 = _db_conn()
+                row2 = conn2.execute("SELECT * FROM contexts WHERE id=?", (ctx_id,)).fetchone()
+                if row2 is None:
+                    self._json({"error": "not found"}, 404)
+                    return
+                ctx_payload = dict(row2)
+                steps2 = conn2.execute("SELECT * FROM steps WHERE context_id=? ORDER BY order_idx", (ctx_id,)).fetchall()
+                ctx_payload["steps"] = []
+                for s in steps2:
+                    sd = dict(s)
+                    sd["alignments"] = [dict(a) for a in read_alignments_for_step(s["id"])]
+                    sd["tool_calls"] = [dict(tc) for tc in read_tool_calls_for_step(s["id"])]
+                    ctx_payload["steps"].append(sd)
+                self._json(ctx_payload)
+                return
+
+            if path == "/export-csv":
+                params3 = urllib.parse.parse_qs(parsed.query)
+                proj_csv = params3.get("project", [""])[0]
+                model_csv = params3.get("model", [""])[0]
+                import csv, io
+                all_runs = history_module.read_runs(project=proj_csv or None, last=5000)
+                out = io.StringIO()
+                w = csv.writer(out)
+                w.writerow(["id","ts","project","provider","model","status","duration_ms","input_tokens","output_tokens","cost_usd","cache_read_tokens","routing_reason","task_preview"])
+                for r in all_runs:
+                    m = str(r.get("model",""))
+                    if model_csv and m.split("/")[-1] != model_csv:
+                        continue
+                    w.writerow([
+                        r.get("id",""), r.get("ts",""), r.get("project",""),
+                        r.get("provider",""), m, r.get("status",""),
+                        r.get("duration_ms",""), r.get("input_tokens",""),
+                        r.get("output_tokens",""), r.get("cost_usd",""),
+                        r.get("cache_read_tokens",""), r.get("routing_reason",""),
+                        r.get("task_preview",""),
+                    ])
+                csv_bytes = out.getvalue().encode("utf-8")
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/csv; charset=utf-8")
+                    self.send_header("Content-Disposition", 'attachment; filename="runs.csv"')
+                    self.send_header("Content-Length", str(len(csv_bytes)))
+                    self.end_headers()
+                    self.wfile.write(csv_bytes)
+                except (BrokenPipeError, ConnectionAbortedError, OSError):
+                    pass
+                return
+
             if path.startswith("/run/"):
                 run_id_str = path.split("/run/", 1)[-1].rstrip("/")
                 try:
@@ -648,6 +721,52 @@ def serve(
                             sid = insert_step(ctx_id, i, step_title, provider=provider)
                             steps_out.append({"id": sid, "order_idx": i, "title": step_title, "provider": provider})
                     self._json({"context_id": ctx_id, "project": proj, "title": title, "steps": steps_out}, 201)
+                except Exception as exc:
+                    self._json({"error": str(exc)}, 500)
+                return
+
+            if self.path == "/advance-step":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json_mod.loads(self.rfile.read(length))
+                    step_id = int(body.get("step_id", 0))
+                    if not step_id:
+                        self._json({"error": "step_id requerido"}, 400)
+                        return
+                    from orchestrator.mcp import _tool_advance_step
+                    result = _tool_advance_step({"step_id": step_id, "notes": body.get("notes", "")})
+                    from orchestrator.db import _conn as _db2
+                    step_row = _db2().execute("SELECT context_id FROM steps WHERE id=?", (step_id,)).fetchone()
+                    if step_row:
+                        ctx_row = _db2().execute("SELECT project FROM contexts WHERE id=?", (step_row["context_id"],)).fetchone()
+                        proj2 = ctx_row["project"] if ctx_row else ""
+                        from orchestrator.db import read_contexts_with_steps as _rcs2
+                        import json as _j
+                        BUS.publish("ctx_updated", _j.dumps({"project": proj2, "contexts": _rcs2(project=proj2 or None)}, ensure_ascii=False, default=str))
+                    self._json(result, 200)
+                except Exception as exc:
+                    self._json({"error": str(exc)}, 500)
+                return
+
+            if self.path == "/skip-step":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json_mod.loads(self.rfile.read(length))
+                    step_id = int(body.get("step_id", 0))
+                    if not step_id:
+                        self._json({"error": "step_id requerido"}, 400)
+                        return
+                    from orchestrator.mcp import _tool_skip_step
+                    result = _tool_skip_step({"step_id": step_id, "reason": body.get("reason", "")})
+                    from orchestrator.db import _conn as _db3
+                    step_row = _db3().execute("SELECT context_id FROM steps WHERE id=?", (step_id,)).fetchone()
+                    if step_row:
+                        ctx_row = _db3().execute("SELECT project FROM contexts WHERE id=?", (step_row["context_id"],)).fetchone()
+                        proj3 = ctx_row["project"] if ctx_row else ""
+                        from orchestrator.db import read_contexts_with_steps as _rcs3
+                        import json as _j2
+                        BUS.publish("ctx_updated", _j2.dumps({"project": proj3, "contexts": _rcs3(project=proj3 or None)}, ensure_ascii=False, default=str))
+                    self._json(result, 200)
                 except Exception as exc:
                     self._json({"error": str(exc)}, 500)
                 return
