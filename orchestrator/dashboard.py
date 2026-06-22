@@ -584,6 +584,16 @@ function mkTablePaged(id, title, rows, cols) {
 }
 
 // ── Context actions ───────────────────────────────────────────────────────────
+let _ctxStatusFilter = "all";
+
+function setCtxFilter(status) {
+  _ctxStatusFilter = status || "all";
+  document.querySelectorAll(".ctx-filter-btn").forEach(b => b.classList.remove("pg-btn-active"));
+  const btn = document.getElementById("ctx-filter-" + _ctxStatusFilter);
+  if (btn) btn.classList.add("pg-btn-active");
+  _refreshContexts();
+}
+
 function advanceStep(stepId, ctxId) {
   fetch("/advance-step",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({step_id:stepId})})
     .then(r=>r.json())
@@ -605,8 +615,10 @@ function skipStep(stepId, ctxId) {
 }
 
 function _refreshContexts() {
-  const proj = _runsFilterProject||"";
-  fetch("/contexts-html"+(proj?"?project="+encodeURIComponent(proj):""))
+  const params = [];
+  if (_runsFilterProject) params.push("project="+encodeURIComponent(_runsFilterProject));
+  params.push("status="+encodeURIComponent(_ctxStatusFilter||"all"));
+  fetch("/contexts-html?"+params.join("&"))
     .then(r=>r.text())
     .then(html=>{
       const el=document.getElementById("contextsSection");
@@ -857,12 +869,10 @@ function closeDetail(e) {
 
 function toggleSender() {
   document.getElementById("senderPanel").classList.toggle("open");
-  document.getElementById("contextPanel").classList.remove("open");
 }
 
 function toggleContextForm() {
-  document.getElementById("contextPanel").classList.toggle("open");
-  document.getElementById("senderPanel").classList.remove("open");
+  switchTab("contextos");
 }
 
 let _ctxStepCount = 0;
@@ -1033,6 +1043,7 @@ function _handleTrace(d) {
 let _inspectorLoaded = false;
 function switchTab(name) {
   document.getElementById("tab-main").style.display      = name === "main"      ? "" : "none";
+  document.getElementById("tab-contextos").style.display = name === "contextos" ? "" : "none";
   document.getElementById("tab-inspector").style.display = name === "inspector" ? "" : "none";
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
   document.getElementById("tab-btn-" + name).classList.add("tab-active");
@@ -1040,6 +1051,7 @@ function switchTab(name) {
     _inspectorLoaded = true;
     loadInspector();
   }
+  if (name === "contextos") _refreshContexts();
 }
 
 function loadInspector() {
@@ -1276,7 +1288,7 @@ function renderInspector(data) {
 }
 """
 
-def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None, contexts: list[dict] | None = None) -> str:
+def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None) -> str:
     selected_project = _text(selected_project)
     all_projects = sorted({_text(r.get("project")) for r in runs if _text(r.get("project"))})
     if projects_extra:
@@ -1349,7 +1361,6 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     provider_bars = _chart_bars(by_provider, max_prov, lambda p: (PROVIDER_COLORS.get(p, "#888"), PROVIDER_BG.get(p, "#f8f8f8")))
     model_bars    = _chart_bars(by_model, max_model, _model_color)
     purpose_bars  = _chart_bars(by_purpose, max_purpose, _purpose_color)
-    contexts_section = _build_contexts_section(contexts or [])
 
     import json as _json
     all_models = sorted(by_model.keys())
@@ -1434,6 +1445,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 <div class="tabnav">
   <div class="tabnav-inner">
     <button class="tab-btn tab-active" id="tab-btn-main" onclick="switchTab('main')">Dashboard</button>
+    <button class="tab-btn" id="tab-btn-contextos" onclick="switchTab('contextos')">Contextos</button>
     <button class="tab-btn" id="tab-btn-inspector" onclick="switchTab('inspector')">Inspector</button>
   </div>
 </div>
@@ -1464,33 +1476,6 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
       <div class="full" style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-primary" onclick="submitTask()">Enviar</button>
         <span id="senderStatus" class="text-muted" style="font-size:12px"></span>
-      </div>
-    </div>
-  </div>
-
-  <div class="sender-panel" id="contextPanel">
-    <h2 style="font-size:13px;font-weight:700;color:var(--text-muted);margin-bottom:14px;text-transform:uppercase;letter-spacing:.4px">Nuevo contexto</h2>
-    <div class="sender-form">
-      <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
-        <select id="ctxProject" style="width:100%">{project_options_form}</select>
-      </div>
-      <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Título</label>
-        <input id="ctxTitle" type="text" placeholder="Objetivo del contexto..." style="width:100%">
-      </div>
-      <div class="full">
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Descripción (opcional)</label>
-        <input id="ctxDesc" type="text" placeholder="Detalle adicional..." style="width:100%">
-      </div>
-      <div class="full">
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Pasos</label>
-        <div id="ctxSteps"></div>
-        <button class="btn btn-secondary" onclick="addCtxStep()" style="margin-top:8px;font-size:12px;padding:5px 12px">+ Paso</button>
-      </div>
-      <div class="full" style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-primary" onclick="submitContext()">Crear contexto</button>
-        <span id="ctxStatus" class="text-muted" style="font-size:12px"></span>
       </div>
     </div>
   </div>
@@ -1527,8 +1512,6 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <div class="panel"><h2>Por Propósito</h2>{purpose_bars}</div>
   </div>
 
-  {contexts_section}
-
   <div class="panel" style="margin-bottom:20px;overflow-x:auto">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
       <h2 style="margin-bottom:0">Runs <span id="runs-count" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)"></span></h2>
@@ -1544,6 +1527,49 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <p class="empty" id="empty-msg" style="display:none">No hay runs aún. Usá el botón <strong>+ Nueva tarea</strong> para enviar una.</p>
     <div id="runs-pagination"></div>
   </div>
+
+</div>
+</div>
+
+<div id="tab-contextos" style="display:none">
+<div class="container">
+
+  <div class="panel" style="margin-bottom:16px">
+    <h2>Nuevo contexto</h2>
+    <div class="sender-form">
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
+        <select id="ctxProject" style="width:100%">{project_options_form}</select>
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Título</label>
+        <input id="ctxTitle" type="text" placeholder="Objetivo del contexto..." style="width:100%">
+      </div>
+      <div class="full">
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Descripción (opcional)</label>
+        <input id="ctxDesc" type="text" placeholder="Detalle adicional..." style="width:100%">
+      </div>
+      <div class="full">
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Pasos</label>
+        <div id="ctxSteps"></div>
+        <button class="btn btn-secondary" onclick="addCtxStep()" style="margin-top:8px;font-size:12px;padding:5px 12px">+ Paso</button>
+      </div>
+      <div class="full" style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-primary" onclick="submitContext()">Crear contexto</button>
+        <span id="ctxStatus" class="text-muted" style="font-size:12px"></span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted)">Estado</span>
+    <button class="pg-btn pg-btn-active ctx-filter-btn" id="ctx-filter-all" onclick="setCtxFilter('all')">Todos</button>
+    <button class="pg-btn ctx-filter-btn" id="ctx-filter-active" onclick="setCtxFilter('active')">Active</button>
+    <button class="pg-btn ctx-filter-btn" id="ctx-filter-completed" onclick="setCtxFilter('completed')">Completed</button>
+    <button class="pg-btn ctx-filter-btn" id="ctx-filter-abandoned" onclick="setCtxFilter('abandoned')">Abandoned</button>
+  </div>
+
+  <div id="contextsSection"></div>
 
 </div>
 </div>
