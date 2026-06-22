@@ -9,6 +9,23 @@ from typing import Any, Callable
 
 _HANDLERS: dict[str, Callable[[dict], Any]] = {}
 
+SERVER_INSTRUCTIONS = (
+    "Use this server to coordinate work in ai-orchestrator. At the start of a "
+    "substantial task call get_context(project='ai-orchestrator'); if an active "
+    "context exists, call list_steps and work on its in_progress step. Use "
+    "confirm_alignment before significant changes and advance_step only after "
+    "implementation and verification are complete. Create a context only when "
+    "no suitable active context exists. Do not skip or complete steps merely "
+    "to clean up tracking."
+)
+
+SUPPORTED_PROTOCOL_VERSIONS = {
+    "2024-11-05",
+    "2025-03-26",
+    "2025-06-18",
+}
+DEFAULT_PROTOCOL_VERSION = "2025-06-18"
+
 TOOLS = [
     {
         "name": "get_context",
@@ -162,6 +179,41 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "update_context",
+        "description": (
+            "Edita el título y/o la descripción de un contexto existente. "
+            "Solo se actualizan los campos presentes en la llamada — los campos omitidos no se tocan. "
+            "Útil para corregir mojibake u otros errores de contenido sin cambiar estado, timestamps ni relaciones."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["context_id"],
+            "properties": {
+                "context_id":  {"type": "integer", "description": "ID del contexto a editar."},
+                "title":       {"type": "string",  "description": "Nuevo título. Si se omite, no se modifica."},
+                "description": {"type": "string",  "description": "Nueva descripción. Si se omite, no se modifica."},
+            },
+        },
+    },
+    {
+        "name": "update_step",
+        "description": (
+            "Edita el título, descripción y/o notas de un paso existente. "
+            "Solo se actualizan los campos presentes en la llamada — los campos omitidos no se tocan. "
+            "No modifica estado, timestamps ni el orden del paso."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["step_id"],
+            "properties": {
+                "step_id":     {"type": "integer", "description": "ID del paso a editar."},
+                "title":       {"type": "string",  "description": "Nuevo título. Si se omite, no se modifica."},
+                "description": {"type": "string",  "description": "Nueva descripción. Si se omite, no se modifica."},
+                "notes":       {"type": "string",  "description": "Nuevas notas. Si se omite, no se modifica."},
+            },
+        },
+    },
 ]
 
 
@@ -295,6 +347,71 @@ def _tool_create_context(args: dict) -> dict:
     return {"context_id": ctx_id, "project": project, "title": title, "steps": steps_out, "parent_step_id": args.get("parent_step_id")}
 
 
+def _tool_update_context(args: dict) -> dict:
+    from orchestrator.db import _conn, _write_lock
+    context_id = args.get("context_id")
+    if not context_id:
+        raise ValueError("context_id es requerido")
+    conn = _conn()
+    row = conn.execute("SELECT * FROM contexts WHERE id=?", (context_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"context {context_id} not found")
+
+    fields, params = [], []
+    for col in ("title", "description"):
+        if col in args:
+            fields.append(f"{col}=?")
+            params.append(args[col])
+
+    if not fields:
+        return {"context_id": context_id, "updated": []}
+
+    ts = datetime.now(timezone.utc).isoformat()
+    fields.append("updated_at=?")
+    params.extend([ts, context_id])
+
+    with _write_lock:
+        conn.execute(
+            f"UPDATE contexts SET {', '.join(fields)} WHERE id=?",
+            params,
+        )
+        conn.commit()
+
+    updated_fields = [f for f in ("title", "description") if f in args]
+    return {"context_id": context_id, "updated": updated_fields, "updated_at": ts}
+
+
+def _tool_update_step(args: dict) -> dict:
+    from orchestrator.db import _conn, _write_lock
+    step_id = args.get("step_id")
+    if not step_id:
+        raise ValueError("step_id es requerido")
+    conn = _conn()
+    row = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"step {step_id} not found")
+
+    fields, params = [], []
+    for col in ("title", "description", "notes"):
+        if col in args:
+            fields.append(f"{col}=?")
+            params.append(args[col])
+
+    if not fields:
+        return {"step_id": step_id, "updated": []}
+
+    params.append(step_id)
+    with _write_lock:
+        conn.execute(
+            f"UPDATE steps SET {', '.join(fields)} WHERE id=?",
+            params,
+        )
+        conn.commit()
+
+    updated_fields = [f for f in ("title", "description", "notes") if f in args]
+    return {"step_id": step_id, "updated": updated_fields}
+
+
 def _tool_add_step(args: dict) -> dict:
     from orchestrator.db import _conn, insert_step
     context_id = args.get("context_id")
@@ -368,6 +485,8 @@ _HANDLERS.update({
     "skip_step":          _tool_skip_step,
     "create_context":     _tool_create_context,
     "add_step":           _tool_add_step,
+    "update_context":     _tool_update_context,
+    "update_step":        _tool_update_step,
 })
 
 
@@ -379,9 +498,11 @@ def _dispatch(name: str, args: dict) -> Any:
 
 
 def _respond(msg_id: Any, result: Any) -> None:
-    sys.stdout.write(
-        json.dumps({"jsonrpc": "2.0", "id": msg_id, "result": result}, ensure_ascii=False) + "\n"
+    payload = json.dumps(
+        {"jsonrpc": "2.0", "id": msg_id, "result": result},
+        ensure_ascii=True,
     )
+    sys.stdout.write(payload + "\n")
     sys.stdout.flush()
 
 
@@ -392,9 +513,27 @@ def _error(msg_id: Any, code: int, message: str) -> None:
     sys.stdout.flush()
 
 
+def _tool_call_result(result: Any) -> dict:
+    """Return a result shape supported by modern and legacy MCP clients."""
+    return {
+        "structuredContent": result,
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(result, ensure_ascii=False, indent=2),
+            }
+        ],
+    }
+
+
 def main() -> None:
     from orchestrator.db import init_db
     init_db()
+
+    # On Windows the default stdin encoding is cp1252; clients send UTF-8 JSON.
+    # Reconfigure before reading to prevent mojibake in stored text.
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8")
 
     for raw in sys.stdin:
         raw = raw.strip()
@@ -414,20 +553,27 @@ def main() -> None:
 
         try:
             if method == "initialize":
+                requested_version = params.get("protocolVersion", "")
+                protocol_version = (
+                    requested_version
+                    if requested_version in SUPPORTED_PROTOCOL_VERSIONS
+                    else DEFAULT_PROTOCOL_VERSION
+                )
                 _respond(msg_id, {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "ai-orchestrator", "version": "0.1.0"},
+                    "protocolVersion": protocol_version,
+                    "capabilities": {"tools": {"listChanged": False}},
+                    "serverInfo": {"name": "ai-orchestrator", "version": "0.4.0"},
+                    "instructions": SERVER_INSTRUCTIONS,
                 })
+            elif method == "ping":
+                _respond(msg_id, {})
             elif method == "tools/list":
                 _respond(msg_id, {"tools": TOOLS})
             elif method == "tools/call":
                 name = params.get("name", "")
                 args = params.get("arguments") or {}
                 result = _dispatch(name, args)
-                _respond(msg_id, {
-                    "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}]
-                })
+                _respond(msg_id, _tool_call_result(result))
             elif msg_id is not None:
                 _error(msg_id, -32601, f"method not found: {method}")
         except Exception as exc:
