@@ -139,6 +139,7 @@ def test_mcp_tool_handlers():
         ctx_id = db_mod.insert_context("test-proj", "Test MCP", "Objetivo de prueba")
         db_mod.insert_step(ctx_id, 1, "Paso uno", provider="claude")
         db_mod.insert_step(ctx_id, 2, "Paso dos", provider="deepseek")
+        db_mod.activate_first_step(ctx_id)
 
         ctx = _tool_get_context({"project": "test-proj"})
         assert ctx["title"] == "Test MCP"
