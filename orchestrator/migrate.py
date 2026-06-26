@@ -257,3 +257,50 @@ def run_migrations() -> None:
                     pass
                 _mark_applied(conn, "add_parent_step_id_to_contexts")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "create_context_hits_table"):
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS context_hits (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id     INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                        collection TEXT    NOT NULL DEFAULT 'docs',
+                        source     TEXT    NOT NULL DEFAULT '',
+                        chunk_idx  INTEGER,
+                        score      REAL,
+                        ts         TEXT    NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_context_hits_run ON context_hits(run_id);
+                """)
+                _mark_applied(conn, "create_context_hits_table")
+                conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_rating_to_runs"):
+                try:
+                    conn.execute("ALTER TABLE runs ADD COLUMN rating TEXT")
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_runs_rating ON runs(rating)"
+                        " WHERE rating IS NOT NULL"
+                    )
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_rating_to_runs")
+                conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "create_exchange_rates_table"):
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS exchange_rates (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        date       TEXT    NOT NULL,
+                        currency   TEXT    NOT NULL DEFAULT 'USD_CLP',
+                        rate       REAL    NOT NULL,
+                        source     TEXT    NOT NULL DEFAULT 'bcentral',
+                        fetched_at TEXT    NOT NULL,
+                        UNIQUE(date, currency)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_rates_date ON exchange_rates(date DESC);
+                """)
+                _mark_applied(conn, "create_exchange_rates_table")
+                conn.commit()

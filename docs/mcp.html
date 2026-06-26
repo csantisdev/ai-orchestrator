@@ -127,7 +127,7 @@
 <div class="hero">
   <div class="hero-tag">MCP · Model Context Protocol</div>
   <h1>Conectá tu agente al <span>orquestador</span></h1>
-  <p>10 herramientas para que cualquier agente IA lea el plan de trabajo, confirme alineamiento y registre su progreso en tiempo real.</p>
+  <p>11 herramientas para que cualquier agente IA lea el plan de trabajo, confirme alineamiento, registre su progreso en tiempo real e importe trabajo de agentes externos.</p>
   <div class="hero-badges">
     <span class="badge badge-sky">JSON-RPC · stdio</span>
     <span class="badge badge-green">Claude Desktop</span>
@@ -219,7 +219,7 @@
       <button class="copy-btn" onclick="copyCode(this)">Copiar</button>
     </div>
     <pre><span class="cmd">claude</span> mcp add ai-orchestrator <span class="flag">--</span> \
-  C:\Fuentes\ai-orchestrator\.venv\Scripts\python.exe \
+  C:\ruta\ai-orchestrator\.venv\Scripts\python.exe \
   -m orchestrator.mcp</pre>
   </div>
   <p>Opción B — editar <code>.claude/settings.json</code> del proyecto (ya configurado en este repo):</p>
@@ -258,7 +258,7 @@
 <span class="key">required</span> = <span class="kw">true</span></pre>
   </div>
   <div class="callout callout-info">
-    <strong>Verificación:</strong> Ejecutá <code>codex mcp list</code>. Después de crear o cambiar el archivo, abrí una sesión nueva de Codex para cargar las 8 herramientas.
+    <strong>Verificación:</strong> Ejecutá <code>codex mcp list</code>. Después de crear o cambiar el archivo, abrí una sesión nueva de Codex para cargar las 11 herramientas.
   </div>
 
   <h3>Cursor</h3>
@@ -281,15 +281,15 @@
   </div>
 
   <div class="callout callout-info">
-    <strong>Verificar conexión:</strong> Después de configurar, pedile al agente <em>"Listá los tools del servidor ai-orchestrator"</em>. Si responde con los 8 tools, la conexión funciona.
+    <strong>Verificar conexión:</strong> Después de configurar, pedile al agente <em>"Listá los tools del servidor ai-orchestrator"</em>. Si responde con los 11 tools, la conexión funciona.
   </div>
 </section>
 
 <!-- ── TOOLS ── -->
 <section id="tools">
   <div class="sec-label">Referencia</div>
-  <h2>Los 10 tools disponibles</h2>
-  <p>Hacé click en cada tool para ver sus parámetros y el formato de respuesta.</p>
+  <h2>Los 11 tools disponibles</h2>
+  <p>Hacé click en cada tool para ver sus parámetros y el formato de respuesta. Protocolo soportado: <code>2024-11-05</code> · <code>2025-03-26</code> · <code>2025-06-18</code>.</p>
 
   <div class="tools-list">
 
@@ -501,6 +501,7 @@
             <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>ID del contexto a editar.</td></tr>
             <tr><td>title</td><td>string</td><td>Nuevo título. Si se omite, no se modifica.</td></tr>
             <tr><td>description</td><td>string</td><td>Nueva descripción. Si se omite, no se modifica.</td></tr>
+            <tr><td>status</td><td>string</td><td><code>active</code> · <code>programado</code> · <code>completed</code> · <code>abandoned</code>. Si se omite, no se modifica. Usar <code>completed</code> para archivar un contexto terminado.</td></tr>
           </tbody>
         </table>
         <div class="code-block" style="margin-top:12px">
@@ -542,10 +543,49 @@
       </div>
     </div>
 
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">import_agent_context</span>
+        <span class="tool-desc">Registra trabajo de un agente externo e indexa en RAG</span>
+        <span class="tool-when tw-log">Importación</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Guarda en el historial del orquestador el resultado de trabajo realizado por cualquier agente externo (DeepSeek, OpenAI, Codex, etc.) e indexa el contenido en ChromaDB para que esté disponible en futuras búsquedas RAG. El campo <code>session_id</code> permite deduplicar importaciones automáticas.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>project<span class="param-req">*</span></td><td>string</td><td>Alias del proyecto registrado en el orquestador.</td></tr>
+            <tr><td>task<span class="param-req">*</span></td><td>string</td><td>Tarea o prompt que se le envió al agente.</td></tr>
+            <tr><td>response<span class="param-req">*</span></td><td>string</td><td>Respuesta o resultado producido por el agente.</td></tr>
+            <tr><td>agent</td><td>string</td><td>Nombre del agente (<code>deepseek</code>, <code>openai</code>, <code>claude</code>, etc.). Default: <code>external</code>.</td></tr>
+            <tr><td>model</td><td>string</td><td>Modelo específico usado. Opcional.</td></tr>
+            <tr><td>duration_ms</td><td>integer</td><td>Duración de la sesión en milisegundos.</td></tr>
+            <tr><td>input_tokens</td><td>integer</td><td>Tokens de entrada.</td></tr>
+            <tr><td>output_tokens</td><td>integer</td><td>Tokens de salida.</td></tr>
+            <tr><td>cache_read_tokens</td><td>integer</td><td>Tokens leídos de caché.</td></tr>
+            <tr><td>cost_usd</td><td>number</td><td>Costo estimado en USD.</td></tr>
+            <tr><td>session_id</td><td>string</td><td>ID único de sesión para deduplicar importaciones repetidas.</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block" style="margin-top:12px">
+          <div class="code-header"><span class="code-lang">JSON — respuesta</span></div>
+          <pre>{
+  <span class="key">"run_id"</span>: <span class="num">142</span>,
+  <span class="key">"project"</span>: <span class="str">"mi-proyecto"</span>,
+  <span class="key">"indexed"</span>: <span class="kw">true</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div class="callout callout-warn" style="margin-top:24px">
     <strong>Nota sobre mojibake en Codex (Windows):</strong> El servidor MCP usa transporte stdio. En Windows, el proceso hijo hereda un <code>sys.stdin</code> con encoding <code>cp1252</code> por defecto. Si el cliente MCP (Codex) envía JSON UTF-8 sin forzar el encoding, los bytes de caracteres acentuados (<code>\xc3\xb3</code> = <code>ó</code>) se decodifican como latin-1 y se almacenan como <code>Ã³</code>. El servidor aplica <code>sys.stdin.reconfigure(encoding='utf-8')</code> al arrancar para prevenir esto en sesiones nuevas. Los datos ya almacenados con mojibake se pueden reparar con <code>update_context</code> y <code>update_step</code>.
+  </div>
+  <div class="callout callout-info" style="margin-top:12px">
+    <strong>RAG en cada run:</strong> El orquestador recupera automáticamente hasta 4 chunks de documentación y 2 respuestas previas relevantes antes de llamar al modelo (threshold L2=0.9, equivalente a cosine_sim≥0.60). El tool <code>import_agent_context</code> indexa el trabajo importado para que quede disponible en futuras búsquedas.
   </div>
 </section>
 
@@ -596,6 +636,48 @@
   <div class="callout">
     <strong>Tip:</strong> El dashboard escucha el evento SSE <code>ctx_updated</code> y recarga la sección de contextos en tiempo real. Cada <code>advance_step</code> o <code>skip_step</code> se refleja en el panel sin recargar la página.
   </div>
+
+  <h3>Ciclo de vida de un contexto</h3>
+  <p>Los estados válidos de un contexto forman un flujo lineal:</p>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0 20px;font-size:13px">
+    <code style="background:var(--sky-bg);color:var(--sky);border:1px solid rgba(56,189,248,.25);padding:4px 12px;border-radius:20px">programado</code>
+    <span style="color:var(--muted)">→</span>
+    <code style="background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,.25);padding:4px 12px;border-radius:20px">active</code>
+    <span style="color:var(--muted)">→</span>
+    <code style="background:var(--purple-bg);color:var(--purple);border:1px solid rgba(192,132,252,.25);padding:4px 12px;border-radius:20px">completed</code>
+    <span style="color:var(--muted)">|</span>
+    <code style="background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,.25);padding:4px 12px;border-radius:20px">abandoned</code>
+  </div>
+  <ul style="color:var(--text2);font-size:14px;padding-left:20px;line-height:2">
+    <li><strong style="color:var(--text)">El primer paso se activa automáticamente</strong> al crear el contexto (<code>status=in_progress</code>).</li>
+    <li>Cada <code>advance_step</code> activa el siguiente <code>pending</code>. Cuando no quedan pasos sin resolver, el contexto pasa a <code>completed</code> y <code>context_done=true</code>.</li>
+    <li>Para archivar un contexto manualmente: <code>update_context(context_id=N, status="completed")</code>.</li>
+    <li>Para abandonar sin completar: <code>update_context(context_id=N, status="abandoned")</code>.</li>
+  </ul>
+
+  <h3>Respuestas de error</h3>
+  <p>Cuando una llamada falla, el servidor retorna un objeto <code>error</code> JSON-RPC:</p>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">JSON — error</span></div>
+    <pre>{
+  <span class="key">"jsonrpc"</span>: <span class="str">"2.0"</span>,
+  <span class="key">"id"</span>: <span class="num">1</span>,
+  <span class="key">"error"</span>: {
+    <span class="key">"code"</span>: <span class="num">-32603</span>,
+    <span class="key">"message"</span>: <span class="str">"El alias 'foo' no está registrado. Usá 'ai-orchestrator add foo --path &lt;ruta&gt;' primero."</span>
+  }
+}</pre>
+  </div>
+  <p style="margin-top:8px">Errores comunes:</p>
+  <table class="param-table" style="margin-top:8px">
+    <thead><tr><th>Mensaje</th><th>Causa</th></tr></thead>
+    <tbody>
+      <tr><td><code>project, task y response son requeridos</code></td><td>Faltan parámetros obligatorios en <code>import_agent_context</code></td></tr>
+      <tr><td><code>El alias 'X' no está registrado</code></td><td>El alias de proyecto no existe en el índice</td></tr>
+      <tr><td><code>step_id requerido</code></td><td>Falta <code>step_id</code> en <code>confirm_alignment</code> o <code>record_tool_call</code></td></tr>
+      <tr><td><code>tool not implemented: X</code></td><td>Tool desconocido — verificar nombre exacto</td></tr>
+    </tbody>
+  </table>
 
   <h3>Sin contexto previo — crear uno desde el agente</h3>
   <p>Si no hay contexto activo para el proyecto, el agente puede crear uno directamente:</p>

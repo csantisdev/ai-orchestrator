@@ -68,6 +68,9 @@ dist/
 .codex/config.toml
 .codex/mcp-debug.log
 
+# Orchestrator local - metadata especifica de esta maquina
+.orchestrator/
+
 # OS
 .DS_Store
 Thumbs.db

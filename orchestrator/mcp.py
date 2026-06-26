@@ -208,6 +208,32 @@ TOOLS = [
         },
     },
     {
+        "name": "import_agent_context",
+        "description": (
+            "Registra el resultado de trabajo realizado por un agente externo (DeepSeek, OpenAI, Claude Code, etc.) "
+            "sobre un proyecto. Guarda la tarea y la respuesta en el historial del orquestador e indexa el contenido "
+            "en ChromaDB para que esté disponible en futuras búsquedas RAG. "
+            "Usar cuando un agente externo completó una tarea y se quiere que el orquestador tenga memoria de ese trabajo."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["project", "task", "response"],
+            "properties": {
+                "project":          {"type": "string",  "description": "Alias del proyecto registrado en el orquestador."},
+                "task":             {"type": "string",  "description": "Tarea o prompt que se le envió al agente."},
+                "response":         {"type": "string",  "description": "Respuesta o resultado producido por el agente."},
+                "agent":            {"type": "string",  "description": "Nombre del agente (deepseek, openai, claude, etc.). Default: external."},
+                "model":            {"type": "string",  "description": "Modelo específico usado. Opcional."},
+                "duration_ms":      {"type": "integer", "description": "Duración de la sesión en milisegundos. Opcional."},
+                "input_tokens":     {"type": "integer", "description": "Tokens de entrada. Opcional."},
+                "output_tokens":    {"type": "integer", "description": "Tokens de salida. Opcional."},
+                "cache_read_tokens":{"type": "integer", "description": "Tokens leídos de caché. Opcional."},
+                "cost_usd":         {"type": "number",  "description": "Costo estimado en USD. Opcional."},
+                "session_id":       {"type": "string",  "description": "ID único de sesión para deduplicar importaciones. Opcional."},
+            },
+        },
+    },
+    {
         "name": "update_step",
         "description": (
             "Edita el título, descripción y/o notas de un paso existente. "
@@ -342,7 +368,7 @@ def _tool_skip_step(args: dict) -> dict:
 
 
 def _tool_create_context(args: dict) -> dict:
-    from orchestrator.db import insert_context, insert_step
+    from orchestrator.db import insert_context, insert_step, activate_first_step
     project = args.get("project", "").strip()
     title = args.get("title", "").strip()
     if not project or not title:
@@ -357,7 +383,10 @@ def _tool_create_context(args: dict) -> dict:
         provider = s.get("provider", "") if isinstance(s, dict) else ""
         if step_title:
             sid = insert_step(ctx_id, i, step_title, provider=provider)
-            steps_out.append({"id": sid, "order_idx": i, "title": step_title, "provider": provider})
+            steps_out.append({"id": sid, "order_idx": i, "title": step_title, "provider": provider, "status": "pending"})
+    if steps_out and status == "active":
+        activate_first_step(ctx_id)
+        steps_out[0]["status"] = "in_progress"
     return {"context_id": ctx_id, "project": project, "title": title, "steps": steps_out, "parent_step_id": args.get("parent_step_id")}
 
 
@@ -459,23 +488,27 @@ def _tool_advance_step(args: dict) -> dict:
         step = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
         if step is None:
             raise ValueError(f"step {step_id} not found")
+        if step["status"] != "in_progress":
+            raise ValueError(f"step {step_id} está en '{step['status']}' — solo se pueden avanzar pasos in_progress")
         context_id = step["context_id"]
         conn.execute(
             "UPDATE steps SET status='completed', completed_at=?, notes=? WHERE id=?",
             (ts, args.get("notes", ""), step_id),
         )
-        next_step = conn.execute(
+        next_step_row = conn.execute(
             """SELECT * FROM steps
                WHERE context_id=? AND order_idx > ? AND status='pending'
                ORDER BY order_idx LIMIT 1""",
             (context_id, step["order_idx"]),
         ).fetchone()
         context_done = False
-        if next_step:
+        next_step = None
+        if next_step_row:
             conn.execute(
                 "UPDATE steps SET status='in_progress', started_at=? WHERE id=?",
-                (ts, next_step["id"]),
+                (ts, next_step_row["id"]),
             )
+            next_step = {**dict(next_step_row), "status": "in_progress", "started_at": ts}
         else:
             unresolved = conn.execute(
                 """SELECT COUNT(*) FROM steps
@@ -491,22 +524,52 @@ def _tool_advance_step(args: dict) -> dict:
         conn.commit()
     return {
         "completed_step_id": step_id,
-        "next_step": dict(next_step) if next_step else None,
+        "next_step": next_step,
         "context_done": context_done,
     }
 
 
+def _tool_import_agent_context(args: dict) -> dict:
+    from orchestrator.db import import_external_run
+    from orchestrator.rag import index_response
+    project  = args.get("project", "").strip()
+    task     = args.get("task", "").strip()
+    response = args.get("response", "").strip()
+    agent    = args.get("agent", "external").strip() or "external"
+    model    = args.get("model", "").strip()
+    if not project or not task or not response:
+        raise ValueError("project, task y response son requeridos")
+    run_id = import_external_run(
+        project=project, task=task, response=response,
+        provider=agent, model=model, agent_label=agent,
+        input_tokens=int(args.get("input_tokens") or 0),
+        output_tokens=int(args.get("output_tokens") or 0),
+        duration_ms=args.get("duration_ms"),
+        cache_read_tokens=int(args.get("cache_read_tokens") or 0),
+        cost_usd=args.get("cost_usd"),
+        session_id=args.get("session_id") or None,
+    )
+    indexed = False
+    try:
+        index_response(run_id, project, task, response)
+        indexed = True
+    except Exception:
+        pass
+    return {"run_id": run_id, "project": project, "indexed": indexed}
+
+
 _HANDLERS.update({
-    "get_context":        _tool_get_context,
-    "list_steps":         _tool_list_steps,
-    "confirm_alignment":  _tool_confirm_alignment,
-    "record_tool_call":   _tool_record_tool_call,
-    "advance_step":       _tool_advance_step,
-    "skip_step":          _tool_skip_step,
-    "create_context":     _tool_create_context,
-    "add_step":           _tool_add_step,
-    "update_context":     _tool_update_context,
-    "update_step":        _tool_update_step,
+    "get_context":            _tool_get_context,
+    "list_steps":             _tool_list_steps,
+    "confirm_alignment":      _tool_confirm_alignment,
+    "record_tool_call":       _tool_record_tool_call,
+    "advance_step":           _tool_advance_step,
+    "skip_step":              _tool_skip_step,
+    "create_context":         _tool_create_context,
+    "add_step":               _tool_add_step,
+    "update_context":         _tool_update_context,
+    "update_step":            _tool_update_step,
+    "import_agent_context":   _tool_import_agent_context,
 })
 
 

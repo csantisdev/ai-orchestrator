@@ -31,3 +31,12 @@ approval_mode = "approve"
 
 [mcp_servers.ai_orchestrator.tools.add_step]
 approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.update_context]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.import_agent_context]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.update_step]
+approval_mode = "approve"

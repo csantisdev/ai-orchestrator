@@ -7,7 +7,10 @@ from pathlib import Path
 
 _CHUNK_SIZE = 1500
 _CHUNK_OVERLAP = 200
-_DISTANCE_THRESHOLD = 1.4
+# Umbral de distancia L2 para filtrar resultados RAG. Con vectores normalizados
+# (all-MiniLM-L6-v2), L2=1.4 equivale a cosine_sim≈0.02 (extremadamente permisivo).
+# L2=0.9 equivale a cosine_sim≈0.60, filtrando contexto poco relevante.
+_DISTANCE_THRESHOLD = 0.9
 _SCAN_EXTENSIONS = {".md", ".txt", ".yaml", ".yml", ".toml", ".rst", ".json"}
 _CODE_EXTENSIONS = {".py"}
 _SKIP_DIRS = {
@@ -58,6 +61,24 @@ _SECRET_PATTERN = re.compile(
 
 _MAX_FILE_BYTES = 100_000
 _MAX_PY_FILES = 30
+
+_STACK_SKIP_SUGGESTIONS: dict[str, list[str]] = {
+    "laravel": ["vendor", "storage", "bootstrap", "public/build"],
+    "php":     ["vendor", "storage", "bootstrap"],
+    "node":    ["node_modules", "dist", ".next", ".nuxt", "build", ".turbo"],
+    "react":   ["node_modules", "dist", "build", ".next"],
+    "python":  [".venv", "venv", "__pycache__", "dist", "build"],
+    "go":      ["vendor"],
+    "ruby":    ["vendor", "tmp", "log"],
+}
+
+
+def _is_suggested_skip(dirname: str, stack: str) -> bool:
+    stack_lower = stack.lower()
+    for key, dirs in _STACK_SKIP_SUGGESTIONS.items():
+        if key in stack_lower and dirname in dirs:
+            return True
+    return False
 
 
 _chroma_client = None
@@ -131,12 +152,18 @@ def _contains_secrets(text: str) -> bool:
     return bool(_SECRET_PATTERN.search(text))
 
 
-def _scan_files(project_path: Path) -> list[Path]:
+def _scan_files(project_path: Path, extra_skip: frozenset[str] = frozenset()) -> list[Path]:
+    effective_skip = _SKIP_DIRS | extra_skip
     files: list[Path] = []
     py_count = 0
     for f in sorted(project_path.rglob("*")):
-        if any(part in _SKIP_DIRS for part in f.relative_to(project_path).parts):
+        rel_parts = f.relative_to(project_path).parts
+        if any(part in effective_skip for part in rel_parts):
             continue
+        if extra_skip:
+            rel_str = "/".join(rel_parts)
+            if any(rel_str.startswith(d.rstrip("/") + "/") or rel_str == d for d in extra_skip):
+                continue
         if not f.is_file():
             continue
         if _is_sensitive_file(f):
@@ -151,7 +178,7 @@ def _scan_files(project_path: Path) -> list[Path]:
     return files
 
 
-def index_project(project: str, project_path: Path) -> int:
+def index_project(project: str, project_path: Path, extra_skip_dirs: list[str] | None = None) -> int:
     try:
         col = _docs_collection()
     except Exception:
@@ -160,8 +187,9 @@ def index_project(project: str, project_path: Path) -> int:
     from datetime import datetime, timezone
     from orchestrator.db import _conn, _write_lock
 
+    extra_skip = frozenset(extra_skip_dirs) if extra_skip_dirs else frozenset()
     total = 0
-    for fpath in _scan_files(project_path):
+    for fpath in _scan_files(project_path, extra_skip):
         try:
             text = fpath.read_text(encoding="utf-8", errors="ignore")
         except Exception:
@@ -209,7 +237,116 @@ def index_project(project: str, project_path: Path) -> int:
             )
             conn.commit()
 
+    if extra_skip:
+        _purge_excluded_dirs(col, project, extra_skip)
+
     return total
+
+
+def _purge_excluded_dirs(col, project: str, extra_skip: frozenset[str]) -> None:
+    """Elimina de ChromaDB y SQLite los chunks de carpetas que ahora están excluidas."""
+    try:
+        all_indexed = col.get(
+            where={"project": {"$eq": project}},
+            include=["metadatas"],
+        )
+    except Exception:
+        return
+
+    ids_to_delete = []
+    sources_to_delete: set[str] = set()
+    for doc_id, meta in zip(all_indexed.get("ids") or [], all_indexed.get("metadatas") or []):
+        source = ((meta or {}).get("source") or "").replace("\\", "/")
+        for skip_dir in extra_skip:
+            prefix = skip_dir.rstrip("/")
+            if source == prefix or source.startswith(prefix + "/"):
+                ids_to_delete.append(doc_id)
+                sources_to_delete.add((meta or {}).get("source", source))
+                break
+
+    if not ids_to_delete:
+        return
+
+    try:
+        col.delete(ids=ids_to_delete)
+    except Exception:
+        return
+
+    from orchestrator.db import _conn, _write_lock
+    conn = _conn()
+    with _write_lock:
+        for src in sources_to_delete:
+            conn.execute(
+                "DELETE FROM chunks WHERE project=? AND source_path=?",
+                (project, src),
+            )
+        conn.commit()
+
+
+def preview_index(
+    project_path: Path,
+    stack: str = "",
+    saved_skip: list[str] | None = None,
+) -> list[dict]:
+    """Devuelve carpetas de primer nivel con conteo de archivos indexables.
+
+    Usado por el Inspector para mostrar el pre-flight antes de indexar.
+    """
+    saved = set(saved_skip or [])
+    results = []
+    try:
+        entries = sorted(project_path.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
+        return []
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        if entry.name in _SKIP_DIRS:
+            continue
+        try:
+            count = len(_scan_files(entry, frozenset()))
+        except Exception:
+            count = 0
+        results.append({
+            "name": entry.name,
+            "file_count": count,
+            "suggested_skip": _is_suggested_skip(entry.name, stack),
+            "already_excluded": entry.name in saved,
+        })
+    return results
+
+
+def persist_context_hits(run_id: int, chunks: list[dict]) -> None:
+    """Persiste en context_hits los chunks ya recuperados, una vez que run_id es conocido.
+    Cada chunk debe tener 'collection', 'source', 'score' y opcionalmente 'chunk_idx'.
+    """
+    if not chunks:
+        return
+    try:
+        from datetime import datetime, timezone
+        from orchestrator.db import _conn, _write_lock
+        conn = _conn()
+        ts = datetime.now(timezone.utc).isoformat()
+        rows = [
+            (
+                run_id,
+                c.get("collection", "docs"),
+                c.get("source", ""),
+                c.get("chunk_idx"),
+                c.get("score"),
+                ts,
+            )
+            for c in chunks
+        ]
+        with _write_lock:
+            conn.executemany(
+                """INSERT INTO context_hits (run_id, collection, source, chunk_idx, score, ts)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+            conn.commit()
+    except Exception:
+        pass
 
 
 def retrieve_docs(task: str, project: str, n: int = 4) -> list[dict]:
@@ -227,7 +364,8 @@ def retrieve_docs(task: str, project: str, n: int = 4) -> list[dict]:
         metas = res.get("metadatas", [[]])[0]
         distances = res.get("distances", [[]])[0]
         return [
-            {"text": d, "source": m.get("source", "")}
+            {"text": d, "source": m.get("source", ""), "score": round(float(dist), 6),
+             "chunk_idx": m.get("chunk_idx"), "collection": "docs"}
             for d, m, dist in zip(docs, metas, distances)
             if dist < _DISTANCE_THRESHOLD
         ]
@@ -250,7 +388,8 @@ def retrieve_responses(task: str, project: str, n: int = 2) -> list[dict]:
         metas = res.get("metadatas", [[]])[0]
         distances = res.get("distances", [[]])[0]
         return [
-            {"text": d, "source": f"run #{m.get('run_id', '?')}"}
+            {"text": d, "source": f"run #{m.get('run_id', '?')}", "score": round(float(dist), 6),
+             "chunk_idx": None, "collection": "responses"}
             for d, m, dist in zip(docs, metas, distances)
             if dist < _DISTANCE_THRESHOLD
         ]
@@ -274,27 +413,71 @@ def build_context_block(doc_chunks: list[dict], response_chunks: list[dict]) -> 
 
 
 def chroma_stats() -> dict:
+    # Colecciones activas: 'docs' (documentación indexada) y 'responses' (respuestas previas).
+    # La colección 'runs' fue eliminada — nunca se escribió en ella.
     try:
         client = _get_client()
         result: dict = {}
-        for col_name in ("runs", "docs", "responses"):
+        for col_name in ("docs", "responses"):
             try:
                 col = client.get_collection(col_name)
                 count = col.count()
-                if col_name in ("docs", "responses") and count > 0:
-                    items = col.get(include=["metadatas"], limit=2000)
+                if count > 0:
                     by_project: dict[str, int] = {}
-                    for m in (items.get("metadatas") or []):
-                        p = (m or {}).get("project", "?")
-                        by_project[p] = by_project.get(p, 0) + 1
+                    offset = 0
+                    page_size = 1000
+                    while offset < count:
+                        items = col.get(include=["metadatas"], limit=page_size, offset=offset)
+                        metadatas = items.get("metadatas") or []
+                        if not metadatas:
+                            break
+                        for m in metadatas:
+                            p = (m or {}).get("project", "?")
+                            by_project[p] = by_project.get(p, 0) + 1
+                        offset += len(metadatas)
                     result[col_name] = {"count": count, "by_project": by_project}
                 else:
-                    result[col_name] = {"count": count}
+                    result[col_name] = {"count": 0, "by_project": {}}
             except Exception:
-                result[col_name] = {"count": 0}
+                result[col_name] = {"count": 0, "by_project": {}}
         return result
     except Exception:
         return {}
+
+
+def purge_project_responses(project: str) -> int:
+    """Elimina de ChromaDB todos los vectores de respuestas de un proyecto. Retorna cantidad eliminada."""
+    try:
+        col = _responses_collection()
+        result = col.get(where={"project": {"$eq": project}}, include=[])
+        ids = result.get("ids") or []
+        if ids:
+            col.delete(ids=ids)
+        return len(ids)
+    except Exception:
+        return 0
+
+
+def purge_project_docs(project: str) -> int:
+    """Elimina de ChromaDB los vectores de documentación de un proyecto. Retorna cantidad eliminada."""
+    try:
+        col = _docs_collection()
+        result = col.get(where={"project": {"$eq": project}}, include=[])
+        ids = result.get("ids") or []
+        if ids:
+            col.delete(ids=ids)
+        # limpiar tabla chunks
+        try:
+            from orchestrator.db import _conn, _write_lock
+            conn = _conn()
+            with _write_lock:
+                conn.execute("DELETE FROM chunks WHERE project=?", (project,))
+                conn.commit()
+        except Exception:
+            pass
+        return len(ids)
+    except Exception:
+        return 0
 
 
 def index_response(run_id: int, project: str, task: str, response: str) -> None:

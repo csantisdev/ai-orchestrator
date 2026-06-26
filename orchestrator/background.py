@@ -94,13 +94,14 @@ def _worker(
             if ctx.routing_notes:
                 system_prompt += f"Notas: {ctx.routing_notes}\n"
 
+        _rag_chunks: list[dict] = []
         try:
             from orchestrator.rag import retrieve_docs, retrieve_responses, build_context_block
             with _span("RAG retrieval", run_id=run_id):
-                rag_block = build_context_block(
-                    retrieve_docs(task, project),
-                    retrieve_responses(task, project),
-                )
+                _doc_chunks = retrieve_docs(task, project)
+                _resp_chunks = retrieve_responses(task, project)
+                _rag_chunks = _doc_chunks + _resp_chunks
+                rag_block = build_context_block(_doc_chunks, _resp_chunks)
             if rag_block:
                 system_prompt += "\n\n" + rag_block
         except Exception:
@@ -121,6 +122,13 @@ def _worker(
             routing_reason=decision.reason,
             cost_usd=cost_usd,
         )
+
+        if _rag_chunks:
+            try:
+                from orchestrator.rag import persist_context_hits
+                persist_context_hits(run_id, _rag_chunks)
+            except Exception:
+                pass
 
         try:
             from orchestrator.rag import index_response
