@@ -152,6 +152,90 @@ def update_run(
         conn.commit()
 
 
+def delete_imported_runs(project: str, provider: Optional[str] = None) -> list[int]:
+    """Elimina runs importados de un proyecto. Si provider se especifica, filtra por él.
+    Retorna lista de run_ids eliminados (para limpiar ChromaDB)."""
+    conn = _conn()
+    if provider:
+        rows = conn.execute(
+            "SELECT id FROM runs WHERE project=? AND provider=?",
+            (project, provider),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id FROM runs WHERE project=?",
+            (project,),
+        ).fetchall()
+    ids = [r["id"] for r in rows]
+    if not ids:
+        return []
+    placeholders = ",".join("?" * len(ids))
+    with _write_lock:
+        conn.execute(f"DELETE FROM runs WHERE id IN ({placeholders})", ids)
+        conn.commit()
+    return ids
+
+
+def import_external_run(
+    project: str,
+    task: str,
+    response: str,
+    provider: str,
+    model: str = "",
+    agent_label: str = "",
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    duration_ms: Optional[int] = None,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
+    cost_usd: Optional[float] = None,
+    session_id: Optional[str] = None,
+    ts: Optional[str] = None,
+) -> int:
+    """Inserta un run completo importado de un agente externo. Retorna el run_id."""
+    conn = _conn()
+    ts = ts or datetime.now(timezone.utc).isoformat()
+    preview = task[:150].replace("\n", " ").strip()
+    label = agent_label or provider
+    with _write_lock:
+        cur = conn.execute(
+            """INSERT INTO runs
+               (ts, project, provider, model, status,
+                task, task_preview, response,
+                input_tokens, output_tokens,
+                duration_ms, cache_read_tokens, cache_creation_tokens,
+                cost_usd, routing_reason, session_id)
+               VALUES (?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                ts, project, provider, model,
+                task, preview, response,
+                input_tokens or None, output_tokens or None,
+                duration_ms,
+                cache_read_tokens or None,
+                cache_creation_tokens or None,
+                cost_usd,
+                f"Importado de {label}",
+                session_id,
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+
+def rename_project_in_db(old_alias: str, new_alias: str) -> dict:
+    """Actualiza el alias de proyecto en runs y contexts. Retorna conteos."""
+    conn = _conn()
+    with _write_lock:
+        runs_n = conn.execute(
+            "UPDATE runs SET project=? WHERE project=?", (new_alias, old_alias)
+        ).rowcount
+        ctx_n = conn.execute(
+            "UPDATE contexts SET project=? WHERE project=?", (new_alias, old_alias)
+        ).rowcount
+        conn.commit()
+    return {"runs": runs_n, "contexts": ctx_n}
+
+
 def fail_run(run_id: int, error: str) -> None:
     conn = _conn()
     with _write_lock:
@@ -331,3 +415,69 @@ def insert_step(context_id: int, order_idx: int, title: str, description: str = 
         )
         conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
+
+
+def delete_context(context_id: int) -> dict:
+    """Elimina un contexto y todos sus datos asociados.
+
+    Conserva los runs históricos pero desvincula su step_id.
+    Retorna un resumen con los conteos eliminados.
+    """
+    conn = _conn()
+    with _write_lock:
+        row = conn.execute("SELECT id FROM contexts WHERE id=?", (context_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"context {context_id} not found")
+
+        alignments = conn.execute(
+            "SELECT COUNT(*) FROM alignments WHERE context_id=?", (context_id,)
+        ).fetchone()[0]
+        tool_calls = conn.execute(
+            "SELECT COUNT(*) FROM tool_calls WHERE context_id=?", (context_id,)
+        ).fetchone()[0]
+        steps_count = conn.execute(
+            "SELECT COUNT(*) FROM steps WHERE context_id=?", (context_id,)
+        ).fetchone()[0]
+
+        conn.execute("DELETE FROM alignments WHERE context_id=?", (context_id,))
+        conn.execute("DELETE FROM tool_calls WHERE context_id=?", (context_id,))
+        conn.execute(
+            "UPDATE runs SET step_id=NULL WHERE step_id IN "
+            "(SELECT id FROM steps WHERE context_id=?)", (context_id,)
+        )
+        conn.execute(
+            "UPDATE contexts SET parent_step_id=NULL WHERE parent_step_id IN "
+            "(SELECT id FROM steps WHERE context_id=?)", (context_id,)
+        )
+        conn.execute("DELETE FROM steps WHERE context_id=?", (context_id,))
+        conn.execute("DELETE FROM contexts WHERE id=?", (context_id,))
+        conn.commit()
+
+    return {
+        "deleted_context_id": context_id,
+        "steps": steps_count,
+        "alignments": alignments,
+        "tool_calls": tool_calls,
+    }
+
+
+def activate_first_step(context_id: int) -> bool:
+    """Marca el primer paso pendiente del contexto como in_progress.
+
+    Retorna True si activó un paso, False si no había pasos pendientes.
+    """
+    conn = _conn()
+    ts = datetime.now(timezone.utc).isoformat()
+    with _write_lock:
+        row = conn.execute(
+            "SELECT id FROM steps WHERE context_id=? AND status='pending' ORDER BY order_idx LIMIT 1",
+            (context_id,),
+        ).fetchone()
+        if not row:
+            return False
+        conn.execute(
+            "UPDATE steps SET status='in_progress', started_at=? WHERE id=?",
+            (ts, row["id"]),
+        )
+        conn.commit()
+        return True

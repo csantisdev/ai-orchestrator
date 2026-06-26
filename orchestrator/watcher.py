@@ -31,6 +31,7 @@ class CCSession:
     task_preview: str = ""
     slug: str = ""
     prompts: list[str] = field(default_factory=list)
+    response_text: str = ""
 
 
 def _parse_session(jsonl_path: Path) -> Optional[CCSession]:
@@ -60,6 +61,7 @@ def _parse_session(jsonl_path: Path) -> Optional[CCSession]:
     total_cache_creation = 0
     total_cache_read = 0
     user_prompts: list[str] = []
+    assistant_texts: list[str] = []
 
     for entry in entries:
         etype = entry.get("type", "")
@@ -87,17 +89,26 @@ def _parse_session(jsonl_path: Path) -> Optional[CCSession]:
             total_output           += usage.get("output_tokens", 0) or 0
             total_cache_creation   += usage.get("cache_creation_input_tokens", 0) or 0
             total_cache_read       += usage.get("cache_read_input_tokens", 0) or 0
+            for block in (msg.get("content") or []):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text", "").strip()
+                    if text:
+                        assistant_texts.append(text)
 
         if etype == "user":
             msg = entry.get("message", {})
             content = msg.get("content", []) if isinstance(msg, dict) else []
-            for block in (content if isinstance(content, list) else []):
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text = block.get("text", "").strip()
-                    if text:
-                        user_prompts.append(text)
-                elif isinstance(block, str) and block.strip():
-                    user_prompts.append(block.strip())
+            if isinstance(content, str):
+                if content.strip():
+                    user_prompts.append(content.strip())
+            else:
+                for block in (content if isinstance(content, list) else []):
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = block.get("text", "").strip()
+                        if text:
+                            user_prompts.append(text)
+                    elif isinstance(block, str) and block.strip():
+                        user_prompts.append(block.strip())
 
     if not session_id:
         session_id = jsonl_path.stem
@@ -109,7 +120,15 @@ def _parse_session(jsonl_path: Path) -> Optional[CCSession]:
     ts_end   = max(timestamps)
     duration_ms = int((ts_end - ts_start).total_seconds() * 1000)
 
-    first_prompt = user_prompts[0][:150].replace("\n", " ").strip() if user_prompts else ""
+    import re as _re
+    _tag_re = _re.compile(r"<[^>]+>")
+    # Saltar prompts que son solo slash-commands o XML interno de Claude Code
+    _clean_prompts = [
+        p for p in user_prompts
+        if not _tag_re.match(p.strip()) and not p.strip().startswith("logout")
+    ]
+    first_prompt = (_clean_prompts[0] if _clean_prompts else user_prompts[0] if user_prompts else "")
+    first_prompt = _tag_re.sub("", first_prompt)[:150].replace("\n", " ").strip()
 
     return CCSession(
         session_id=session_id,
@@ -125,6 +144,7 @@ def _parse_session(jsonl_path: Path) -> Optional[CCSession]:
         task_preview=first_prompt,
         slug=jsonl_path.parent.name,
         prompts=user_prompts[:3],
+        response_text="\n\n---\n\n".join(assistant_texts),
     )
 
 
@@ -182,15 +202,14 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                 continue
             if session.input_tokens + session.output_tokens == 0:
                 continue
-            if _session_already_imported(conn, session.session_id):
-                continue
 
             project_alias = _cwd_to_alias(session.project_cwd, index)
             if not project_alias:
-                project_alias = slug_dir.name.replace("C--Fuentes-", "").replace("c--Fuentes-", "").split("-")[0]
+                # Proyecto no registrado en index.yaml — saltar
+                continue
 
             fake_result = CompletionResult(
-                text="",
+                text=session.response_text,
                 provider=PROVIDER_NAME,
                 model=session.model,
                 raw_response={"usage": {
@@ -202,33 +221,83 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
             )
             cost_usd = calculate_cost(fake_result, pricing)
 
-            with _write_lock:
-                conn.execute(
-                    """INSERT OR IGNORE INTO runs
-                       (ts, project, provider, model, status,
-                        task, task_preview, response,
-                        duration_ms, input_tokens, output_tokens,
-                        cache_creation_tokens, cache_read_tokens,
-                        cost_usd, routing_reason, session_id)
-                       VALUES (?, ?, ?, ?, 'done', ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        session.ts_start,
-                        project_alias,
-                        PROVIDER_NAME,
-                        session.model,
-                        session.task_preview,
-                        session.task_preview,
-                        session.duration_ms,
-                        session.input_tokens,
-                        session.output_tokens,
-                        session.cache_creation_tokens,
-                        session.cache_read_tokens,
-                        cost_usd,
-                        f"Claude Code session · {session.slug[:40]}",
-                        session.session_id,
-                    ),
-                )
-                conn.commit()
+            try:
+                from orchestrator.tracer import span as _tspan
+            except Exception:
+                from contextlib import nullcontext as _tspan  # type: ignore[assignment]
+
+            _task_label = (session.task_preview or session.session_id[:8])[:60]
+            with _tspan(f"CC · {project_alias}", detail=_task_label):
+                existing = conn.execute(
+                    "SELECT id, response, task FROM runs WHERE session_id=?",
+                    (session.session_id,),
+                ).fetchone()
+
+                run_id: Optional[int] = None
+
+                if existing:
+                    # Sesión ya importada — actualizar campos vacíos si ahora los tenemos
+                    needs_update = (
+                        (not existing["response"] and session.response_text) or
+                        (not existing["task"] and session.task_preview)
+                    )
+                    if needs_update:
+                        with _write_lock:
+                            conn.execute(
+                                """UPDATE runs SET
+                                   response     = CASE WHEN response = '' OR response IS NULL
+                                                  THEN ? ELSE response END,
+                                   task         = CASE WHEN task = '' OR task IS NULL
+                                                  THEN ? ELSE task END,
+                                   task_preview = CASE WHEN task_preview = '' OR task_preview IS NULL
+                                                  THEN ? ELSE task_preview END
+                                   WHERE id=?""",
+                                (session.response_text, session.task_preview,
+                                 session.task_preview, existing["id"]),
+                            )
+                            conn.commit()
+                        run_id = existing["id"]
+                    else:
+                        continue
+                else:
+                    with _write_lock:
+                        cur = conn.execute(
+                            """INSERT OR IGNORE INTO runs
+                               (ts, project, provider, model, status,
+                                task, task_preview, response,
+                                duration_ms, input_tokens, output_tokens,
+                                cache_creation_tokens, cache_read_tokens,
+                                cost_usd, routing_reason, session_id)
+                               VALUES (?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                session.ts_start,
+                                project_alias,
+                                PROVIDER_NAME,
+                                session.model,
+                                session.task_preview,
+                                session.task_preview,
+                                session.response_text,
+                                session.duration_ms,
+                                session.input_tokens,
+                                session.output_tokens,
+                                session.cache_creation_tokens,
+                                session.cache_read_tokens,
+                                cost_usd,
+                                f"Claude Code session · {session.slug[:40]}",
+                                session.session_id,
+                            ),
+                        )
+                        conn.commit()
+                    run_id = cur.lastrowid
+
+                if run_id and session.response_text:
+                    try:
+                        from orchestrator.rag import index_response
+                        with _tspan(f"CC · index-response · {project_alias}"):
+                            index_response(run_id, project_alias,
+                                           session.task_preview, session.response_text)
+                    except Exception:
+                        pass
 
             imported.append({
                 "project": project_alias,

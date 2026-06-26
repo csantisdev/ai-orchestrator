@@ -24,6 +24,7 @@ class ProjectContext:
     routing_notes: str = ""
     keyword_hints: list[dict] = field(default_factory=list)
     daily_budget_usd: float | None = None
+    skip_dirs: list[str] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
 
     @property
@@ -61,6 +62,7 @@ def load_context(project_path: Path) -> ProjectContext:
         routing_notes=preferred.get("notes", ""),
         keyword_hints=raw.get("keyword_hints", []) or [],
         daily_budget_usd=raw.get("daily_budget_usd"),
+        skip_dirs=raw.get("skip_dirs", []) or [],
         raw={**raw, "_context_path": ctx_path},
     )
 
@@ -108,3 +110,17 @@ def create_default_context(
         yaml.safe_dump(template, f, allow_unicode=True, sort_keys=False)
 
     return ctx_path
+
+
+def save_skip_dirs(project_path: Path, skip_dirs: list[str]) -> None:
+    """Persiste skip_dirs en el context.yaml del proyecto sin tocar el resto."""
+    ctx_path = _context_file_path(project_path)
+    if not ctx_path.exists():
+        raise ContextNotFoundError(
+            f"No existe {ctx_path}. Corré 'ai-orchestrator add' para generarlo."
+        )
+    with ctx_path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    data["skip_dirs"] = skip_dirs
+    with ctx_path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)

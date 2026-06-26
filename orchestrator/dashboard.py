@@ -61,6 +61,8 @@ def _fmt_ms(ms: object) -> str:
     value = _int_or_none(ms)
     if value is None:
         return "—"
+    if value >= 3_600_000:
+        return f"{value / 3_600_000:.1f}h"
     if value >= 60_000:
         return f"{value / 60_000:.1f}m"
     if value >= 1_000:
@@ -83,17 +85,19 @@ def _fmt_cost(cost: object) -> str:
     v = _float_or_none(cost)
     if v is None:
         return "—"
-    if v < 0.0001:
-        return "<$0.0001"
-    return f"${v:.4f}"
+    if v > 0 and v < 0.0001:
+        return "<0,0001 USD"
+    formatted = f"{v:,.4f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{formatted} USD"
 
 
 def _fmt_cache_pct(cr: object, inp: object) -> str:
     cache_read = _int_or_none(cr)
-    input_tok = _int_or_none(inp)
-    if not cache_read or not input_tok:
+    input_tok = _int_or_none(inp) or 0
+    if not cache_read:
         return "—"
-    pct = round(cache_read / input_tok * 100)
+    total = input_tok + cache_read
+    pct = round(cache_read / total * 100)
     return f"{pct}%"
 
 
@@ -189,7 +193,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
             if is_active:
                 sid = step.get("id", "")
                 action_html = (
-                    f'<button class="ctx-step-btn ctx-step-advance" onclick="advanceStep({sid},{ctx_id})" title="Marcar completado">✓</button>'
+                    f'<button class="ctx-step-btn ctx-step-advance" onclick="advanceStep({sid},{ctx_id})" title="Completar y continuar">✓</button>'
                     f'<button class="ctx-step-btn ctx-step-skip" onclick="skipStep({sid},{ctx_id})" title="Omitir paso">↷</button>'
                 )
             steps_html += (
@@ -208,13 +212,36 @@ def _build_contexts_section(contexts: list[dict]) -> str:
 
         body_html = steps_html if steps_html else '<p class="ctx-desc" style="padding:8px 0">Sin pasos definidos.</p>'
 
+        # Texto de tarea para el botón play: paso in_progress o título del contexto
+        active_step = next((s for s in steps if _text(s.get("status")) == "in_progress"), None)
+        run_task = _text(active_step.get("title") if active_step else ctx.get("title"))
+        run_project = _text(ctx.get("project"))
+
+        play_btn = ""
+        if ctx_status == "active":
+            play_btn = (
+                f'<button class="ctx-step-btn ctx-play-btn" '
+                f'data-project="{_escape(run_project)}" data-task="{_escape(run_task)}" '
+                f'onclick="runContext(this)" '
+                f'title="Ejecutar paso activo como nuevo run">▶ Ejecutar</button>'
+            )
+
+        ctx_title_escaped = _escape(_text(ctx.get("title"), "(sin título)"))
+        delete_btn = (
+            f'<button class="ctx-step-btn ctx-delete-btn" '
+            f'onclick="deleteContext({ctx_id},\'{ctx_title_escaped}\')" '
+            f'title="Eliminar contexto">✕</button>'
+        )
+
         cards += (
             f'<div class="ctx-card">'
             f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
-            f'<span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">{_escape(_text(ctx.get("title"), "(sin título)"))}</span>'
+            f'<span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">{ctx_title_escaped}</span>'
             f'<span style="font-size:11px;color:var(--text-faint);font-family:\'JetBrains Mono\',monospace">{_escape(_text(ctx.get("project")))}</span>'
             f'<span style="font-size:10px;background:{sbg};color:{sc};padding:2px 8px;border-radius:20px;font-weight:600">{_escape(ctx_status)}</span>'
+            f'{play_btn}'
             f'<button onclick="openContextDetail({ctx_id})" class="ctx-step-btn" style="font-size:10px;padding:2px 8px;border-radius:20px">→ Detalle</button>'
+            f'{delete_btn}'
             f'</div>'
             f'{desc_html}'
             f'<div>{body_html}</div>'
@@ -305,15 +332,29 @@ def _build_css() -> str:
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',system-ui,sans-serif;background:var(--bg-base);color:var(--text-primary);-webkit-font-smoothing:antialiased;padding-bottom:48px}
     .activity-bar{position:fixed;bottom:0;left:0;right:0;background:var(--bg-elevated);border-top:1px solid var(--border);z-index:200;font-family:'JetBrains Mono',monospace}
-    .activity-hdr{display:flex;align-items:center;gap:10px;padding:0 16px;height:40px;cursor:pointer;user-select:none;transition:background .1s}
-    .activity-hdr:hover{background:var(--bg-surface)}
+    .activity-hdr{display:flex;align-items:center;height:40px;user-select:none;transition:background .1s}
+    .act-left{display:flex;align-items:center;gap:10px;flex:1;cursor:pointer;padding:0 0 0 16px;height:100%;overflow:hidden;min-width:0}
+    .act-left:hover{background:var(--bg-surface)}
     .act-dot{width:7px;height:7px;border-radius:50%;background:var(--border);flex-shrink:0;transition:background .2s}
     .act-dot.live{background:#22c55e}
     .act-dot.pulse{animation:_adot .6s ease-in-out 3}
     @keyframes _adot{0%,100%{opacity:1}50%{opacity:.2}}
     .act-title{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.7px;flex-shrink:0}
-    .act-summary{font-size:11px;color:var(--text-faint);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}
-    .act-toggle{font-size:10px;color:var(--text-faint);flex-shrink:0}
+    .act-summary{font-size:11px;color:var(--text-faint);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .act-toggle{font-size:10px;color:var(--text-faint);flex-shrink:0;cursor:pointer;padding:0 12px 0 8px;height:100%;display:flex;align-items:center}
+    .act-actions{display:flex;align-items:center;gap:4px;flex-shrink:0;padding:0 10px;border-left:1px solid var(--border)}
+    .act-btn{font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;padding:0 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted);cursor:pointer;transition:all .15s;white-space:nowrap;height:22px;letter-spacing:.2px;line-height:22px}
+    .act-btn:hover:not(:disabled){background:var(--bg-input);color:var(--text-primary);border-color:var(--text-muted)}
+    .act-btn:disabled{opacity:.4;cursor:not-allowed}
+    .act-btn.running{border-color:#22c55e;color:#22c55e;animation:_adot .8s ease-in-out infinite}
+    .act-btn-wrap{position:relative;display:flex;align-items:center}
+    .act-btn-split{border-radius:4px 0 0 4px!important;border-right:none!important}
+    .act-btn-arr{border-radius:0 4px 4px 0!important;padding:0 5px!important;border-left:1px solid var(--bg-input)!important}
+    .act-dropdown{position:absolute;bottom:calc(100% + 6px);right:0;background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:4px;min-width:180px;z-index:500;display:none;box-shadow:0 -4px 16px rgba(0,0,0,.35)}
+    .act-dropdown.open{display:block}
+    .act-dropdown button{display:block;width:100%;text-align:left;padding:6px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;background:none;border:none;color:var(--text-primary);cursor:pointer;border-radius:4px;white-space:nowrap}
+    .act-dropdown button:hover{background:var(--bg-surface)}
+    .tr-row.tr-warn .tr-icon{color:#f59e0b}
     #activity-log{max-height:200px;overflow-y:auto;border-top:1px solid var(--bg-input)}
     .tr-row{display:grid;grid-template-columns:80px 44px 14px 1fr 64px;gap:8px;padding:4px 16px;align-items:center;font-size:11px;border-bottom:1px solid var(--bg-elevated)}
     .tr-ts{color:var(--border);font-variant-numeric:tabular-nums}
@@ -400,6 +441,11 @@ def _build_css() -> str:
     .ctx-step-btn:hover{background:var(--bg-surface);color:var(--text-primary)}
     .ctx-step-advance:hover{border-color:#22c55e;color:#22c55e}
     .ctx-step-skip:hover{border-color:#f59e0b;color:#f59e0b}
+    .ctx-play-btn{border-color:#38bdf8;color:#38bdf8;font-weight:700}
+    .ctx-play-btn:hover{background:rgba(56,189,248,0.12);border-color:#38bdf8;color:#38bdf8}
+    .ctx-play-btn:disabled{opacity:.4;cursor:default}
+    .ctx-delete-btn{color:var(--text-faint);border-color:transparent}
+    .ctx-delete-btn:hover{border-color:#f87171;color:#f87171;background:rgba(248,113,113,0.10)}
     .pagination-bar{display:flex;align-items:center;gap:6px;padding:10px 0 4px;flex-wrap:wrap}
     .pg-btn{background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:11px;padding:3px 9px;cursor:pointer;font-family:inherit;transition:background .12s}
     .pg-btn:hover:not(:disabled){background:var(--border);color:var(--text-primary)}
@@ -425,10 +471,13 @@ def _build_css() -> str:
 def _build_js() -> str:
     return """\n
 // ── Runs table state ─────────────────────────────────────────────────────────
-let _runsPage = 0;
-let _runsPageSize = 10;
-let _runsFilterProject = "";
-let _runsFilterModel = "";
+// var (no let) para que onclick attrs del HTML puedan mutar las variables desde
+// el scope global. Con let, onclick crea window._runsPage=N pero renderRunsTable
+// sigue leyendo la let del closure del script, que nunca cambia.
+var _runsPage = 0;
+var _runsPageSize = 10;
+var _runsFilterProject = "";
+var _runsFilterModel = "";
 
 function _fmtRunTs(iso) {
   try {
@@ -437,8 +486,9 @@ function _fmtRunTs(iso) {
 }
 function _fmtRunDur(ms) {
   if (ms == null) return "—";
-  if (ms >= 60000) return (ms/60000).toFixed(1)+"m";
-  if (ms >= 1000)  return (ms/1000).toFixed(1)+"s";
+  if (ms >= 3600000) return (ms/3600000).toFixed(1)+"h";
+  if (ms >= 60000)   return (ms/60000).toFixed(1)+"m";
+  if (ms >= 1000)    return (ms/1000).toFixed(1)+"s";
   return ms+"ms";
 }
 function _fmtRunTokens(inp,out) {
@@ -446,13 +496,21 @@ function _fmtRunTokens(inp,out) {
   const t=(inp||0)+(out||0);
   return t>=1000 ? Math.floor(t/1000)+"K" : String(t);
 }
+function _fmtUsd(v, dec) {
+  if (dec == null) dec = 4;
+  if (v == null || v === "") return "—";
+  const n = parseFloat(v);
+  if (isNaN(n)) return "—";
+  if (n > 0 && n < 0.0001 && dec >= 4) return "<0,0001 USD";
+  return n.toLocaleString("es-CL", {minimumFractionDigits: dec, maximumFractionDigits: dec}) + " USD";
+}
 function _fmtRunCost(v) {
-  if (v==null) return "—";
-  return parseFloat(v)<0.0001 ? "<$0.0001" : "$"+parseFloat(v).toFixed(4);
+  return _fmtUsd(v, 4);
 }
 function _fmtRunCache(cr,inp) {
-  if (!cr||!inp) return "—";
-  return Math.round(cr/inp*100)+"%";
+  if (!cr) return "—";
+  const total = (inp||0) + cr;
+  return Math.round(cr/total*100)+"%";
 }
 
 function renderRunsTable() {
@@ -546,9 +604,11 @@ function _buildPagination(page, totalPages, pageSize, cbPrev, cbNext, cbSize10, 
   </div>`;
 }
 
-// ── Inspector pagination ──────────────────────────────────────────────────────
-const _inspPages = {};
-const _inspSizes = {};
+// ── Proyectos pagination ──────────────────────────────────────────────────────
+// var (no const) — mismo motivo que los runs: onclick attrs necesitan mutar estas
+// variables desde el scope global; const las hace inaccesibles desde onclick.
+var _inspPages = {};
+var _inspSizes = {};
 
 function mkTablePaged(id, title, rows, cols) {
   if (!_inspPages[id]) _inspPages[id] = 0;
@@ -570,12 +630,12 @@ function mkTablePaged(id, title, rows, cols) {
     }).join("")
   }</tr>`).join("");
   const pgHtml = _buildPagination(pg, tp, ps,
-    `_inspPages['${id}']=${pg-1};reloadInspector()`,
-    `_inspPages['${id}']=${pg+1};reloadInspector()`,
-    `_inspSizes['${id}']=10;_inspPages['${id}']=0;reloadInspector()`,
-    `_inspSizes['${id}']=25;_inspPages['${id}']=0;reloadInspector()`,
-    `_inspSizes['${id}']=50;_inspPages['${id}']=0;reloadInspector()`,
-    `_inspSizes['${id}']=100;_inspPages['${id}']=0;reloadInspector()`
+    `_inspPages['${id}']=${pg-1};reloadProyectos()`,
+    `_inspPages['${id}']=${pg+1};reloadProyectos()`,
+    `_inspSizes['${id}']=10;_inspPages['${id}']=0;reloadProyectos()`,
+    `_inspSizes['${id}']=25;_inspPages['${id}']=0;reloadProyectos()`,
+    `_inspSizes['${id}']=50;_inspPages['${id}']=0;reloadProyectos()`,
+    `_inspSizes['${id}']=100;_inspPages['${id}']=0;reloadProyectos()`
   );
   return `<div class="panel" style="margin-bottom:16px;overflow-x:auto">
     <h2>${title} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)">${n} filas</span></h2>
@@ -600,7 +660,7 @@ function advanceStep(stepId, ctxId) {
     .then(r=>r.json())
     .then(d=>{
       if (d.error){showToast("Error: "+d.error,true);return;}
-      showToast(d.context_done?"Contexto completado":"Paso avanzado");
+      showToast(d.context_done?"Flujo completado":"Paso avanzado");
       _refreshContexts();
     }).catch(()=>showToast("Error de conexión",true));
 }
@@ -613,6 +673,42 @@ function skipStep(stepId, ctxId) {
       showToast("Paso omitido");
       _refreshContexts();
     }).catch(()=>showToast("Error de conexión",true));
+}
+
+function runContext(btn) {
+  const project = btn.dataset.project;
+  const task    = btn.dataset.task;
+  if (!project || !task) { showToast("Sin proyecto o tarea definida", true); return; }
+  btn.disabled = true;
+  btn.textContent = "…";
+  fetch("/run", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({project, task})})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { showToast("Error: " + d.error, true); btn.disabled = false; btn.textContent = "▶ Ejecutar"; return; }
+      showToast("Run #" + d.run_id + " enviado — " + escHtml(project));
+      btn.disabled = false;
+      btn.textContent = "▶ Ejecutar";
+    })
+    .catch(() => { showToast("Error de conexión", true); btn.disabled = false; btn.textContent = "▶ Ejecutar"; });
+}
+
+function deleteContext(ctxId, title) {
+  showConfirmModal(
+    "Eliminar contexto",
+    "Se eliminarán permanentemente el contexto <strong>" + escHtml(title) + "</strong>, todos sus pasos, alineamientos y tool calls registrados.<br><br>Los runs históricos se conservan pero perderán la referencia al paso.",
+    function() {
+      fetch("/context/" + ctxId + "/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"})
+        .then(r => r.json())
+        .then(d => {
+          if (d.error) { showToast("Error: " + d.error, true); return; }
+          showToast("Contexto eliminado — " + (d.steps||0) + " paso(s) borrado(s)");
+          _refreshContexts();
+        })
+        .catch(() => showToast("Error de conexión", true));
+    },
+    {okLabel: "Eliminar", okDanger: true}
+  );
 }
 
 function _refreshContexts() {
@@ -705,7 +801,7 @@ evtSource.addEventListener("run_started", e => {
 evtSource.addEventListener("run_done", e => {
   const d = JSON.parse(e.data);
   updateRow(d);
-  showToast("Run #" + d.run_id + " completado — " + (d.provider || "?") + " " + (d.cost_usd ? "$" + d.cost_usd.toFixed(4) : ""));
+  showToast("Run #" + d.run_id + " completado — " + (d.provider || "?") + " " + (d.cost_usd ? _fmtUsd(d.cost_usd) : ""));
 });
 evtSource.addEventListener("run_failed", e => {
   const d = JSON.parse(e.data);
@@ -752,7 +848,7 @@ function updateRow(d) {
       }
     }
     tr.cells[4].textContent = d.duration_ms ? (d.duration_ms >= 1000 ? (d.duration_ms/1000).toFixed(1)+"s" : d.duration_ms+"ms") : "—";
-    tr.cells[6].textContent = d.cost_usd ? "$" + parseFloat(d.cost_usd).toFixed(4) : "—";
+    tr.cells[6].textContent = _fmtUsd(d.cost_usd);
   }
 }
 
@@ -768,10 +864,10 @@ function updateBudgetGauge(d) {
   const pct = Math.min(d.pct * 100, 100).toFixed(0);
   const color = d.pct >= 1.0 ? "#ef4444" : d.pct >= 0.8 ? "#f59e0b" : "#22c55e";
   sec.innerHTML = `<div class="panel" style="margin-bottom:20px">
-    <h2>Presupuesto diario — ${escHtml(d.project)}</h2>
+    <h2>Presupuesto diario — ${escHtml(d.project)} <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px;color:var(--text-faint)">USD</span></h2>
     <div class="budget-meta">
-      <span>Gastado: <strong class="text-primary">$${parseFloat(d.spent_usd).toFixed(4)}</strong></span>
-      <span>Límite: <strong class="text-primary">$${parseFloat(d.limit_usd).toFixed(2)}</strong></span>
+      <span>Gastado: <strong class="text-primary">${_fmtUsd(d.spent_usd, 4)}</strong></span>
+      <span>Límite: <strong class="text-primary">${_fmtUsd(d.limit_usd, 2)}</strong></span>
       <span style="color:${color};font-weight:700">${pct}%</span>
     </div>
     <div class="budget-bar"><div class="budget-fill" style="width:${pct}%;background:${color}"></div></div>
@@ -795,7 +891,7 @@ function openDetail(runId) {
           <span style="background:${provBg};color:${provColor};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(data.provider)}</span>
           <span class="chip-mono">${escHtml(data.model ? data.model.split('/').pop() : '—')}</span>
           <span class="chip">${data.duration_ms ? (data.duration_ms/1000).toFixed(1)+"s" : "—"}</span>
-          ${data.cost_usd ? `<span style="background:rgba(34,197,94,0.10);color:#22c55e;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">$${parseFloat(data.cost_usd).toFixed(4)}</span>` : ''}
+          ${data.cost_usd ? `<span style="background:rgba(34,197,94,0.10);color:#22c55e;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${_fmtUsd(data.cost_usd)}</span>` : ''}
         </div>
         <div class="detail-section">
           <label>Tarea enviada</label>
@@ -858,9 +954,60 @@ function openDetail(runId) {
             </tbody>
           </table>
         </div>` : ''}
+        ${data.context_hits && data.context_hits.length ? `<div class="detail-section">
+          <label>Contexto RAG utilizado</label>
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead><tr class="detail-thead-row">
+              <th class="td-sm">Coleccion</th>
+              <th class="td-sm">Fuente</th>
+              <th class="td-sm" style="text-align:right">Score</th>
+            </tr></thead>
+            <tbody>
+              ${data.context_hits.map(h => '<tr class="detail-tbody-row">' +
+                '<td class="td-sm-muted">' + escHtml(h.collection || 'docs') + '</td>' +
+                '<td class="td-sm-mono" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(h.source || '') + '</td>' +
+                '<td class="td-sm text-muted" style="text-align:right;font-variant-numeric:tabular-nums">' + (h.score != null ? h.score.toFixed(4) : '—') + '</td>' +
+              '</tr>').join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+        <div class="detail-section" style="padding-top:8px;border-top:1px solid var(--border-faint)">
+          <label>Evaluacion del run</label>
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button class="btn btn-secondary rate-btn" data-run="${data.id}" data-rating="useful"
+              style="font-size:13px;padding:5px 14px;${data.rating==='useful'?'opacity:1;border-color:#22c55e;color:#22c55e':'opacity:0.4'}"
+              onclick="rateRun(${data.id},'useful')">Util</button>
+            <button class="btn btn-secondary rate-btn" data-run="${data.id}" data-rating="partial"
+              style="font-size:13px;padding:5px 14px;${data.rating==='partial'?'opacity:1;border-color:#f59e0b;color:#f59e0b':'opacity:0.4'}"
+              onclick="rateRun(${data.id},'partial')">Parcial</button>
+            <button class="btn btn-secondary rate-btn" data-run="${data.id}" data-rating="wrong"
+              style="font-size:13px;padding:5px 14px;${data.rating==='wrong'?'opacity:1;border-color:#f87171;color:#f87171':'opacity:0.4'}"
+              onclick="rateRun(${data.id},'wrong')">Incorrecto</button>
+            ${data.rating ? '<button class="btn btn-secondary" style="font-size:11px;opacity:0.5;padding:5px 10px" onclick="rateRun(' + data.id + ',\\'\\')">Quitar</button>' : ''}
+          </div>
+        </div>
       `;
     })
     .catch(() => { content.innerHTML = '<p style="color:#ef4444;font-size:13px">Error al cargar detalle.</p>'; });
+}
+
+function rateRun(runId, rating) {
+  const btns = document.querySelectorAll(".rate-btn[data-run='" + runId + "']");
+  btns.forEach(b => { b.disabled = true; });
+  fetch("/rate-run", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({run_id: runId, rating: rating}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    btns.forEach(b => {
+      const active = b.dataset.rating === (d.rating || "");
+      b.style.opacity = active ? "1" : "0.35";
+      b.disabled = false;
+    });
+  })
+  .catch(() => { btns.forEach(b => { b.disabled = false; }); });
 }
 
 function closeDetail(e) {
@@ -873,7 +1020,7 @@ function toggleSender() {
 }
 
 function toggleContextForm() {
-  switchTab("contextos");
+  switchTab("flujos");
 }
 
 let _ctxStepCount = 0;
@@ -946,6 +1093,37 @@ function submitTask() {
   .catch(() => { status.textContent = "Error al enviar."; });
 }
 
+// ── Modal de confirmación reutilizable ─────────────────────────────────────
+let _confirmModalCb = null;
+
+function showConfirmModal(title, body, onConfirm, opts = {}) {
+  const { okLabel = "Confirmar", okDanger = false } = opts;
+  document.getElementById("confirmModalTitle").textContent = title;
+  document.getElementById("confirmModalBody").innerHTML = body;
+  const okBtn = document.getElementById("confirmModalOk");
+  okBtn.textContent = okLabel;
+  okBtn.style.background = okDanger ? "#ef4444" : "";
+  okBtn.style.color = okDanger ? "#fff" : "";
+  _confirmModalCb = onConfirm;
+  document.getElementById("confirmModal").classList.add("open");
+}
+
+function closeConfirmModal() {
+  document.getElementById("confirmModal").classList.remove("open");
+  _confirmModalCb = null;
+}
+
+function _confirmModalOk() {
+  const cb = _confirmModalCb;
+  closeConfirmModal();
+  if (cb) cb();
+}
+
+function _confirmModalBackdrop(e) {
+  if (e.target === document.getElementById("confirmModal")) closeConfirmModal();
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 function showToast(msg, isError) {
   const t = document.getElementById("toast");
   t.textContent = msg;
@@ -979,12 +1157,14 @@ function escHtml(s) {
 
 // ── Activity bar ─────────────────────────────────────────────────────────────
 let _actOpen = false;
+let _actUserClosed = false;
 const _traceMap = {};
 
 evtSource.addEventListener("trace", e => _handleTrace(JSON.parse(e.data)));
 
 function toggleActivity() {
   _actOpen = !_actOpen;
+  _actUserClosed = !_actOpen;
   document.getElementById("activity-log").style.display = _actOpen ? "block" : "none";
   document.getElementById("act-toggle").textContent  = _actOpen ? "▲" : "▼";
 }
@@ -1018,7 +1198,7 @@ function _handleTrace(d) {
     _traceMap[key] = row;
     log.insertBefore(row, log.firstChild);
     while (log.children.length > 80) log.removeChild(log.lastChild);
-    if (!_actOpen) { _actOpen = true; log.style.display = "block"; document.getElementById("act-toggle").textContent = "▲"; }
+    if (!_actOpen && !_actUserClosed) { _actOpen = true; log.style.display = "block"; document.getElementById("act-toggle").textContent = "▲"; }
   } else {
     const icon = d.status === "done" ? "✓" : "✗";
     const dur  = d.duration_ms != null ? d.duration_ms + "ms" : "";
@@ -1041,22 +1221,717 @@ function _handleTrace(d) {
   dot.classList.add("pulse");
 }
 
-let _inspectorLoaded = false;
-function switchTab(name) {
-  document.getElementById("tab-main").style.display      = name === "main"      ? "" : "none";
-  document.getElementById("tab-contextos").style.display = name === "contextos" ? "" : "none";
-  document.getElementById("tab-inspector").style.display = name === "inspector" ? "" : "none";
-  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
-  document.getElementById("tab-btn-" + name).classList.add("tab-active");
-  if (name === "inspector" && !_inspectorLoaded) {
-    _inspectorLoaded = true;
-    loadInspector();
-  }
-  if (name === "contextos") _refreshContexts();
+// ── Actions menu (doctor / fix / sync / index) ───────────────────────────────
+function _actAppend(text, level) {
+  const log  = document.getElementById("activity-log");
+  const icon = level==="ok"?"✓":level==="fail"?"✗":level==="warn"?"⚠":"·";
+  const cls  = level==="ok"?"tr-done":level==="fail"?"tr-error":level==="warn"?"tr-warn":"tr-running";
+  const ts   = new Date().toLocaleTimeString("es", {hour12:false});
+  const row  = document.createElement("div");
+  row.className = "tr-row " + cls;
+  row.innerHTML =
+    `<span class="tr-ts">${ts}</span>` +
+    `<span class="tr-run"></span>` +
+    `<span class="tr-icon">${icon}</span>` +
+    `<span class="tr-name">${escHtml(text)}</span>` +
+    `<span class="tr-dur"></span>`;
+  log.insertBefore(row, log.firstChild);
+  while (log.children.length > 80) log.removeChild(log.lastChild);
+  if (!_actOpen && !_actUserClosed) { _actOpen=true; log.style.display="block"; document.getElementById("act-toggle").textContent="▲"; }
+  document.getElementById("act-dot").classList.add("live");
+  document.getElementById("act-summary").textContent = icon + "  " + text;
 }
 
-function loadInspector() {
-  const el = document.getElementById("inspector-content");
+function _actBusy(btn, busy, label) {
+  if (busy) { btn.disabled=true; btn.classList.add("running"); btn.dataset.lbl=btn.textContent; btn.textContent="…"; }
+  else       { btn.disabled=false; btn.classList.remove("running"); btn.textContent=label||btn.dataset.lbl||""; }
+}
+
+async function runDoctor(btn) {
+  _actBusy(btn, true);
+  _actAppend("doctor — diagnosticando...", "info");
+  try {
+    const r = await fetch("/run-doctor", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+    const d = await r.json();
+    if (d.error) { _actAppend("doctor — " + d.error, "fail"); return; }
+    (d.lines||[]).forEach(l => _actAppend(l.text, l.ok?"ok":l.fail?"fail":l.warn?"warn":"info"));
+    _actAppend("doctor — " + d.issues + " error(es) · " + d.warnings + " advertencia(s)",
+               d.issues>0?"fail":d.warnings>0?"warn":"ok");
+  } catch(e) { _actAppend("doctor — " + e.message, "fail"); }
+  finally { _actBusy(btn, false, "doctor"); }
+}
+
+async function runFix(btn, opts) {
+  closeFixMenu();
+  _actBusy(btn, true);
+  const keys = Object.keys(opts||{}).filter(k=>opts[k]);
+  _actAppend("fix — " + (keys.length ? "[" + keys.join(", ") + "]" : "básico") + "...", "info");
+  try {
+    const r = await fetch("/run-fix", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(opts||{})});
+    const d = await r.json();
+    if (d.error) { _actAppend("fix — " + d.error, "fail"); return; }
+    (d.lines||[]).forEach(l => _actAppend(l.text, l.ok?"ok":l.fail?"fail":l.warn?"warn":"info"));
+    _actAppend("fix — " + d.fixed + " mejora(s) aplicada(s)", d.fixed>0?"ok":"info");
+  } catch(e) { _actAppend("fix — " + e.message, "fail"); }
+  finally { _actBusy(btn, false, "fix"); }
+}
+
+async function runSync(btn) {
+  _actBusy(btn, true);
+  _actAppend("sync — importando Claude Code + Git...", "info");
+  try {
+    const [rcc, rg] = await Promise.all([
+      fetch("/sync-cc",  {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"}),
+      fetch("/sync-git", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"}),
+    ]);
+    const cc = await rcc.json(); const g = await rg.json();
+    _actAppend("sync-cc — " + (cc.imported||0) + " sesión(es) importada(s)", (cc.imported||0)>0?"ok":"info");
+    _actAppend("sync-git — " + (g.imported||0) + " commit(s) importado(s)",   (g.imported||0)>0?"ok":"info");
+    if ((cc.imported||0)>0 && typeof renderRunsTable==="function") setTimeout(renderRunsTable, 800);
+  } catch(e) { _actAppend("sync — " + e.message, "fail"); }
+  finally { _actBusy(btn, false, "sync"); }
+}
+
+async function runIndexDocs(btn) {
+  _actBusy(btn, true);
+  const proj = (document.getElementById("senderProject")||document.querySelector("select[name=project]")||{}).value||"";
+  if (!proj) { _actAppend("index — seleccioná un proyecto primero", "warn"); _actBusy(btn,false,"index"); return; }
+  _actAppend("index — indexando " + proj + "...", "info");
+  try {
+    const r = await fetch("/index-docs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({project:proj})});
+    const d = await r.json();
+    if (d.error) { _actAppend("index — " + d.error, "fail"); return; }
+    _actAppend("index — " + d.chunks + " chunks indexados para " + proj, "ok");
+  } catch(e) { _actAppend("index — " + e.message, "fail"); }
+  finally { _actBusy(btn, false, "index"); }
+}
+
+function toggleFixMenu(e) {
+  e.stopPropagation();
+  document.getElementById("fixMenu").classList.toggle("open");
+}
+function closeFixMenu() {
+  const m = document.getElementById("fixMenu");
+  if (m) m.classList.remove("open");
+}
+document.addEventListener("click", function(e) {
+  if (!e.target.closest(".act-btn-wrap")) closeFixMenu();
+});
+
+let _proyectosLoaded = false;
+let _metricsLoaded   = false;
+function switchTab(name) {
+  document.getElementById("tab-actividad").style.display  = name === "actividad"  ? "" : "none";
+  document.getElementById("tab-flujos").style.display     = name === "flujos"     ? "" : "none";
+  document.getElementById("tab-proyectos").style.display  = name === "proyectos"  ? "" : "none";
+  document.getElementById("tab-metrics").style.display    = name === "metrics"    ? "" : "none";
+  document.getElementById("tab-datos").style.display      = name === "datos"      ? "" : "none";
+  document.getElementById("tab-config").style.display     = name === "config"     ? "" : "none";
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
+  document.getElementById("tab-btn-" + name).classList.add("tab-active");
+  if (name === "proyectos" && !_proyectosLoaded) { _proyectosLoaded = true; loadProyectos(); }
+  if (name === "flujos") _refreshContexts();
+  if (name === "metrics" && !_metricsLoaded) { _metricsLoaded = true; loadMetrics(); }
+  if (name === "datos" && !_datosLoaded) { _datosLoaded = true; loadDatos(); }
+  if (name === "config" && !_configLoaded) { _configLoaded = true; loadConfig(); }
+}
+
+let _datosLoaded = false;
+let _configLoaded = false;
+
+// ── Datos ─────────────────────────────────────────────────────────────────────
+function loadDatos() {
+  const el = document.getElementById("datos-content");
+  el.innerHTML = '<p class="text-muted" style="font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
+  fetch("/clean-preview")
+    .then(r => r.json())
+    .then(data => renderDatos(data, el))
+    .catch(e => { el.innerHTML = '<p style="color:#f87171">Error: ' + escHtml(String(e)) + '</p>'; });
+}
+
+// Providers que son auto-recuperables
+const _RECOVERABLE_PROVIDERS = {
+  "claude-code": { label: "Re-importable con sync-cc", color: "#22c55e" },
+  "git":         { label: "Re-importable con sync-git", color: "#22c55e" },
+};
+function _provRecovery(providerName) {
+  return _RECOVERABLE_PROVIDERS[providerName] || { label: "Sin respaldo — pérdida permanente", color: "#f87171" };
+}
+function _provBadge(providerName) {
+  const r = _provRecovery(providerName);
+  return '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:' + r.color + '22;color:' + r.color + ';white-space:nowrap">' + r.label + '</span>';
+}
+// Texto para el modal de confirmación de runs
+function _runDeleteWarning(providers) {
+  const nonRecov = (providers||[]).filter(x => !_RECOVERABLE_PROVIDERS[x.provider]);
+  const recov    = (providers||[]).filter(x =>  _RECOVERABLE_PROVIDERS[x.provider]);
+  let warn = '';
+  if (nonRecov.length) {
+    warn += '<div style="margin-top:10px;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3)">' +
+      '<strong style="color:#f87171;font-size:12px">Sin respaldo:</strong>' +
+      '<ul style="margin:4px 0 0 16px;padding:0;font-size:12px;color:#f87171">' +
+      nonRecov.map(x => '<li>' + escHtml(x.provider) + ' (' + x.runs + ' runs)</li>').join('') +
+      '</ul><span style="font-size:11px;color:var(--text-muted)">Estos runs no se pueden recuperar.</span></div>';
+  }
+  if (recov.length) {
+    warn += '<div style="margin-top:8px;padding:8px 12px;border-radius:6px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2)">' +
+      '<strong style="color:#22c55e;font-size:12px">Recuperables:</strong>' +
+      '<ul style="margin:4px 0 0 16px;padding:0;font-size:12px;color:var(--text-secondary)">' +
+      recov.map(x => '<li>' + escHtml(x.provider) + ' (' + x.runs + ' runs) — ' + _provRecovery(x.provider).label + '</li>').join('') +
+      '</ul></div>';
+  }
+  return warn;
+}
+
+function renderDatos(data, el) {
+  const projects   = data.projects || [];
+  const unmapped   = projects.filter(p => !p.registered);
+  const mapped     = projects.filter(p => p.registered);
+  const ctxByProj  = data.contexts_by_project || {};
+  const chroma     = data.chroma || {};
+  const fmtCost    = v => _fmtUsd(parseFloat(v) || 0, 2);
+
+  // ── Panel 1: No mapeados ─────────────────────────────────────────────────
+  const unmapRows = unmapped.map(p => {
+    const provBadges = (p.providers||[]).map(x => _provBadge(x.provider)).join(' ');
+    return '<tr style="border-bottom:1px solid var(--border-faint)">' +
+      '<td style="padding:8px 10px;font-size:12px;font-family:monospace;color:var(--text-primary)">' + escHtml(p.project) + '</td>' +
+      '<td style="padding:8px 10px;font-size:12px;color:var(--text-muted);text-align:right">' + p.runs + '</td>' +
+      '<td style="padding:8px 10px;font-size:12px;color:#22c55e;text-align:right">' + fmtCost(p.cost) + '</td>' +
+      '<td style="padding:8px 10px;font-size:11px;line-height:1.8">' + provBadges + '</td>' +
+      '<td style="padding:8px 10px">' +
+        '<button class="btn btn-secondary" style="font-size:11px;padding:3px 10px;color:#ef4444;border-color:#ef4444" ' +
+        'data-proj="' + escHtml(p.project) + '" data-providers="' + escHtml(JSON.stringify(p.providers||[])) + '" onclick="cleanProject(this)">Eliminar</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  // ── Panel 2: Mapeados — runs por provider ────────────────────────────────
+  const mapRows = mapped.map(p => {
+    const provOpts = (p.providers||[]).map(x =>
+      '<option value="' + escHtml(x.provider) + '">' + escHtml(x.provider) + ' (' + x.runs + ')</option>'
+    ).join('');
+    const provBadges = (p.providers||[]).map(x => _provBadge(x.provider)).join(' ');
+    return '<tr style="border-bottom:1px solid var(--border-faint)">' +
+      '<td style="padding:8px 10px;font-size:12px;font-family:monospace;color:var(--text-primary)">' + escHtml(p.project) + '</td>' +
+      '<td style="padding:8px 10px;font-size:12px;color:var(--text-muted);text-align:right">' + p.runs + '</td>' +
+      '<td style="padding:8px 10px;font-size:12px;color:#22c55e;text-align:right">' + fmtCost(p.cost) + '</td>' +
+      '<td style="padding:8px 10px;font-size:11px;line-height:1.8">' + provBadges + '</td>' +
+      '<td style="padding:8px 10px;white-space:nowrap">' +
+        '<select data-proj="' + escHtml(p.project) + '" data-providers="' + escHtml(JSON.stringify(p.providers||[])) + '" style="font-size:11px;margin-right:6px" class="clean-prov-sel">' +
+          '<option value="">todos los providers</option>' + provOpts +
+        '</select>' +
+        '<button class="btn btn-secondary" style="font-size:11px;padding:3px 10px;color:#ef4444;border-color:#ef4444" ' +
+        'data-proj="' + escHtml(p.project) + '" data-providers="' + escHtml(JSON.stringify(p.providers||[])) + '" onclick="cleanProjectWithSel(this)">Eliminar</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  // ── Panel 3: ChromaDB ────────────────────────────────────────────────────
+  const chromaDocs  = chroma.docs  || {};
+  const chromaResp  = chroma.responses || {};
+  const docsProjs   = Object.entries(chromaDocs.by_project  || {});
+  const respProjs   = Object.entries(chromaResp.by_project  || {});
+
+  const chromaDocsRows = docsProjs.map(([p, n]) =>
+    '<tr style="border-bottom:1px solid var(--border-faint)">' +
+    '<td style="padding:7px 10px;font-size:12px;font-family:monospace;color:var(--text-primary)">' + escHtml(p) + '</td>' +
+    '<td style="padding:7px 10px;font-size:12px;color:var(--text-muted);text-align:right">' + n + '</td>' +
+    '<td style="padding:7px 10px;font-size:11px;color:#22c55e">Re-indexable con "Indexar docs"</td>' +
+    '<td style="padding:7px 10px">' +
+      '<button class="btn btn-secondary" style="font-size:11px;padding:3px 10px;color:#f59e0b;border-color:#f59e0b" ' +
+      'data-proj="' + escHtml(p) + '" onclick="purgeChromaDocs(this.dataset.proj, this)">Purgar</button>' +
+    '</td>' +
+    '</tr>'
+  ).join('');
+
+  const chromaRespRows = respProjs.map(([p, n]) =>
+    '<tr style="border-bottom:1px solid var(--border-faint)">' +
+    '<td style="padding:7px 10px;font-size:12px;font-family:monospace;color:var(--text-primary)">' + escHtml(p) + '</td>' +
+    '<td style="padding:7px 10px;font-size:12px;color:var(--text-muted);text-align:right">' + n + '</td>' +
+    '<td style="padding:7px 10px;font-size:11px;color:#f59e0b">Reconstruible re-indexando runs existentes</td>' +
+    '<td style="padding:7px 10px">' +
+      '<button class="btn btn-secondary" style="font-size:11px;padding:3px 10px;color:#f59e0b;border-color:#f59e0b" ' +
+      'data-proj="' + escHtml(p) + '" onclick="purgeChromaResponses(this.dataset.proj, this)">Purgar</button>' +
+    '</td>' +
+    '</tr>'
+  ).join('');
+
+  // ── Panel 4: Flujos ──────────────────────────────────────────────────────
+  const ctxProjList = Object.keys(ctxByProj);
+  const ctxProjOpts = ctxProjList.map(p => '<option value="' + escHtml(p) + '">' + escHtml(p) + ' (' + ctxByProj[p].total + ')</option>').join('');
+  const STATUS_LABELS = {active:'Activo', programado:'Programado', completed:'Completado', abandoned:'Abandonado'};
+
+  el.innerHTML =
+    '<div style="display:grid;gap:20px;max-width:1100px">' +
+
+    // Panel 1 ─ No mapeados
+    '<div class="panel">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:4px">Proyectos no mapeados</h2>' +
+    '<p class="text-muted" style="font-size:12px;margin-bottom:12px">Runs de proyectos sin ruta registrada. Los providers verdes son re-importables con <code>sync-cc</code> si después registrás el proyecto.</p>' +
+    (unmapped.length ? (
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
+        '<button class="btn btn-secondary" style="color:#ef4444;border-color:#ef4444;font-size:12px" onclick="cleanAllUnmapped(this)">Eliminar todos los no mapeados</button>' +
+        '<span id="clean-unmapped-status" class="text-muted" style="font-size:12px"></span>' +
+      '</div>' +
+      '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:var(--bg-elevated)">' +
+        '<th style="padding:7px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.5px">Proyecto</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.5px">Runs</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.5px">Costo</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.5px">Recuperabilidad</th>' +
+        '<th style="padding:7px 10px;font-size:10px"></th>' +
+      '</tr></thead><tbody>' + unmapRows + '</tbody></table>'
+    ) : '<p class="text-muted" style="font-size:12px">Todos los proyectos están mapeados. ✓</p>') +
+    '</div>' +
+
+    // Panel 2 ─ Runs registrados
+    '<div class="panel">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:4px">Runs por proyecto registrado</h2>' +
+    '<p class="text-muted" style="font-size:12px;margin-bottom:12px">Seleccioná un provider antes de eliminar. Los providers en <span style="color:#f87171">rojo</span> no tienen respaldo.</p>' +
+    (mapped.length ?
+      '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:var(--bg-elevated)">' +
+        '<th style="padding:7px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.5px">Proyecto</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.5px">Runs</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.5px">Costo</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.5px">Recuperabilidad</th>' +
+        '<th style="padding:7px 10px;font-size:10px">Acción</th>' +
+      '</tr></thead><tbody>' + mapRows + '</tbody></table>'
+    : '<p class="text-muted" style="font-size:12px">Sin proyectos registrados con runs.</p>') +
+    '<p id="clean-mapped-status" class="text-muted" style="font-size:12px;margin-top:8px"></p>' +
+    '</div>' +
+
+    // Panel 3 ─ ChromaDB
+    '<div class="panel">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:4px">ChromaDB — vectores RAG</h2>' +
+    '<p class="text-muted" style="font-size:12px;margin-bottom:14px">Purgar vectores no elimina los runs de la DB. Los docs son re-indexables; las respuestas se reconstruyen re-indexando los runs existentes.</p>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">' +
+
+    '<div>' +
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:8px">Docs (RAG) — ' + (chromaDocs.count||0) + ' vectores</div>' +
+    (docsProjs.length ?
+      '<table style="width:100%;border-collapse:collapse">' +
+      '<thead><tr style="background:var(--bg-elevated)"><th style="padding:6px 10px;font-size:10px;text-align:left">Proyecto</th>' +
+      '<th style="padding:6px 10px;font-size:10px;text-align:right">Chunks</th>' +
+      '<th style="padding:6px 10px;font-size:10px">Estado</th><th></th></tr></thead>' +
+      '<tbody>' + chromaDocsRows + '</tbody></table>' +
+      '<div style="margin-top:10px">' +
+      '<button class="btn btn-secondary" style="font-size:11px;color:#f59e0b;border-color:#f59e0b" onclick="purgeChromaDocs(null, this)">Purgar todos los docs</button>' +
+      '</div>'
+    : '<p class="text-muted" style="font-size:12px">Sin vectores de docs.</p>') +
+    '</div>' +
+
+    '<div>' +
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:8px">Respuestas — ' + (chromaResp.count||0) + ' vectores</div>' +
+    (respProjs.length ?
+      '<table style="width:100%;border-collapse:collapse">' +
+      '<thead><tr style="background:var(--bg-elevated)"><th style="padding:6px 10px;font-size:10px;text-align:left">Proyecto</th>' +
+      '<th style="padding:6px 10px;font-size:10px;text-align:right">Vectores</th>' +
+      '<th style="padding:6px 10px;font-size:10px">Estado</th><th></th></tr></thead>' +
+      '<tbody>' + chromaRespRows + '</tbody></table>' +
+      '<div style="margin-top:10px">' +
+      '<button class="btn btn-secondary" style="font-size:11px;color:#f59e0b;border-color:#f59e0b" onclick="purgeChromaResponses(null, this)">Purgar todas las respuestas</button>' +
+      '</div>'
+    : '<p class="text-muted" style="font-size:12px">Sin vectores de respuestas.</p>') +
+    '</div>' +
+
+    '</div>' +
+    '<p id="clean-chroma-status" class="text-muted" style="font-size:12px;margin-top:10px"></p>' +
+    '</div>' +
+
+    // Panel 4 ─ Flujos
+    '<div class="panel">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:4px">Flujos y pasos</h2>' +
+    '<p class="text-muted" style="font-size:12px;margin-bottom:4px">Los flujos <strong>no tienen respaldo</strong> — se almacenan solo en SQLite y no se pueden recuperar tras eliminarlos.</p>' +
+    (ctxProjList.length ? (
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px">' +
+        '<select id="clean-ctx-proj" style="font-size:12px;min-width:160px">' +
+          '<option value="">todos los proyectos</option>' + ctxProjOpts +
+        '</select>' +
+        '<select id="clean-ctx-status" style="font-size:12px">' +
+          '<option value="">todos los estados</option>' +
+          Object.entries(STATUS_LABELS).map(([v,l]) => '<option value="' + v + '">' + l + '</option>').join('') +
+        '</select>' +
+        '<button class="btn btn-secondary" style="color:#ef4444;border-color:#ef4444;font-size:12px" onclick="deleteContexts()">Eliminar contextos</button>' +
+      '</div>' +
+      '<div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:10px">' +
+        ctxProjList.map(p => {
+          const info = ctxByProj[p];
+          const byStatus = Object.entries(info.by_status||{})
+            .map(([s,n]) => '<span style="font-size:10px;color:var(--text-muted)">' + (STATUS_LABELS[s]||s) + ': ' + n + '</span>')
+            .join(' · ');
+          return '<div style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated)">' +
+            '<div style="font-size:12px;font-family:monospace;color:var(--text-primary)">' + escHtml(p) + '</div>' +
+            '<div style="font-size:12px;color:var(--text-muted)">' + info.total + ' contextos</div>' +
+            '<div style="margin-top:3px">' + byStatus + '</div>' +
+            '</div>';
+        }).join('') +
+      '</div>'
+    ) : '<p class="text-muted" style="font-size:12px;margin-top:8px">Sin contextos registrados.</p>') +
+    '<p id="clean-ctx-status" class="text-muted" style="font-size:12px;margin-top:10px"></p>' +
+    '</div>' +
+
+    '</div>';
+}
+
+function cleanAllUnmapped(btn) {
+  // recopilar todos los providers de proyectos no mapeados desde las filas
+  const allProvs = [];
+  document.querySelectorAll('#datos-content tbody tr [data-providers]').forEach(el => {
+    try { JSON.parse(el.dataset.providers || '[]').forEach(x => allProvs.push(x)); } catch(e) {}
+  });
+  const warn = _runDeleteWarning(allProvs);
+  showConfirmModal(
+    'Eliminar proyectos no mapeados',
+    'Se eliminarán <strong>todos los runs</strong> de proyectos sin ruta registrada.' + warn,
+    () => {
+      btn.disabled = true;
+      const st = document.getElementById('clean-unmapped-status');
+      if (st) st.textContent = 'Eliminando...';
+      fetch('/clean/unmapped', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+        .then(r => r.json())
+        .then(d => {
+          if (d.error) { showToast('Error: ' + d.error, true); if (st) st.textContent = ''; btn.disabled = false; return; }
+          showToast('✓ ' + d.runs_deleted + ' runs eliminados');
+          _datosLoaded = false;
+          setTimeout(loadDatos, 600);
+        })
+        .catch(e => { showToast('Error: ' + e, true); btn.disabled = false; });
+    },
+    { okLabel: 'Eliminar todos', okDanger: true }
+  );
+}
+
+function cleanProject(btn) {
+  const proj = btn.dataset.proj;
+  const providers = JSON.parse(btn.dataset.providers || '[]');
+  const warn = _runDeleteWarning(providers);
+  showConfirmModal(
+    'Eliminar proyecto no mapeado',
+    'Se eliminarán todos los runs de <strong>' + escHtml(proj) + '</strong>.' + warn,
+    () => {
+      btn.disabled = true;
+      fetch('/clear-imports', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: proj})})
+        .then(r => r.json())
+        .then(d => {
+          if (d.error) { showToast('Error: ' + d.error, true); btn.disabled = false; return; }
+          showToast('✓ ' + d.runs_deleted + ' runs eliminados');
+          _datosLoaded = false;
+          setTimeout(loadDatos, 600);
+        })
+        .catch(e => { showToast('Error: ' + e, true); btn.disabled = false; });
+    },
+    { okLabel: 'Eliminar', okDanger: true }
+  );
+}
+
+function cleanProjectWithSel(btn) {
+  const proj = btn.dataset.proj;
+  const row  = btn.closest('tr');
+  const sel  = row ? row.querySelector('.clean-prov-sel') : null;
+  const prov = sel ? sel.value : '';
+  const allProviders = JSON.parse(btn.dataset.providers || '[]');
+  const filteredProvs = prov ? allProviders.filter(x => x.provider === prov) : allProviders;
+  const desc = prov
+    ? 'los runs de provider <strong>' + escHtml(prov) + '</strong> en <strong>' + escHtml(proj) + '</strong>'
+    : 'todos los runs de <strong>' + escHtml(proj) + '</strong>';
+  const warn = _runDeleteWarning(filteredProvs);
+  showConfirmModal(
+    'Limpiar runs',
+    'Se eliminarán ' + desc + '.' + warn,
+    () => {
+      btn.disabled = true;
+      const st = document.getElementById('clean-mapped-status');
+      if (st) st.textContent = 'Eliminando...';
+      fetch('/clear-imports', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({project: proj, provider: prov || undefined}),
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.error) { showToast('Error: ' + d.error, true); if (st) st.textContent = ''; btn.disabled = false; return; }
+          showToast('✓ ' + d.runs_deleted + ' runs eliminados');
+          if (st) st.textContent = '';
+          _datosLoaded = false;
+          setTimeout(loadDatos, 600);
+        })
+        .catch(e => { showToast('Error: ' + e, true); btn.disabled = false; });
+    },
+    { okLabel: 'Eliminar', okDanger: true }
+  );
+}
+
+function purgeChromaDocs(proj, btn) {
+  const desc = proj ? 'los docs de <strong>' + escHtml(proj) + '</strong>' : '<strong>todos los proyectos</strong>';
+  showConfirmModal(
+    'Purgar vectores de docs',
+    'Se eliminarán los vectores RAG de ' + desc + ' de ChromaDB.<br>' +
+    '<span style="font-size:12px;color:#22c55e">✓ Recuperable: podés re-indexar con "Actualizar conocimiento" en Proyectos.</span>',
+    () => {
+      if (btn) btn.disabled = true;
+      const st = document.getElementById('clean-chroma-status');
+      if (st) st.textContent = 'Purgando...';
+      fetch('/purge-chroma-docs', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({project: proj || null}),
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.error) { showToast('Error: ' + d.error, true); if (btn) btn.disabled = false; return; }
+          showToast('✓ ' + d.purged + ' vectores de docs eliminados');
+          _datosLoaded = false;
+          setTimeout(loadDatos, 600);
+        })
+        .catch(e => { showToast('Error: ' + e, true); if (btn) btn.disabled = false; });
+    },
+    { okLabel: 'Purgar', okDanger: false }
+  );
+}
+
+function purgeChromaResponses(proj, btn) {
+  const desc = proj ? 'las respuestas de <strong>' + escHtml(proj) + '</strong>' : '<strong>todos los proyectos</strong>';
+  showConfirmModal(
+    'Purgar vectores de respuestas',
+    'Se eliminarán los vectores RAG de ' + desc + ' de ChromaDB.<br>' +
+    '<span style="font-size:12px;color:#f59e0b">⚠ Semi-recuperable: se pueden reconstruir re-indexando los runs existentes en la DB.</span>',
+    () => {
+      if (btn) btn.disabled = true;
+      const st = document.getElementById('clean-chroma-status');
+      if (st) st.textContent = 'Purgando...';
+      fetch('/purge-chroma-responses', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({project: proj || null}),
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.error) { showToast('Error: ' + d.error, true); if (btn) btn.disabled = false; return; }
+          showToast('✓ ' + d.purged + ' vectores de respuestas eliminados');
+          _datosLoaded = false;
+          setTimeout(loadDatos, 600);
+        })
+        .catch(e => { showToast('Error: ' + e, true); if (btn) btn.disabled = false; });
+    },
+    { okLabel: 'Purgar', okDanger: false }
+  );
+}
+
+function deleteContexts() {
+  const proj   = (document.getElementById('clean-ctx-proj')   || {}).value || '';
+  const status = (document.getElementById('clean-ctx-status') || {}).value || '';
+  const descProj   = proj   ? ' del proyecto <strong>' + escHtml(proj) + '</strong>'   : ' de <strong>todos los proyectos</strong>';
+  const descStatus = status ? ' con estado <strong>' + escHtml(status) + '</strong>'   : '';
+  showConfirmModal(
+    'Eliminar contextos',
+    'Se eliminarán los contextos y sus pasos' + descProj + descStatus + '.<br>' +
+    '<div style="margin-top:10px;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3)">' +
+    '<strong style="color:#f87171;font-size:12px">Sin respaldo — pérdida permanente.</strong><br>' +
+    '<span style="font-size:11px;color:var(--text-muted)">Los contextos solo existen en SQLite y no se pueden recuperar.</span></div>',
+    () => {
+      const st = document.getElementById('clean-ctx-status');
+      if (st) st.textContent = 'Eliminando...';
+      fetch('/delete-contexts', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({project: proj || null, status: status || null}),
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.error) { showToast('Error: ' + d.error, true); if (st) st.textContent = ''; return; }
+          showToast('✓ ' + d.deleted_contexts + ' contextos y ' + d.deleted_steps + ' pasos eliminados');
+          _datosLoaded = false;
+          setTimeout(loadDatos, 600);
+        })
+        .catch(e => { showToast('Error: ' + e, true); });
+    },
+    { okLabel: 'Eliminar contextos', okDanger: true }
+  );
+}
+
+// ── Configuración ─────────────────────────────────────────────────────────────
+function loadConfig() {
+  const el = document.getElementById("config-content");
+  el.innerHTML = '<p class="text-muted" style="font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
+  fetch("/integrations/status")
+    .then(r => {
+      const ct = r.headers.get("content-type") || "";
+      if (!ct.includes("application/json")) {
+        return r.text().then(t => Promise.reject(new Error("HTTP " + r.status + " — respuesta no-JSON: " + t.slice(0, 120))));
+      }
+      return r.json();
+    })
+    .then(data => renderConfig(data, el))
+    .catch(e => { el.innerHTML = '<p style="color:#f87171">Error al cargar configuración: ' + escHtml(String(e)) + '</p>'; });
+}
+
+function renderConfig(data, el) {
+  const PROV_ICON = {claude:'🟠', openai:'🟣', deepseek:'🟢'};
+  const provCards = (data.providers||[]).map(p => {
+    const icon = PROV_ICON[p.name] || '⚪';
+    const ok = p.configured;
+    return '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated)">' +
+      '<span style="font-size:20px">' + icon + '</span>' +
+      '<div style="flex:1">' +
+        '<div style="font-size:13px;font-weight:600;color:var(--text-primary)">' + escHtml(p.name) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-muted)">' + escHtml(p.model || '—') + '</div>' +
+      '</div>' +
+      '<span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:10px;background:' +
+        (ok ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.12)') + ';color:' + (ok ? '#22c55e' : '#f87171') + '">' +
+        (ok ? '✓ Configurado' : '✗ Sin API key') + '</span>' +
+    '</div>';
+  }).join('');
+
+  // BCCh panel (same logic as before, moved here)
+  const bc = data.bcentral || {};
+  const ri = bc.rate || {};
+  const rateVal = ri.rate ? parseFloat(ri.rate).toLocaleString('es-CL', {minimumFractionDigits:2, maximumFractionDigits:2}) : null;
+  const rateDate = ri.date || '';
+  const rateDisplay = rateVal
+    ? '<span style="color:#22c55e;font-weight:700;font-size:20px">$' + rateVal + '</span>' +
+      '<span class="text-muted" style="font-size:11px;margin-left:8px">CLP / USD · ' + escHtml(rateDate) +
+      (ri.stale ? ' <span style="color:#f59e0b">⚠ desactualizado</span>' : '') + '</span>'
+    : '<span class="text-muted" style="font-size:12px">Sin dato — configurá las credenciales</span>';
+
+  el.innerHTML =
+    '<div style="display:grid;gap:20px;max-width:900px">' +
+
+    // Panel proveedores
+    '<div class="panel">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:14px">Proveedores de IA</h2>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">' +
+    provCards +
+    '</div>' +
+    '<p class="text-muted" style="font-size:11px;margin-top:12px">Las API keys se configuran en <code>~/.ai-orchestrator/config.yaml</code> — no se muestran por seguridad.</p>' +
+    '</div>' +
+
+    // Panel BCCh
+    '<div class="panel">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:12px">Banco Central de Chile — Tipo de cambio</h2>' +
+    '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px">' +
+      rateDisplay +
+      '<button class="btn btn-secondary" style="font-size:12px;padding:4px 12px" onclick="refreshRate(this)">↻ Actualizar</button>' +
+      '<span id="rate-refresh-status" class="text-muted" style="font-size:12px"></span>' +
+    '</div>' +
+    '<p class="text-muted" style="font-size:11px;margin:0 0 14px">Dólar observado oficial (F073.TCO.PRE.Z.D) · ' +
+    (bc.configured ? 'Cuenta: <strong>' + escHtml(bc.user) + '</strong>' : 'Registrate en <strong>si3.bcentral.cl</strong>') + '</p>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:480px">' +
+      '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Usuario (email)</label>' +
+        '<input type="email" id="bcentral-user" value="' + escHtml(bc.user||'') + '" placeholder="usuario@email.cl" style="width:100%;font-size:12px;box-sizing:border-box"></div>' +
+      '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Contraseña</label>' +
+        '<input type="password" id="bcentral-pass" placeholder="••••••••" style="width:100%;font-size:12px;box-sizing:border-box"></div>' +
+    '</div>' +
+    '<div style="margin-top:10px;display:flex;gap:8px;align-items:center">' +
+      '<button class="btn btn-primary" style="font-size:12px" onclick="saveBcentralConfig()">Guardar y probar conexión</button>' +
+      '<span id="bcentral-status" class="text-muted" style="font-size:12px"></span>' +
+    '</div>' +
+    '</div>' +
+
+    '</div>';
+}
+
+function loadMetrics() {
+  const el = document.getElementById("metrics-content");
+  el.innerHTML = '<p class="text-muted" style="font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
+  fetch("/metrics")
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { el.innerHTML = '<p style="color:#f87171;font-size:13px">Error: ' + escHtml(data.error) + '</p>'; return; }
+      renderMetrics(data, el);
+    })
+    .catch(err => { el.innerHTML = '<p style="color:#f87171;font-size:13px">Error: ' + escHtml(String(err)) + '</p>'; });
+}
+
+function renderMetrics(data, el) {
+  const MONTHS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const fmtDay = s => { const p = s.split('-'); return p[2] + ' ' + MONTHS[parseInt(p[1],10)-1]; };
+  const fmtCost = (v, allowDash) => {
+    const n = parseFloat(v) || 0;
+    if (n === 0 && allowDash) return '—';
+    return _fmtUsd(n, n >= 0.01 ? 2 : 4);
+  };
+  const fmtMs   = v => v > 0 ? (v/1000).toFixed(1) + 's' : '—';
+  const rate    = (data.rate && data.rate.rate) ? parseFloat(data.rate.rate) : null;
+  const fmtClp  = v => {
+    const n = parseFloat(v) || 0;
+    if (!rate || n === 0) return '—';
+    const clp = Math.round(n * rate);
+    return '$' + clp.toLocaleString('es-CL');
+  };
+  const rateLabel = rate
+    ? '<span style="font-size:11px;color:var(--text-faint);font-weight:400"> · USD/CLP ' + rate.toLocaleString('es-CL') + (data.rate.stale ? ' ⚠ desactualizado' : '') + '</span>'
+    : '';
+  const RATING_LABEL = {'useful':'Util','partial':'Parcial','wrong':'Incorrecto','sin-rating':'Sin evaluar'};
+  const RATING_COLOR = {'useful':'#22c55e','partial':'#f59e0b','wrong':'#f87171','sin-rating':'var(--text-faint)'};
+
+  // Costo diario (14 días)
+  const dailyRows = (data.daily || []).map(d =>
+    '<tr class="detail-tbody-row">' +
+    '<td class="td-sm-mono">' + escHtml(fmtDay(d.day)) + '</td>' +
+    '<td class="td-sm text-muted" style="text-align:right">' + d.runs + '</td>' +
+    '<td class="td-sm" style="text-align:right;color:#22c55e;font-weight:600">' + fmtCost(d.cost, false) + '</td>' +
+    '<td class="td-sm" style="text-align:right;color:var(--text-muted)">' + fmtClp(d.cost) + '</td>' +
+    '</tr>'
+  ).join('');
+
+  // Por proyecto
+  const projRows = (data.by_project || []).map(p =>
+    '<tr class="detail-tbody-row">' +
+    '<td class="td-sm-mono">' + escHtml(p.project) + '</td>' +
+    '<td class="td-sm text-muted" style="text-align:right">' + p.runs + '</td>' +
+    '<td class="td-sm" style="text-align:right;color:#22c55e">' + fmtCost(p.cost, true) + '</td>' +
+    '<td class="td-sm text-muted" style="text-align:right">' + fmtMs(p.avg_ms) + '</td>' +
+    '<td class="td-sm" style="text-align:right;color:#f87171">' + (p.failed > 0 ? p.failed : '—') + '</td>' +
+    '</tr>'
+  ).join('');
+
+  // Por modelo
+  const modelRows = (data.by_model || []).map(m =>
+    '<tr class="detail-tbody-row">' +
+    '<td class="td-sm-mono">' + escHtml((m.model || '').split('/').pop()) + '</td>' +
+    '<td class="td-sm text-muted" style="text-align:right">' + m.runs + '</td>' +
+    '<td class="td-sm" style="text-align:right;color:#22c55e">' + fmtCost(m.cost, true) + '</td>' +
+    '<td class="td-sm text-muted" style="text-align:right">' + fmtMs(m.avg_ms) + '</td>' +
+    '</tr>'
+  ).join('');
+
+  // Ratings
+  const ratingRows = (data.ratings || []).map(r =>
+    '<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--border-faint)">' +
+    '<span style="font-size:12px;font-weight:600;color:' + (RATING_COLOR[r.rating] || 'var(--text-muted)') + ';min-width:100px">' + escHtml(RATING_LABEL[r.rating] || r.rating) + '</span>' +
+    '<div style="flex:1;height:8px;background:var(--bg-code);border-radius:4px;overflow:hidden">' +
+    '<div style="height:100%;background:' + (RATING_COLOR[r.rating] || 'var(--text-faint)') + ';width:' + Math.min(100, Math.round(r.cnt / Math.max(...data.ratings.map(x=>x.cnt)) * 100)) + '%"></div>' +
+    '</div>' +
+    '<span class="text-muted" style="font-size:12px;min-width:30px;text-align:right">' + r.cnt + '</span>' +
+    '</div>'
+  ).join('');
+
+  el.innerHTML = (
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:1100px">' +
+    // Diario
+    '<div class="panel">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:14px">Costo diario (14d)' + rateLabel + '</h2>' +
+    (dailyRows ? '<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr class="detail-thead-row"><th class="td-sm">Fecha</th><th class="td-sm" style="text-align:right">Runs</th><th class="td-sm" style="text-align:right">USD</th><th class="td-sm" style="text-align:right">CLP</th></tr></thead><tbody>' + dailyRows + '</tbody></table>' : '<p class="text-muted" style="font-size:12px">Sin datos</p>') +
+    '</div>' +
+    // Ratings
+    '<div class="panel">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:14px">Evaluaciones</h2>' +
+    (ratingRows || '<p class="text-muted" style="font-size:12px">Sin evaluaciones aun</p>') +
+    '<p style="font-size:11px;color:var(--text-faint);margin-top:10px">Evaluá runs desde su panel de detalle</p>' +
+    '</div>' +
+    // Por proyecto
+    '<div class="panel" style="grid-column:1/-1">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:14px">Por proyecto</h2>' +
+    (projRows ? '<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr class="detail-thead-row"><th class="td-sm">Proyecto</th><th class="td-sm" style="text-align:right">Runs</th><th class="td-sm" style="text-align:right">Costo</th><th class="td-sm" style="text-align:right">Prom.</th><th class="td-sm" style="text-align:right">Errores</th></tr></thead><tbody>' + projRows + '</tbody></table>' : '<p class="text-muted" style="font-size:12px">Sin datos</p>') +
+    '</div>' +
+    // Por modelo
+    '<div class="panel" style="grid-column:1/-1">' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:14px">Por modelo</h2>' +
+    (modelRows ? '<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr class="detail-thead-row"><th class="td-sm">Modelo</th><th class="td-sm" style="text-align:right">Runs</th><th class="td-sm" style="text-align:right">Costo</th><th class="td-sm" style="text-align:right">Prom.</th></tr></thead><tbody>' + modelRows + '</tbody></table>' : '<p class="text-muted" style="font-size:12px">Sin datos</p>') +
+    '<p style="font-size:11px;color:var(--text-faint);margin-top:10px"><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="_metricsLoaded=false;loadMetrics()">Refrescar</button></p>' +
+    '</div>' +
+    '</div>'
+  );
+}
+
+function loadProyectos() {
+  const el = document.getElementById("proyectos-content");
   el.innerHTML = '<p class="text-muted" style="font-size:13px"><span class="spinner"></span>&nbsp;Cargando...</p>';
   fetch("/inspect")
     .then(r => r.json())
@@ -1065,19 +1940,19 @@ function loadInspector() {
         el.innerHTML = `<p style="color:#f87171;font-size:13px">Error del servidor: ${escHtml(data.error)}</p>`;
         return;
       }
-      renderInspector(data);
+      renderProyectos(data);
     })
     .catch(err => {
       el.innerHTML = `<p style="color:#f87171;font-size:13px">Error de conexión: ${escHtml(String(err))}</p>`;
     });
 }
 
-function reloadInspector() {
-  const el = document.getElementById("inspector-content");
+function reloadProyectos() {
+  const el = document.getElementById("proyectos-content");
   el.innerHTML = '<p class="text-muted" style="font-size:13px"><span class="spinner"></span>&nbsp;Actualizando...</p>';
   fetch("/inspect")
     .then(r => r.json())
-    .then(renderInspector)
+    .then(renderProyectos)
     .catch(() => { el.innerHTML = '<p style="color:#f87171;font-size:13px">Error al recargar.</p>'; });
 }
 
@@ -1104,6 +1979,93 @@ function pickFolder(alias) {
     .finally(() => { btn.disabled = false; btn.innerHTML = orig; });
 }
 
+function addNewProject() {
+  const alias = (document.getElementById("new-proj-alias") || {}).value.trim();
+  const path  = (document.getElementById("new-proj-path")  || {}).value.trim();
+  const status = document.getElementById("new-proj-status");
+  if (!alias) { status.textContent = "El alias no puede estar vacío."; status.style.color = "#f87171"; return; }
+  if (!path)  { status.textContent = "La ruta no puede estar vacía.";  status.style.color = "#f87171"; return; }
+  status.innerHTML = '<span class="spinner"></span>&nbsp;Registrando...';
+  fetch("/add-project", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({alias, path}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { status.textContent = "✗ " + d.error; status.style.color = "#f87171"; return; }
+    status.textContent = '✓ Proyecto "' + alias + '" registrado.';
+    status.style.color = "#22c55e";
+    document.getElementById("new-proj-alias").value = "";
+    document.getElementById("new-proj-path").value = "";
+    showToast('✓ Proyecto "' + alias + '" agregado.');
+    setTimeout(reloadProyectos, 600);
+  })
+  .catch(() => { status.textContent = "✗ Error de conexión."; status.style.color = "#f87171"; });
+}
+
+function pickNewProjectFolder() {
+  const btn = document.getElementById("new-proj-pick");
+  const orig = btn ? btn.innerHTML : "";
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
+  fetch("/pick-folder")
+    .then(r => r.json())
+    .then(d => {
+      if (d.path) {
+        const pathInput = document.getElementById("new-proj-path");
+        if (pathInput) pathInput.value = d.path;
+        if (!document.getElementById("new-proj-alias").value) {
+          const bs = String.fromCharCode(92);
+          const lastSep = Math.max(d.path.lastIndexOf("/"), d.path.lastIndexOf(bs));
+          const seg = lastSep >= 0 ? d.path.slice(lastSep + 1) : d.path;
+          if (seg) document.getElementById("new-proj-alias").value = seg;
+        }
+      }
+    })
+    .catch(() => {})
+    .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = orig; } });
+}
+
+function startRenameProject(alias) {
+  const form = document.getElementById("rename-form-" + alias);
+  if (form) { form.style.display = "flex"; }
+  const inp = document.getElementById("rename-input-" + alias);
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+function cancelRenameProject(alias) {
+  const form = document.getElementById("rename-form-" + alias);
+  if (form) form.style.display = "none";
+  const inp = document.getElementById("rename-input-" + alias);
+  if (inp) inp.value = alias;
+  const st = document.getElementById("rename-status-" + alias);
+  if (st) st.textContent = "";
+}
+
+function confirmRenameProject(oldAlias) {
+  const inp = document.getElementById("rename-input-" + oldAlias);
+  const st  = document.getElementById("rename-status-" + oldAlias);
+  if (!inp) return;
+  const newAlias = inp.value.trim();
+  if (!newAlias || newAlias === oldAlias) { cancelRenameProject(oldAlias); return; }
+  if (st) { st.textContent = "…"; st.style.color = "var(--text-muted)"; }
+  fetch("/project/rename", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({old: oldAlias, new: newAlias}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) {
+      if (st) { st.textContent = "✗ " + d.error; st.style.color = "#f87171"; }
+    } else {
+      if (st) { st.textContent = "✓"; st.style.color = "#22c55e"; }
+      setTimeout(reloadProyectos, 700);
+    }
+  })
+  .catch(() => { if (st) { st.textContent = "✗ Error"; st.style.color = "#f87171"; } });
+}
+
 function registerProject(alias) {
   const input  = document.getElementById("reg-path-" + alias);
   const status = document.getElementById("reg-status-" + alias);
@@ -1123,35 +2085,218 @@ function registerProject(alias) {
       status.style.color = "#22c55e";
       const row = document.getElementById("reg-row-" + alias);
       if (row) row.style.opacity = "0.4";
-      setTimeout(reloadInspector, 900);
+      setTimeout(reloadProyectos, 900);
     }
   })
   .catch(() => { status.textContent = "✗ Error de conexión."; status.style.color = "#f87171"; });
 }
 
-function indexDocs() {
-  const sel = document.getElementById("insp-project-sel");
+function startIndexFlow() {
+  const proj = (document.getElementById("insp-project-sel") || {}).value || "";
   const status = document.getElementById("insp-action-status");
-  const proj = sel ? sel.value : "";
   if (!proj) { status.textContent = "Seleccioná un proyecto."; return; }
-  status.innerHTML = '<span class="spinner"></span>&nbsp;Indexando...';
+  status.innerHTML = '<span class="spinner"></span>&nbsp;Cargando carpetas...';
   document.getElementById("insp-index-btn").disabled = true;
+  fetch("/preview-index?project=" + encodeURIComponent(proj))
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        status.textContent = "Error: " + data.error;
+        document.getElementById("insp-index-btn").disabled = false;
+        return;
+      }
+      status.textContent = "";
+      _renderPreflightPanel(data);
+      document.getElementById("index-preflight").style.display = "block";
+      document.getElementById("insp-index-btn").style.display = "none";
+    })
+    .catch(() => {
+      status.textContent = "Error al obtener carpetas.";
+      document.getElementById("insp-index-btn").disabled = false;
+    });
+}
+
+function _renderPreflightPanel(data) {
+  const container = document.getElementById("index-folder-list");
+  const folders = data.folders || [];
+  if (!folders.length) {
+    container.innerHTML = '<p class="text-faint" style="font-size:12px">No se encontraron subcarpetas.</p>';
+    return;
+  }
+  container.innerHTML = folders.map(f => {
+    const checked = f.suggested_skip || f.already_excluded;
+    const badge = f.already_excluded
+      ? `<span style="font-size:10px;color:var(--text-muted);margin-left:4px">guardado</span>`
+      : f.suggested_skip
+        ? `<span style="font-size:10px;color:var(--text-muted);margin-left:4px">sugerido</span>`
+        : "";
+    return `<label style="display:flex;align-items:center;gap:6px;padding:6px 10px;
+            background:var(--bg-elevated);border-radius:6px;font-size:12px;cursor:pointer;
+            border:1px solid var(--border);user-select:none">
+      <input type="checkbox" class="folder-exclude-cb" value="${escHtml(f.name)}" ${checked ? "checked" : ""}>
+      <span style="font-family:'JetBrains Mono',monospace">${escHtml(f.name)}/</span>
+      <span style="color:var(--text-faint)">${f.file_count} arch.</span>
+      ${badge}
+    </label>`;
+  }).join("");
+}
+
+function confirmIndex() {
+  const proj = (document.getElementById("insp-project-sel") || {}).value || "";
+  const save = (document.getElementById("index-save-exclusions") || {}).checked !== false;
+  const excluded = [...document.querySelectorAll(".folder-exclude-cb:checked")].map(cb => cb.value);
+  const status = document.getElementById("insp-action-status");
+  status.innerHTML = '<span class="spinner"></span>&nbsp;Indexando...';
   fetch("/index-docs", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({project: proj}),
+    body: JSON.stringify({project: proj, extra_skip_dirs: excluded, save_skip_dirs: save}),
   })
   .then(r => r.json())
   .then(d => {
-    if (d.error) { status.textContent = "Error: " + d.error; }
-    else { status.textContent = "✓ " + d.chunks + " chunks indexados para '" + d.project + "'."; }
+    document.getElementById("index-preflight").style.display = "none";
+    document.getElementById("insp-index-btn").style.display = "";
     document.getElementById("insp-index-btn").disabled = false;
-    reloadInspector();
+    if (d.error) { status.textContent = "Error: " + d.error; showToast("Error indexando: " + d.error, true); }
+    else { status.textContent = "✓ " + d.chunks + " chunks indexados para '" + d.project + "'."; showToast("✓ " + d.chunks + " chunks indexados — " + d.project); }
+    reloadProyectos();
   })
   .catch(() => {
     status.textContent = "Error de conexión.";
     document.getElementById("insp-index-btn").disabled = false;
   });
+}
+
+function cancelIndexFlow() {
+  document.getElementById("index-preflight").style.display = "none";
+  document.getElementById("insp-index-btn").style.display = "";
+  document.getElementById("insp-index-btn").disabled = false;
+  document.getElementById("insp-action-status").textContent = "";
+}
+
+function _onImpAgentChange() {
+  const agent = (document.getElementById("imp-agent-sel") || {}).value || "";
+  const isCC = agent === "claude-code";
+  document.getElementById("imp-panel-cc").style.display = isCC ? "" : "none";
+  document.getElementById("imp-panel-manual").style.display = isCC ? "none" : "";
+}
+
+function triggerSyncCC() {
+  const status = document.getElementById("imp-cc-status");
+  status.innerHTML = '<span class="spinner"></span>&nbsp;Sincronizando...';
+  fetch("/sync-cc", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { status.textContent = "Error: " + d.error; showToast("Error sync-cc: " + d.error, true); return; }
+      const msg = d.imported === 0
+        ? "No hay sesiones nuevas."
+        : "✓ " + d.imported + " sesión(es) sincronizada(s) e indexadas.";
+      status.textContent = msg;
+      showToast(msg);
+      reloadProyectos();
+    })
+    .catch(() => { status.textContent = "Error de conexión."; });
+}
+
+function clearImports() {
+  const proj = (document.getElementById("imp-clear-project") || {}).value || "";
+  const provider = (document.getElementById("imp-clear-provider") || {}).value || "";
+  const status = document.getElementById("imp-clear-status");
+  if (!proj) { status.textContent = "Seleccioná un proyecto."; return; }
+  const providerLabel = provider ? `<strong>${escHtml(provider)}</strong>` : "todos los providers";
+  showConfirmModal(
+    "Limpiar datos importados",
+    `Se eliminarán los registros de <strong>${escHtml(proj)}</strong> (${providerLabel}) de <code>runs.db</code> y los vectores RAG en ChromaDB.<br><br>` +
+    `<span style="font-size:12px;color:var(--text-muted)">Los archivos fuente no se modifican — podés volver a indexar en cualquier momento.</span>`,
+    () => _doCleanImports(proj, provider, status),
+    { okLabel: "Eliminar", okDanger: true }
+  );
+}
+
+function _doCleanImports(proj, provider, status) {
+  status.innerHTML = '<span class="spinner"></span>&nbsp;Limpiando...';
+  fetch("/clear-imports", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({project: proj, provider: provider || null}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { status.textContent = "Error: " + d.error; showToast("Error: " + d.error, true); return; }
+      const msg = `✓ ${d.runs_deleted} runs y ${d.chroma_purged} vectores eliminados de "${proj}".`;
+      status.textContent = msg;
+      showToast(msg);
+      reloadProyectos();
+    })
+    .catch(() => { status.textContent = "Error de conexión."; });
+}
+
+function refreshRate(btn) {
+  const st = document.getElementById("rate-refresh-status");
+  if (btn) btn.disabled = true;
+  if (st) st.textContent = "Actualizando...";
+  fetch("/rates/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { if (st) st.textContent = "Error: " + d.error; }
+      else { if (st) st.textContent = "USD/CLP $" + parseFloat(d.rate).toLocaleString('es-CL', {minimumFractionDigits:2}) + " · " + (d.date || ""); }
+      if (btn) btn.disabled = false;
+      _metricsLoaded = false;
+    })
+    .catch(e => { if (st) st.textContent = "Error: " + e; if (btn) btn.disabled = false; });
+}
+
+function saveBcentralConfig() {
+  const user = (document.getElementById("bcentral-user") || {}).value || "";
+  const pass = (document.getElementById("bcentral-pass") || {}).value || "";
+  const st = document.getElementById("bcentral-status");
+  if (!user || !pass) { if (st) st.textContent = "Ingresá usuario y contraseña."; return; }
+  if (st) st.textContent = "Guardando y probando...";
+  fetch("/config/bcentral", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({"user": user, "pass": pass}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { if (st) st.style.color = "#f87171"; if (st) st.textContent = "Error: " + d.error; }
+      else {
+        if (st) { st.style.color = "#22c55e"; st.textContent = "✓ Guardado · USD/CLP $" + parseFloat(d.rate).toLocaleString('es-CL', {minimumFractionDigits:2}) + " al " + (d.date || ""); }
+        if (document.getElementById("bcentral-pass")) document.getElementById("bcentral-pass").value = "";
+        _metricsLoaded = false;
+        _configLoaded = false;
+      }
+    })
+    .catch(e => { if (st) { st.style.color = "#f87171"; st.textContent = "Error: " + e; } });
+}
+
+function submitImportContext() {
+  const proj = (document.getElementById("imp-project-sel") || {}).value || "";
+  const agent = (document.getElementById("imp-agent-sel") || {}).value || "external";
+  const model = (document.getElementById("imp-model") || {}).value || "";
+  const task = (document.getElementById("imp-task") || {}).value.trim();
+  const response = (document.getElementById("imp-response") || {}).value.trim();
+  const status = document.getElementById("imp-manual-status");
+  if (!proj) { status.textContent = "Seleccioná un proyecto."; return; }
+  if (!task) { status.textContent = "La tarea no puede estar vacía."; return; }
+  if (!response) { status.textContent = "La respuesta no puede estar vacía."; return; }
+  status.innerHTML = '<span class="spinner"></span>&nbsp;Importando...';
+  fetch("/import-context", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({project: proj, agent, model, task, response}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { status.textContent = "Error: " + d.error; showToast("Error: " + d.error, true); return; }
+      const msg = "✓ Run #" + d.run_id + " importado" + (d.indexed ? " e indexado en RAG." : ".");
+      status.textContent = msg;
+      showToast(msg);
+      document.getElementById("imp-task").value = "";
+      document.getElementById("imp-response").value = "";
+      reloadProyectos();
+    })
+    .catch(() => { status.textContent = "Error de conexión."; });
 }
 
 function fmtTs(iso) {
@@ -1163,8 +2308,8 @@ function fmtTs(iso) {
   } catch { return iso ? iso.slice(0,16) : "—"; }
 }
 
-function renderInspector(data) {
-  const el = document.getElementById("inspector-content");
+function renderProyectos(data) {
+  const el = document.getElementById("proyectos-content");
   const chroma = data.chroma || {};
   const COLS = ["runs","docs","responses"];
   const colLabels = {runs:"Routing memory",docs:"Docs (RAG)",responses:"Respuestas"};
@@ -1175,15 +2320,86 @@ function renderInspector(data) {
     const label = indexable ? p : p + " (sin ruta)";
     return `<option value="${escHtml(p)}" ${indexable ? "" : 'style="color:var(--text-muted)"'}>${escHtml(label)}</option>`;
   }).join("");
-  let html = `<div class="panel" style="margin-bottom:16px">
+  // ── Panel: Proyectos ─────────────────────────────────────────────────────
+  const unregistered = allProjects.filter(p => !registered.has(p));
+  const unregRows = unregistered.map(function(p) {
+    const pe = escHtml(p);
+    return (
+      '<div style="display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-faint)" id="reg-row-' + pe + '">' +
+      '<span style="font-size:12px;color:var(--text-primary);min-width:130px;font-family:monospace;flex-shrink:0">' + pe + '</span>' +
+      '<input type="text" id="reg-path-' + pe + '" placeholder="Ruta al directorio del proyecto" style="flex:1;min-width:0;font-size:12px">' +
+      '<button class="btn btn-secondary" data-proj="' + pe + '" id="reg-pick-' + pe + '" title="Seleccionar carpeta" style="padding:0 10px;font-size:15px;flex-shrink:0" onclick="pickFolder(this.dataset.proj)">&#128193;</button>' +
+      '<button class="btn btn-secondary" data-proj="' + pe + '" style="white-space:nowrap;flex-shrink:0;font-size:12px" onclick="registerProject(this.dataset.proj)">Registrar</button>' +
+      '<span id="reg-status-' + pe + '" style="font-size:12px;min-width:80px;flex-shrink:0"></span>' +
+      '</div>'
+    );
+  }).join("");
+  const unregSection = unregistered.length
+    ? '<p class="text-muted" style="font-size:12px;margin:0 0 6px">Proyectos detectados sin ruta — completá la ruta para habilitarlos:</p>' + unregRows
+    : "";
+  const mbAdd = unregistered.length ? "14px" : "6px";
+
+  // ── Tabla de proyectos registrados (alias → path + ✎ renombrar) ──────────
+  const regIndex = data.registered_project_index || {};
+  const regEntries = Object.entries(regIndex);
+  const regRows2 = regEntries.map(function([alias, projPath]) {
+    const ae = escHtml(alias);
+    const pe = escHtml(projPath);
+    return (
+      '<div class="reg-proj-row" id="regrow-' + ae + '" style="display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border-faint)">' +
+        '<span style="font-size:12px;font-weight:600;color:var(--text-primary);min-width:140px;font-family:monospace;flex-shrink:0">' + ae + '</span>' +
+        '<span style="font-size:11px;color:var(--text-faint);flex:1;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + pe + '">' + pe + '</span>' +
+        '<button class="btn btn-secondary" style="padding:2px 10px;font-size:11px;flex-shrink:0" onclick="startRenameProject(\\'' + ae + '\\')">✎ Renombrar</button>' +
+        '<div id="rename-form-' + ae + '" style="display:none;gap:6px;align-items:center">' +
+          '<input id="rename-input-' + ae + '" type="text" value="' + ae + '" style="width:140px;font-size:12px" onkeydown="if(event.key===\\'Enter\\')confirmRenameProject(\\'' + ae + '\\');else if(event.key===\\'Escape\\')cancelRenameProject(\\'' + ae + '\\')">' +
+          '<button class="btn btn-primary" style="padding:2px 10px;font-size:11px;flex-shrink:0" onclick="confirmRenameProject(\\'' + ae + '\\')">OK</button>' +
+          '<button class="btn btn-secondary" style="padding:2px 10px;font-size:11px;flex-shrink:0" onclick="cancelRenameProject(\\'' + ae + '\\')">✕</button>' +
+          '<span id="rename-status-' + ae + '" style="font-size:11px;min-width:60px"></span>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join("");
+  const regSection2 = regEntries.length
+    ? '<div style="margin-top:4px;margin-bottom:6px">' + regRows2 + '</div>'
+    : '<p class="text-muted" style="font-size:12px;margin:4px 0 6px">Sin proyectos registrados.</p>';
+
+  let html = '<div class="panel" style="margin-bottom:16px">' +
+    '<h2>Proyectos</h2>' +
+    '<p class="text-muted" style="font-size:11px;margin-bottom:8px">Proyectos registrados en el índice:</p>' +
+    regSection2 +
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:' + mbAdd + ';border-top:1px solid var(--border-faint);padding-top:10px;margin-top:4px">' +
+      '<input id="new-proj-alias" type="text" placeholder="alias (ej: mi-proyecto)" style="width:160px;font-size:12px">' +
+      '<input id="new-proj-path" type="text" placeholder="Ruta al directorio" style="flex:1;min-width:160px;font-size:12px">' +
+      '<button id="new-proj-pick" class="btn btn-secondary" title="Seleccionar carpeta…" style="padding:0 10px;font-size:15px;flex-shrink:0" onclick="pickNewProjectFolder()">&#128193;</button>' +
+      '<button class="btn btn-primary" style="white-space:nowrap;flex-shrink:0" onclick="addNewProject()">+ Agregar proyecto</button>' +
+      '<span id="new-proj-status" class="text-muted" style="font-size:12px;width:100%"></span>' +
+    '</div>' +
+    unregSection +
+  '</div>';
+
+  html += `<div class="panel" style="margin-bottom:16px">
     <h2>Acciones</h2>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select id="insp-project-sel" style="min-width:160px">
         <option value="">— proyecto —</option>${projOpts}
       </select>
-      <button id="insp-index-btn" class="btn btn-primary" onclick="indexDocs()">Indexar docs</button>
+      <button id="insp-index-btn" class="btn btn-primary" onclick="startIndexFlow()">Actualizar conocimiento</button>
       <span id="insp-action-status" class="text-muted" style="font-size:12px"></span>
-      <button class="btn btn-secondary" onclick="reloadInspector()" style="margin-left:auto">↻ Recargar</button>
+      <button class="btn btn-secondary" onclick="reloadProyectos()" style="margin-left:auto">↻ Recargar</button>
+    </div>
+    <div id="index-preflight" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+        Elegí qué carpetas <strong>excluir</strong> de la indexación. Las marcadas no se indexarán.
+      </p>
+      <div id="index-folder-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"></div>
+      <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px;margin-bottom:12px;cursor:pointer">
+        <input type="checkbox" id="index-save-exclusions" checked>
+        Guardar exclusiones en context.yaml (se pre-cargan la próxima vez)
+      </label>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="confirmIndex()">Confirmar e indexar</button>
+        <button class="btn btn-secondary" onclick="cancelIndexFlow()">Cancelar</button>
+      </div>
     </div>
   </div>
   <div class="panel" style="margin-bottom:20px">
@@ -1204,22 +2420,42 @@ function renderInspector(data) {
   });
   html += `</div></div></div>`;
 
-  const unregistered = allProjects.filter(p => !registered.has(p));
-  if (unregistered.length > 0) {
-    const regRows = unregistered.map(p => `
-      <div style="display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-faint)" id="reg-row-${escHtml(p)}">
-        <span style="font-size:12px;color:var(--text-primary);min-width:140px;font-family:'JetBrains Mono',monospace;flex-shrink:0">${escHtml(p)}</span>
-        <input type="text" id="reg-path-${escHtml(p)}" placeholder="Ruta al directorio del proyecto" style="flex:1;min-width:0">
-        <button id="reg-pick-${escHtml(p)}" class="btn btn-secondary" title="Seleccionar carpeta…" style="padding:0 10px;font-size:15px;flex-shrink:0" onclick="pickFolder('${escHtml(p)}')">&#128193;</button>
-        <button class="btn btn-secondary" style="white-space:nowrap;flex-shrink:0" onclick="registerProject('${escHtml(p)}')">Registrar</button>
-        <span id="reg-status-${escHtml(p)}" style="font-size:12px;min-width:80px;flex-shrink:0"></span>
-      </div>`).join("");
-    html += `<div class="panel" style="margin-bottom:16px">
-      <h2>Proyectos sin ruta registrada</h2>
-      <p class="text-muted" style="font-size:12px;margin-bottom:10px">Ingresá la ruta local para habilitarlos en el router y en el indexador RAG.</p>
-      ${regRows}
-    </div>`;
-  }
+  // ── Panel: Importar contexto de agentes ──────────────────────────────────
+  const impProjOpts = allProjects.map(p =>
+    `<option value="${escHtml(p)}">${escHtml(p)}</option>`
+  ).join("");
+  html += `<div class="panel" style="margin-bottom:16px">
+    <h2>Importar contexto de agentes</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <select id="imp-project-sel" style="min-width:140px">
+        <option value="">— proyecto —</option>${impProjOpts}
+      </select>
+      <select id="imp-agent-sel" onchange="_onImpAgentChange()" style="min-width:140px">
+        <option value="claude-code">Claude Code (auto-sync)</option>
+        <option value="claude">Claude (manual)</option>
+        <option value="deepseek">DeepSeek</option>
+        <option value="openai">OpenAI</option>
+        <option value="other">Otro agente</option>
+      </select>
+      <input id="imp-model" type="text" placeholder="Modelo (opcional)" style="width:160px;font-size:12px">
+    </div>
+    <div id="imp-panel-cc">
+      <p class="text-muted" style="font-size:12px;margin-bottom:8px">
+        Importa sesiones desde <code>~/.claude/projects/</code> extrayendo el contenido completo de las respuestas para indexarlas en RAG.
+      </p>
+      <button class="btn btn-primary" onclick="triggerSyncCC()">↻ Sincronizar Claude Code</button>
+      <span id="imp-cc-status" class="text-muted" style="font-size:12px;margin-left:8px"></span>
+    </div>
+    <div id="imp-panel-manual" style="display:none">
+      <textarea id="imp-task" rows="2" placeholder="Tarea / Prompt enviado al agente"
+        style="width:100%;margin-bottom:6px;font-size:12px;box-sizing:border-box"></textarea>
+      <textarea id="imp-response" rows="6" placeholder="Respuesta del agente"
+        style="width:100%;margin-bottom:8px;font-size:12px;box-sizing:border-box"></textarea>
+      <button class="btn btn-primary" onclick="submitImportContext()">Importar y indexar</button>
+      <span id="imp-manual-status" class="text-muted" style="font-size:12px;margin-left:8px"></span>
+    </div>
+    <p class="text-muted" style="font-size:11px;margin-top:10px">Para limpiar runs por proyecto o eliminar proyectos no mapeados usá la pestaña <strong>Datos</strong>. Para configurar credenciales de BCCh usá <strong>Configuración</strong>.</p>
+  </div>`;
 
   function mkTable(title, rows, cols) {
     const n = (rows||[]).length;
@@ -1249,7 +2485,7 @@ function renderInspector(data) {
     {label:"Indexado",    key:"ts",         color:"var(--text-faint)",mono:true,fmt:fmtTs},
   ]);
 
-  html += mkTablePaged("contexts","Contextos", data.contexts, [
+  html += mkTablePaged("contexts","Flujos", data.contexts, [
     {label:"ID",      key:"id",          color:"var(--text-faint)",mono:true},
     {label:"Proyecto",key:"project",     color:"var(--text-primary)"},
     {label:"Título",  key:"title",       color:"var(--text-detail)",max:50},
@@ -1287,6 +2523,65 @@ function renderInspector(data) {
 
   el.innerHTML = html;
 }
+
+Object.assign(window, {
+  addCtxStep,
+  addNewProject,
+  advanceStep,
+  applyRunFilters,
+  cancelIndexFlow,
+  clearImports,
+  cleanAllUnmapped,
+  cleanProject,
+  cleanProjectWithSel,
+  closeConfirmModal,
+  closeCtxDetail,
+  closeDetail,
+  confirmIndex,
+  deleteContext,
+  deleteContexts,
+  exportCSV,
+  loadConfig,
+  loadDatos,
+  loadMetrics,
+  loadProyectos,
+  openContextDetail,
+  openDetail,
+  pickFolder,
+  pickNewProjectFolder,
+  purgeChromaDocs,
+  purgeChromaResponses,
+  rateRun,
+  refreshRate,
+  registerProject,
+  reloadProyectos,
+  startRenameProject,
+  cancelRenameProject,
+  confirmRenameProject,
+  renderRunsTable,
+  runDoctor,
+  runFix,
+  runIndexDocs,
+  runSync,
+  saveBcentralConfig,
+  setCtxFilter,
+  setTheme,
+  showToast,
+  skipStep,
+  startIndexFlow,
+  submitContext,
+  submitImportContext,
+  submitTask,
+  switchTab,
+  toggleActivity,
+  toggleContextForm,
+  toggleFixMenu,
+  toggleSender,
+  triggerSyncCC,
+  _confirmModalBackdrop,
+  _confirmModalOk,
+  _onImpAgentChange,
+});
 """
 
 def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None) -> str:
@@ -1338,7 +2633,8 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     max_prov = max(by_provider.values(), default=1)
     max_model = max(by_model.values(), default=1)
     max_purpose = max(by_purpose.values(), default=1)
-    cache_pct = round(total_cache_read / total_input_tok * 100) if total_input_tok else 0
+    _cache_denominator = total_input_tok + total_cache_read
+    cache_pct = round(total_cache_read / _cache_denominator * 100) if _cache_denominator else 0
 
     def _chart_bars(data: dict, max_val: int, color_fn) -> str:
         bars = ""
@@ -1364,6 +2660,8 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 
     import json as _json
     all_models = sorted(by_model.keys())
+    # Si hay proyecto seleccionado enviar solo sus runs; si no, todos (para filtro client-side)
+    _runs_for_js = filtered if selected_project else runs
     runs_json = _json.dumps(
         [{"id": r.get("id"), "ts": _text(r.get("ts")), "project": _text(r.get("project")),
           "provider": _text(r.get("provider")), "model": _text(r.get("model")),
@@ -1372,7 +2670,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
           "cost_usd": r.get("cost_usd"), "cache_read_tokens": r.get("cache_read_tokens"),
           "task_preview": _text(r.get("task_preview") or r.get("task","")),
           "routing_reason": _text(r.get("routing_reason",""))}
-         for r in runs],
+         for r in _runs_for_js],
         ensure_ascii=False, default=str
     )
 
@@ -1395,10 +2693,26 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     for m in all_models:
         filter_model_opts += f'<option value="{_escape(m)}">{_escape(m)}</option>'
 
-    tokens_display = f"{total_tokens // 1000}K" if total_tokens >= 1000 else str(total_tokens)
-    cost_display = f"${total_cost:.4f}" if total_cost > 0 else "—"
-    cache_display = f"{cache_pct}%" if cache_pct else "—"
+    if total_tokens >= 1_000_000:
+        tokens_display = f"{total_tokens / 1_000_000:.1f}M"
+    elif total_tokens >= 1_000:
+        tokens_display = f"{total_tokens // 1_000}K"
+    else:
+        tokens_display = str(total_tokens)
     now_dt = datetime.now().astimezone()
+    _today = now_dt.date().isoformat()
+    cost_today = sum(
+        (_float_or_none(r.get("cost_usd")) or 0)
+        for r in filtered
+        if _text(r.get("ts", "")).startswith(_today)
+    )
+    if cost_today <= 0:
+        cost_display = "—"
+    elif cost_today >= 1:
+        cost_display = f"${cost_today:.2f}"
+    else:
+        cost_display = f"${cost_today:.4f}"
+    cache_display = f"{cache_pct}%" if cache_pct else "—"
     now = now_dt.strftime("%d/%m/%Y %H:%M ") + now_dt.strftime("%Z")
 
     _css = _build_css()
@@ -1428,7 +2742,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
       <select name="project" onchange="this.form.submit()">{project_options}</select>
     </form>
     <button class="btn btn-secondary" onclick="toggleSender()">+ Nueva tarea</button>
-    <button class="btn btn-secondary" onclick="toggleContextForm()">+ Nuevo contexto</button>
+    <button class="btn btn-secondary" onclick="toggleContextForm()">+ Nuevo flujo</button>
     <a href="/docs" class="theme-btn" style="text-decoration:none">Docs</a>
     <a href="/mcp" class="theme-btn" style="text-decoration:none">MCP</a>
     <a href="/security" class="theme-btn" style="text-decoration:none">Seguridad</a>
@@ -1446,13 +2760,16 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 
 <div class="tabnav">
   <div class="tabnav-inner">
-    <button class="tab-btn tab-active" id="tab-btn-main" onclick="switchTab('main')">Dashboard</button>
-    <button class="tab-btn" id="tab-btn-contextos" onclick="switchTab('contextos')">Contextos</button>
-    <button class="tab-btn" id="tab-btn-inspector" onclick="switchTab('inspector')">Inspector</button>
+    <button class="tab-btn tab-active" id="tab-btn-actividad" onclick="switchTab('actividad')">Actividad</button>
+    <button class="tab-btn" id="tab-btn-flujos" onclick="switchTab('flujos')">Flujos</button>
+    <button class="tab-btn" id="tab-btn-proyectos" onclick="switchTab('proyectos')">Proyectos</button>
+    <button class="tab-btn" id="tab-btn-metrics" onclick="switchTab('metrics')">Métricas</button>
+    <button class="tab-btn" id="tab-btn-datos" onclick="switchTab('datos')">Datos</button>
+    <button class="tab-btn" id="tab-btn-config" onclick="switchTab('config')">Configuración</button>
   </div>
 </div>
 
-<div id="tab-main">
+<div id="tab-actividad">
 <div class="container">
 
   <div class="sender-panel" id="senderPanel">
@@ -1490,15 +2807,16 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <div class="card">
       <div class="label">Costo Hoy</div>
       <div class="value" id="card-cost">{cost_display}</div>
+      <div class="sub">dólares estadounidenses (USD)</div>
     </div>
     <div class="card">
       <div class="label">Tokens Usados</div>
       <div class="value">{tokens_display}</div>
     </div>
     <div class="card">
-      <div class="label">Cache Savings</div>
+      <div class="label">Ahorro en Caché</div>
       <div class="value">{cache_display}</div>
-      <div class="sub">de input via cache</div>
+      <div class="sub">de tokens vía caché</div>
     </div>
     <div class="card">
       <div class="label">Duración Prom.</div>
@@ -1525,7 +2843,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
         <button class="btn btn-secondary" onclick="exportCSV()" style="font-size:12px;padding:5px 12px">↓ CSV</button>
       </div>
     </div>
-    <table id="runs-table" style="display:none"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body"></tbody></table>
+    <table id="runs-table" style="display:none"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo (USD)</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body"></tbody></table>
     <p class="empty" id="empty-msg" style="display:none">No hay runs aún. Usá el botón <strong>+ Nueva tarea</strong> para enviar una.</p>
     <div id="runs-pagination"></div>
   </div>
@@ -1533,11 +2851,11 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 </div>
 </div>
 
-<div id="tab-contextos" style="display:none">
+<div id="tab-flujos" style="display:none">
 <div class="container">
 
   <div class="panel" style="margin-bottom:16px">
-    <h2>Nuevo contexto</h2>
+    <h2>Nuevo flujo</h2>
     <div class="sender-form">
       <div>
         <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
@@ -1557,7 +2875,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
         <button class="btn btn-secondary" onclick="addCtxStep()" style="margin-top:8px;font-size:12px;padding:5px 12px">+ Paso</button>
       </div>
       <div class="full" style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-primary" onclick="submitContext()">Crear contexto</button>
+        <button class="btn btn-primary" onclick="submitContext()">Crear flujo</button>
         <span id="ctxStatus" class="text-muted" style="font-size:12px"></span>
       </div>
     </div>
@@ -1577,12 +2895,47 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 </div>
 </div>
 
-<div id="tab-inspector" style="display:none">
+<div id="tab-proyectos" style="display:none">
 <div class="container">
-  <div id="inspector-content" style="padding-top:4px">
+  <div id="proyectos-content" style="padding-top:4px">
     <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
   </div>
 </div>
+</div>
+
+<div id="tab-metrics" style="display:none">
+<div class="container">
+  <div id="metrics-content" style="padding-top:4px">
+    <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
+  </div>
+</div>
+</div>
+
+<div id="tab-datos" style="display:none">
+<div class="container" style="padding-top:20px">
+  <div id="datos-content">
+    <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
+  </div>
+</div>
+</div>
+
+<div id="tab-config" style="display:none">
+<div class="container" style="padding-top:20px">
+  <div id="config-content">
+    <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
+  </div>
+</div>
+</div>
+
+<div class="detail-overlay" id="confirmModal" onclick="_confirmModalBackdrop(event)" style="align-items:center;justify-content:center">
+  <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:28px 24px 20px;width:min(440px,92vw);box-shadow:var(--shadow-panel)">
+    <h3 id="confirmModalTitle" style="margin:0 0 10px;font-size:15px;font-weight:700"></h3>
+    <div id="confirmModalBody" style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:20px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancelar</button>
+      <button id="confirmModalOk" class="btn btn-primary" onclick="_confirmModalOk()">Confirmar</button>
+    </div>
+  </div>
 </div>
 
 <div class="detail-overlay" id="detailOverlay" onclick="closeDetail(event)">
@@ -1596,7 +2949,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 <div class="detail-overlay" id="ctxDetailOverlay" onclick="closeCtxDetail(event)">
   <div class="detail-panel" id="ctxDetailPanel">
     <button class="close-btn" onclick="document.getElementById('ctxDetailOverlay').classList.remove('open')">&#x2715;</button>
-    <h3>Detalle del contexto</h3>
+    <h3>Detalle del flujo</h3>
     <div id="ctxDetailContent"><p class="text-muted" style="font-size:13px">Cargando...</p></div>
   </div>
 </div>
@@ -1604,11 +2957,27 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 <div id="toast"></div>
 
 <div class="activity-bar">
-  <div class="activity-hdr" onclick="toggleActivity()">
-    <span class="act-dot" id="act-dot"></span>
-    <span class="act-title">Actividad</span>
-    <span class="act-summary" id="act-summary">sin eventos</span>
-    <span class="act-toggle" id="act-toggle">▼</span>
+  <div class="activity-hdr">
+    <div class="act-left" onclick="toggleActivity()">
+      <span class="act-dot" id="act-dot"></span>
+      <span class="act-title">Actividad</span>
+      <span class="act-summary" id="act-summary">sin eventos</span>
+    </div>
+    <div class="act-actions" onclick="event.stopPropagation()">
+      <button class="act-btn" id="actBtnDoctor" onclick="runDoctor(this)" title="Diagnosticar configuración (doctor)">doctor</button>
+      <div class="act-btn-wrap">
+        <button class="act-btn act-btn-split" id="actBtnFix" onclick="runFix(this,{{}})" title="Aplicar correcciones automáticas (fix)">fix</button><button class="act-btn act-btn-arr" onclick="toggleFixMenu(event)" title="Opciones de fix">▾</button>
+        <div id="fixMenu" class="act-dropdown">
+          <button onclick="runFix(document.getElementById('actBtnFix'),{{global_mcp:true}})">＋ MCP global</button>
+          <button onclick="runFix(document.getElementById('actBtnFix'),{{sync:true}})">＋ sync CC / Git</button>
+          <button onclick="runFix(document.getElementById('actBtnFix'),{{index:true}})">＋ index RAG</button>
+          <button onclick="runFix(document.getElementById('actBtnFix'),{{all:true}})">— todo (--all)</button>
+        </div>
+      </div>
+      <button class="act-btn" id="actBtnSync" onclick="runSync(this)" title="Importar sesiones Claude Code + commits Git (sync-cc / sync-git)">sync</button>
+      <button class="act-btn" id="actBtnIndex" onclick="runIndexDocs(this)" title="Indexar proyecto seleccionado en ChromaDB (index-docs)">index</button>
+    </div>
+    <span class="act-toggle" id="act-toggle" onclick="toggleActivity()">▼</span>
   </div>
   <div id="activity-log" style="display:none"></div>
 </div>
@@ -1616,11 +2985,22 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 <script>
 window.__runsData = {runs_json};
 </script>
-<script>{_js}</script>
 <script>
-_runsFilterProject = (document.getElementById("filterProject")||{{}}).value||"";
+try {{
+{_js}
+}} catch(e) {{
+  console.error("JS init error:", e);
+  document.body.insertAdjacentHTML("afterbegin",
+    "<div style='position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;font-size:13px;padding:8px 16px;z-index:9999;font-family:monospace'>" +
+    "Error JS al cargar: " + e.message + " — " + (e.stack||"").split("\\n")[0] + "</div>"
+  );
+}}
+</script>
+<script>
+_runsFilterProject = {_json.dumps(selected_project)};
 _runsFilterModel   = "";
-renderRunsTable();
+if (typeof renderRunsTable === "function") renderRunsTable();
+else console.error("renderRunsTable no definida — revisar errores de script anteriores");
 </script>
 
 </body>

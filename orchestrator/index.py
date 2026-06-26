@@ -49,6 +49,16 @@ def remove_project(alias: str) -> None:
     save_index(data)
 
 
+def rename_project(old_alias: str, new_alias: str) -> None:
+    data = load_index()
+    if old_alias not in data["projects"]:
+        raise ProjectNotFoundError(f"El alias '{old_alias}' no existe en el índice.")
+    if new_alias in data["projects"]:
+        raise ValueError(f"El alias '{new_alias}' ya está en uso.")
+    data["projects"][new_alias] = data["projects"].pop(old_alias)
+    save_index(data)
+
+
 def get_project_path(alias: str) -> Path:
     data = load_index()
     projects = data.get("projects", {})

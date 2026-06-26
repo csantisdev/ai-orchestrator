@@ -8,8 +8,11 @@ DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "claude-sonnet-4-6":  {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
     "claude-opus-4-8":    {"input": 15.00, "output": 75.00, "cache_write": 18.75, "cache_read": 1.50},
     "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.00, "cache_write": 1.00, "cache_read": 0.08},
-    "gpt-4o":             {"input": 5.00,  "output": 15.00},
-    "gpt-4o-mini":        {"input": 0.15,  "output": 0.60},
+    "gpt-4o":             {"input": 5.00,  "output": 15.00, "cache_read": 1.25},
+    "gpt-4o-mini":        {"input": 0.15,  "output": 0.60,  "cache_read": 0.075},
+    # gpt-5.x (Codex CLI): exact pricing varies by version — verificar en platform.openai.com/pricing
+    "gpt-5.4-mini":       {"input": 1.50,  "output": 6.00,  "cache_read": 0.375},
+    "gpt-5":              {"input": 3.00,  "output": 15.00, "cache_read": 0.75},
     "deepseek-v4-flash":  {"input": 0.14,  "output": 0.28},
     "deepseek-chat":      {"input": 0.14,  "output": 0.28},
 }

@@ -15,6 +15,7 @@ router consulta para decidir qué proveedor usar en cada tarea.
 | `preferred_models.default` | string | Proveedor por defecto si el router falla (`claude`, `openai`, `deepseek`). |
 | `preferred_models.notes` | string | Texto libre en lenguaje natural con reglas de ruteo. El router lo lee directamente. |
 | `keyword_hints` | list[object] | Señales calculadas en Python *antes* de llamar al router (ver abajo). |
+| `skip_dirs` | list[string] | Carpetas a excluir de la indexación RAG. Se suman a las exclusiones globales (`.git`, `node_modules`, etc.). Ej: `["vendor", "storage", "bootstrap/cache"]`. Si está ausente, comportamiento idéntico a antes. |
 
 ## `keyword_hints`
 
@@ -73,6 +74,11 @@ keyword_hints:
   - match: "refactor"
     provider: openai
     weight: 1
+
+skip_dirs:
+  - vendor
+  - storage
+  - bootstrap/cache
 ```
 
 ## Generación automática
