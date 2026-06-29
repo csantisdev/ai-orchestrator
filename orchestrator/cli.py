@@ -76,6 +76,12 @@ def add(
         )
         console.print(f"[green]✓[/green] Context generado en {ctx_path}")
 
+    claude_md = context_module.create_claude_md(project_path, alias)
+    if claude_md:
+        console.print(f"[green]✓[/green] CLAUDE.md generado en {claude_md}")
+    else:
+        console.print(f"[yellow]ℹ[/yellow] CLAUDE.md ya existe en {project_path}, sin cambios.")
+
     console.print(f"[green]✓[/green] Proyecto '{alias}' registrado -> {project_path}")
     console.print("  Revisá y completá el context.yaml antes de usarlo en serio.")
 
@@ -197,7 +203,8 @@ def run(
 
     if show_reason:
         style = "yellow" if decision.used_fallback else "cyan"
-        console.print(f"[{style}]→ Proveedor elegido: {decision.provider}[/{style}]  ({decision.reason})")
+        model_hint = f"/{decision.model}" if decision.model else ""
+        console.print(f"[{style}]→ Proveedor elegido: {decision.provider}{model_hint}[/{style}]  ({decision.reason})")
 
     try:
         provider = build_provider(config, decision.provider)
@@ -207,6 +214,8 @@ def run(
 
     if research:
         provider.model = RESEARCH_MODEL
+    elif decision.model:
+        provider.model = decision.model
 
     system_prompt = (
         f"Estás trabajando en el proyecto '{ctx.name}'.\n"

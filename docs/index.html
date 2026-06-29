@@ -102,6 +102,7 @@
     <a href="#diseno">Diseño</a>
     <a href="#herramientas">Herramientas</a>
     <a href="#configuracion">Config</a>
+    <a href="#tecnicas">Técnicas</a>
     <div class="nav-sep"></div>
     <a href="/docs" class="nav-active">Docs</a>
     <a href="/mcp">MCP</a>
@@ -144,7 +145,7 @@
     <div class="card">
       <div class="card-icon">🧭</div>
       <h4>Ruteo inteligente</h4>
-      <p>Un modelo liviano (DeepSeek Flash) analiza la tarea y el contexto del proyecto para decidir Claude, OpenAI o DeepSeek — sin hardcodear.</p>
+      <p>Un modelo liviano (DeepSeek Flash) analiza la tarea, el contexto y el historial con ratings para decidir Claude, OpenAI o DeepSeek — incluyendo el tier de modelo según la complejidad.</p>
     </div>
     <div class="card">
       <div class="card-icon">💰</div>
@@ -181,6 +182,21 @@
       <h4>Sync Claude Code</h4>
       <p>Importa sesiones del historial de Claude Code al DB del orquestador. Puede ejecutarse automáticamente vía hook Stop de Claude Code.</p>
     </div>
+    <div class="card">
+      <div class="card-icon">⭐</div>
+      <h4>Aprendizaje por ratings</h4>
+      <p>Los runs marcados como [ÚTIL] o [ERRÓNEO] retroalimentan al router. Las próximas tareas similares evitan proveedores que fallaron y prefieren los que funcionaron.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🎯</div>
+      <h4>Modelo por complejidad</h4>
+      <p>El router elige no solo el proveedor sino también el tier de modelo. Tareas simples reciben modelos livianos (Haiku, gpt-4o-mini); tareas complejas reciben el modelo configurado.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📝</div>
+      <h4>CLAUDE.md auto-generado</h4>
+      <p>Al registrar un proyecto, el orquestador genera un CLAUDE.md con instrucciones para que Claude Code use el MCP automáticamente al inicio de cada sesión.</p>
+    </div>
   </div>
 
   <h3>Fuera del alcance</h3>
@@ -203,7 +219,8 @@
     │
     ├── <span class="hl">Router</span>            (router.py)
     │       Analiza tarea + context.yaml + keyword_hints
-    │       Llama a DeepSeek Flash para decidir provider
+    │       Recupera runs similares ponderados por rating (useful/wrong)
+    │       Llama a DeepSeek Flash → devuelve provider + model + reason
     │       Enforce de step.provider si hay contexto activo
     │
     ├── <span class="hl">RAG</span>               (rag.py · ChromaDB / FTS5 fallback)
@@ -272,6 +289,7 @@ C:\ruta\ai-orchestrator\
 
 <span class="cm"># Dentro de cada proyecto (versionado en su repo)</span>
 mi-proyecto\
+├── CLAUDE.md           <span class="cm">← instrucciones MCP para Claude Code (auto-generado)</span>
 └── .orchestrator\
     └── context.yaml    <span class="cm">← stack, convenciones, reglas de ruteo</span></pre></div>
 
@@ -468,6 +486,101 @@ pip install -e .
 
 <span class="cm"># Búsqueda vectorial (opcional, recomendada)</span>
 pip install chromadb</pre></div>
+</section>
+
+<!-- ── TÉCNICAS ── -->
+<section id="tecnicas">
+  <div class="sec-label">Ingeniería</div>
+  <h2>Stack tecnológico y técnicas aplicadas</h2>
+  <p>Registro de las tecnologías, patrones y técnicas que conforman el sistema — para referencia de desarrollo y onboarding.</p>
+
+  <h3>Stack principal</h3>
+  <table>
+    <tr><th>Categoría</th><th>Tecnología</th><th>Uso</th></tr>
+    <tr><td>Lenguaje</td><td>Python 3.10+</td><td>Todo el backend: CLI, MCP server, HTTP server, importadores</td></tr>
+    <tr><td>CLI</td><td>Typer + Rich</td><td>Comandos tipados con autocompletado; output con colores y tablas</td></tr>
+    <tr><td>HTTP</td><td>BaseHTTPRequestHandler (stdlib)</td><td>Dashboard y endpoints — sin frameworks externos</td></tr>
+    <tr><td>HTTP Client</td><td>httpx (sync)</td><td>Llamadas a APIs de Anthropic, OpenAI, DeepSeek</td></tr>
+    <tr><td>Base de datos</td><td>SQLite 3 + WAL mode</td><td>Historial de runs, contextos, pasos, alignments, tool_calls</td></tr>
+    <tr><td>Full-text search</td><td>FTS5 (SQLite virtual table)</td><td>Búsqueda textual sobre runs; fallback cuando ChromaDB no está instalado</td></tr>
+    <tr><td>Vector store</td><td>ChromaDB + all-MiniLM-L6-v2</td><td>RAG de docs y respuestas; similitud semántica para el router</td></tr>
+    <tr><td>Serialización</td><td>PyYAML</td><td>config.yaml, context.yaml, index.yaml</td></tr>
+    <tr><td>Frontend</td><td>Vanilla JS + CSS3</td><td>Dashboard — sin frameworks; máxima portabilidad</td></tr>
+    <tr><td>Push real-time</td><td>Server-Sent Events (SSE)</td><td>Actualización live del dashboard sin WebSocket</td></tr>
+    <tr><td>Concurrencia</td><td>threading (stdlib)</td><td>Worker threads para runs desde dashboard; thread-local DB connections</td></tr>
+    <tr><td>Tipado</td><td>dataclasses + from __future__ import annotations</td><td>RoutingDecision, CompletionResult, ProjectContext</td></tr>
+  </table>
+
+  <h3>Patrones de diseño aplicados</h3>
+  <div class="cards">
+    <div class="card">
+      <div class="card-icon">🏭</div>
+      <h4>Factory</h4>
+      <p><code>providers/factory.py</code> — instancia el provider correcto (Claude/OpenAI/DeepSeek) a partir del nombre en config, sin acoplar el resto del sistema a implementaciones concretas.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔀</div>
+      <h4>Strategy</h4>
+      <p><code>similarity.py</code> — ChromaBackend y FTS5Backend implementan el mismo protocolo <code>SimilarityBackend</code>. El sistema elige uno sin que el router lo sepa.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📡</div>
+      <h4>Observer</h4>
+      <p><code>sse.py</code> — SSEBus hace fan-out de eventos a todos los suscriptores. Cada conexión <code>/events</code> recibe una queue independiente; el publish es O(n) por suscriptor.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🗄️</div>
+      <h4>Repository</h4>
+      <p><code>db.py</code> — abstrae SQLite del resto del sistema. El resto del código llama a <code>insert_run()</code>, <code>read_runs()</code> sin saber de SQL ni de paths de archivos.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📐</div>
+      <h4>Template Method</h4>
+      <p><code>providers/base.py</code> — <code>BaseProvider</code> define el contrato abstracto <code>complete(prompt, system) → CompletionResult</code>. Cada provider implementa solo la diferencia (headers, endpoint, parsing).</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔌</div>
+      <h4>Protocol (duck typing)</h4>
+      <p><code>similarity.py:SimilarityBackend</code> — interfaz estructural de Python (<code>@runtime_checkable</code>). Los backends son intercambiables sin herencia; basta con implementar <code>upsert()</code> y <code>query()</code>.</p>
+    </div>
+  </div>
+
+  <h3>Técnicas avanzadas</h3>
+  <table>
+    <tr><th>Técnica</th><th>Dónde</th><th>Por qué</th></tr>
+    <tr><td>SQLite WAL mode</td><td><code>db.py</code></td><td>Lecturas concurrentes sin bloquear escrituras. El dashboard SSE puede leer mientras el worker escribe un run.</td></tr>
+    <tr><td>FTS5 virtual tables + triggers</td><td><code>db.py</code> schema</td><td>Full-text search sobre <code>runs.task</code> sin índice manual. Los triggers INSERT/UPDATE/DELETE mantienen el índice sincronizado.</td></tr>
+    <tr><td>Thread-local DB connections</td><td><code>db.py:_local</code></td><td>Cada hilo (HTTP handler, worker thread, MCP server) mantiene su propia conexión SQLite para evitar contención de locks.</td></tr>
+    <tr><td>Monotonic migrations</td><td><code>migrate.py</code></td><td>Tabla <code>_migrations</code> con flag de aplicación. Cada migración es idempotente y se aplica una sola vez — sin ORM, sin downtime.</td></tr>
+    <tr><td>RAG con overlap chunking</td><td><code>rag.py</code></td><td>Chunks de 1500 chars con 200 de overlap preservan contexto en los bordes. Umbral L2=0.9 ≈ cosine_sim≥0.60 evita ruido.</td></tr>
+    <tr><td>One-shot router económico</td><td><code>router.py</code></td><td>Se usa DeepSeek Flash ($0.14/M tokens) para decidir a qué proveedor mandar cada tarea — incluyendo el tier de modelo y la señal de ratings.</td></tr>
+    <tr><td>Rating feedback loop</td><td><code>router.py</code></td><td>Runs similares recuperados de ChromaDB incluyen su rating. El router recibe etiquetas [ÚTIL]/[ERRÓNEO] en el prompt y ajusta la decisión.</td></tr>
+    <tr><td>Context compression</td><td><code>router.py:_compress_context</code></td><td>Si las convenciones del proyecto superan el umbral de chars, se filtran solo las relevantes para la tarea — evita superar el context limit del router.</td></tr>
+    <tr><td>SSE fan-out pub/sub</td><td><code>sse.py:SSEBus</code></td><td>Cola por suscriptor (maxsize=100). Si el browser es lento, la queue se descarta sin bloquear al publicador ni afectar otras conexiones.</td></tr>
+    <tr><td>Span tracing</td><td><code>tracer.py</code></td><td>Context manager que mide duración de cada operación (Router, RAG, API, Index) y la emite al SSE bus para la barra de actividad del dashboard.</td></tr>
+    <tr><td>Secret pattern detection</td><td><code>rag.py</code></td><td>Regex sobre contenido de archivos antes de indexar. Archivos con patrones de API keys, tokens o claves privadas se omiten del índice RAG.</td></tr>
+    <tr><td>Deduplicación por session_id</td><td><code>db.py</code> UNIQUE constraint</td><td>Importaciones repetidas de la misma sesión de Claude Code o Codex son ignoradas por constraint SQLite, sin lógica adicional en Python.</td></tr>
+  </table>
+
+  <h3>Flujo de aprendizaje acumulativo</h3>
+  <p>El sistema aprende con el uso mediante un ciclo que conecta ejecución, feedback y decisión:</p>
+  <div class="flow">
+    <div class="flow-step fs-green">Ejecutar run</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-default">Guardar en SQLite + ChromaDB</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-orange">Calificar (useful / wrong / partial)</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-sky">Router recupera runs similares con rating</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-blue">Decisión ajustada [ÚTIL] / [ERRÓNEO]</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-green">Mejor provider + modelo elegido</div>
+  </div>
+
+  <div class="callout">
+    <strong>Pendiente:</strong> Panel de efectividad RAG en Inspector (% runs con context_hits) y linkeo de sesiones importadas a contextos activos — próximas mejoras en la hoja de ruta.
+  </div>
 </section>
 
 </div><!-- /page -->
