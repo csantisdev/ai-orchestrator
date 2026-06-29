@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ai-orchestrator — Documentación</title>
+  <title>ai-orchestrator — Paper de diseño</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -22,25 +22,32 @@
     .hero-banner{width:100%;max-width:900px;border-radius:12px;display:block;margin:0 auto 40px}
     .hero h1{font-size:clamp(28px,5vw,48px);font-weight:700;letter-spacing:-.5px;margin-bottom:14px}
     .hero h1 span{color:var(--green)}
-    .hero p{font-size:16px;color:var(--text2);max-width:580px;margin:0 auto 28px}
+    .hero p{font-size:16px;color:var(--text2);max-width:640px;margin:0 auto 28px}
     .hero-badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
     .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--border)}
     .badge-green{background:var(--green-bg);color:var(--green);border-color:rgba(34,197,94,.25)}
     .badge-orange{background:var(--orange-bg);color:var(--orange);border-color:rgba(251,146,60,.25)}
     .badge-blue{background:var(--blue-bg);color:var(--blue);border-color:rgba(129,140,248,.25)}
     .badge-sky{background:var(--sky-bg);color:var(--sky);border-color:rgba(56,189,248,.25)}
+    .badge-gray{background:var(--surface);color:var(--muted);border-color:var(--border)}
 
     /* ── Layout ── */
     .page{max-width:960px;margin:0 auto;padding:0 32px 80px}
     section{padding-top:72px}
     section + section{border-top:1px solid var(--border);margin-top:64px}
     .sec-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--green);margin-bottom:8px}
+    .sec-num{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:4px}
     h2{font-size:26px;font-weight:700;letter-spacing:-.3px;margin-bottom:6px}
     h3{font-size:16px;font-weight:600;margin:28px 0 10px;color:var(--text)}
+    h4{font-size:14px;font-weight:600;margin:20px 0 8px;color:var(--text)}
     p{color:var(--text2);font-size:15px;margin-bottom:12px}
     ul{color:var(--text2);font-size:15px;padding-left:20px;margin-bottom:12px}
     ul li{margin-bottom:4px}
     ul li strong{color:var(--text);font-weight:600}
+
+    /* ── Paper meta ── */
+    .paper-meta{display:flex;gap:24px;flex-wrap:wrap;margin:20px 0 0;padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--muted)}
+    .paper-meta span strong{color:var(--text);font-weight:600}
 
     /* ── Cards ── */
     .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:24px}
@@ -82,10 +89,36 @@
     td:first-child{color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;white-space:nowrap}
     tr:last-child td{border-bottom:none}
 
+    /* ── Metric blocks ── */
+    .metrics-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin:20px 0}
+    .metric-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px 18px}
+    .metric-card .val{font-size:26px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace;line-height:1.2}
+    .metric-card .lbl{font-size:11px;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+    .metric-card .sub{font-size:12px;color:var(--text2);margin-top:6px}
+
+    /* ── Hypothesis blocks ── */
+    .hyp{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--sky);border-radius:0 8px 8px 0;padding:14px 18px;margin:12px 0}
+    .hyp .hyp-id{font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+    .hyp .hyp-text{font-size:14px;color:var(--text2);margin-bottom:6px}
+    .hyp .hyp-metric{font-size:12px;color:var(--muted)}
+    .hyp .hyp-metric code{color:var(--text);background:var(--bg);padding:1px 5px;border-radius:3px;font-size:11px}
+
+    /* ── Status pills ── */
+    .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+    .pill-green{background:var(--green-bg);color:var(--green)}
+    .pill-orange{background:var(--orange-bg);color:var(--orange)}
+    .pill-gray{background:var(--surface);color:var(--muted);border:1px solid var(--border)}
+
     /* ── Callout ── */
     .callout{border-left:3px solid var(--green);background:var(--green-bg);border-radius:0 8px 8px 0;padding:12px 16px;margin:16px 0;font-size:14px;color:var(--text2)}
     .callout strong{color:var(--text)}
     .callout-warn{border-color:var(--orange);background:var(--orange-bg)}
+    .callout-blue{border-color:var(--blue);background:var(--blue-bg)}
+
+    /* ── Postulate block ── */
+    .postulate{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px 28px;margin:20px 0;position:relative}
+    .postulate::before{content:'Postulado';position:absolute;top:-9px;left:20px;background:var(--bg);padding:0 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--green)}
+    .postulate p{font-size:15px;color:var(--text);font-style:italic;margin:0;line-height:1.7}
 
     /* ── Footer ── */
     footer{border-top:1px solid var(--border);padding:28px 32px;text-align:center;font-size:12px;color:#3f3f46;max-width:960px;margin:0 auto}
@@ -98,11 +131,13 @@
     <img src="/static/img/logo.png" alt="ai-orchestrator">
   </div>
   <div class="nav-links">
-    <a href="#alcances">Alcances</a>
+    <a href="#resumen">Resumen</a>
+    <a href="#motivacion">Motivación</a>
+    <a href="#postulado">Postulado</a>
     <a href="#diseno">Diseño</a>
-    <a href="#herramientas">Herramientas</a>
-    <a href="#configuracion">Config</a>
     <a href="#tecnicas">Técnicas</a>
+    <a href="#metricas">Métricas</a>
+    <a href="#referencia">Referencia</a>
     <div class="nav-sep"></div>
     <a href="/docs" class="nav-active">Docs</a>
     <a href="/mcp">MCP</a>
@@ -123,92 +158,164 @@
 <!-- ── HERO ── -->
 <div class="hero">
   <img src="/static/img/banner.png" alt="ai-orchestrator banner" class="hero-banner">
-  <h1>Orquestador local de <span>agentes IA</span></h1>
-  <p>Rutea tareas entre Claude, OpenAI y DeepSeek según el contexto del proyecto, con tracking de costo en tiempo real y dashboard web.</p>
+  <h1>Orquestador local de <span>agentes IA</span> con ruteo adaptativo</h1>
+  <p>Sistema de ciclo cerrado para optimización de inferencia multi-proveedor mediante enrutamiento semántico, recuperación aumentada y retroalimentación acumulativa de ejecuciones previas.</p>
   <div class="hero-badges">
-    <span class="badge badge-green">Claude · OpenAI · DeepSeek</span>
-    <span class="badge badge-orange">Ruteo semántico</span>
-    <span class="badge badge-blue">SQLite + ChromaDB</span>
-    <span class="badge badge-sky">Dashboard SSE</span>
+    <span class="badge badge-green">Python 3.10+</span>
+    <span class="badge badge-blue">SQLite WAL + ChromaDB</span>
+    <span class="badge badge-sky">MCP · SSE · Typer</span>
+    <span class="badge badge-orange">Claude · OpenAI · DeepSeek</span>
+    <span class="badge badge-gray">Uso local · MIT License</span>
   </div>
 </div>
 
 <div class="page">
 
-<!-- ── ALCANCES ── -->
-<section id="alcances">
-  <div class="sec-label">Alcances</div>
-  <h2>¿Qué hace el orquestador?</h2>
-  <p>Un proceso local que actúa como intermediario inteligente entre tu código y múltiples proveedores de IA. Analiza cada tarea, decide a qué modelo mandarla, registra la respuesta y muestra todo en un panel web.</p>
+<!-- ══════════════════════════════════════════
+     §1  RESUMEN
+     ══════════════════════════════════════════ -->
+<section id="resumen">
+  <div class="sec-num">§ 1</div>
+  <div class="sec-label">Resumen</div>
+  <h2>¿Qué propone este sistema?</h2>
 
+  <p>Los flujos de trabajo modernos de desarrollo con IA involucran múltiples proveedores con capacidades y costos distintos. La práctica habitual es elegir un proveedor por defecto o alternar manualmente según la tarea — ambas estrategias dejan valor sobre la mesa: o se paga por capacidad innecesaria, o se infrautiliza el modelo correcto para el problema.</p>
+
+  <p><strong style="color:var(--text)">ai-orchestrator</strong> es un proceso local que actúa como intermediario inteligente entre las tareas de desarrollo y los proveedores de IA. Implementa un ciclo de enrutamiento adaptativo donde cada decisión de ruteo es informada por el contexto semántico del proyecto, las ejecuciones anteriores similares y sus calificaciones explícitas de calidad.</p>
+
+  <div class="paper-meta">
+    <span><strong>Estado</strong> — Infraestructura completa. Ciclo de aprendizaje en activación.</span>
+    <span><strong>Versión</strong> — production · junio 2026</span>
+    <span><strong>Licencia</strong> — MIT</span>
+    <span><strong>Autor</strong> — Carlos Santis</span>
+  </div>
+
+  <h3>Contribuciones principales</h3>
   <div class="cards">
     <div class="card">
-      <div class="card-icon">🧭</div>
-      <h4>Ruteo inteligente</h4>
-      <p>Un modelo liviano (DeepSeek Flash) analiza la tarea, el contexto y el historial con ratings para decidir Claude, OpenAI o DeepSeek — incluyendo el tier de modelo según la complejidad.</p>
+      <h4>Ruteo semántico de bajo costo</h4>
+      <p>Un modelo de $0.14/M tokens (DeepSeek Flash) analiza la tarea, el stack del proyecto y señales de runs previos para elegir proveedor y tier de modelo — sin intervención manual.</p>
     </div>
     <div class="card">
-      <div class="card-icon">💰</div>
-      <h4>Control de costos</h4>
-      <p>Cada run registra tokens de entrada, salida y cache. El costo en USD se calcula con la tabla de precios de config.yaml y se visualiza en el dashboard.</p>
+      <h4>Ciclo de feedback por ratings</h4>
+      <p>Cada run puede calificarse como útil, parcial o erróneo. Las calificaciones se inyectan como señal contextual en decisiones futuras similares, sin reentrenamiento ni MLOps.</p>
     </div>
     <div class="card">
-      <div class="card-icon">🧠</div>
-      <h4>Memoria RAG</h4>
-      <p>ChromaDB indexa la documentación de cada proyecto y las respuestas previas. Cada nueva tarea recupera contexto semántico relevante antes de llamar al modelo.</p>
+      <h4>RAG aplicado al router</h4>
+      <p>ChromaDB indexa docs del proyecto y respuestas previas. El contexto recuperado informa <em>a quién</em> se manda la tarea, no solo cómo se responde — RAG en la capa de decisión.</p>
     </div>
     <div class="card">
-      <div class="card-icon">📊</div>
-      <h4>Dashboard en vivo</h4>
-      <p>Panel web con Server-Sent Events. Las filas aparecen en tiempo real sin recargar la página. Incluye gauge de presupuesto, filtros y panel de detalle.</p>
+      <h4>Observabilidad integrada</h4>
+      <p>Dashboard web con SSE, barra de actividad con spans en tiempo real, Inspector de estado interno, panel de efectividad RAG y tracking de costo acumulado por proyecto.</p>
     </div>
     <div class="card">
-      <div class="card-icon">🔍</div>
-      <h4>Inspector DB</h4>
-      <p>Vista integrada del estado interno: colecciones de ChromaDB con conteos por proyecto, tablas de SQLite y registro de proyectos con acciones de indexación.</p>
+      <h4>Integración con agentes externos</h4>
+      <p>Servidor MCP (JSON-RPC 2.0) permite que Claude Code consuma el orquestador directamente. Importadores de sesiones CC y Codex unifican el historial de todos los agentes.</p>
     </div>
     <div class="card">
-      <div class="card-icon">📋</div>
-      <h4>Contextos y pasos</h4>
-      <p>Flujos estructurados multi-paso con alineación de checkpoints y registro de tool calls. El router puede respetar el provider definido para cada paso.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">⚡</div>
-      <h4>Barra de actividad</h4>
-      <p>Spans en tiempo real que muestran qué está haciendo el servidor: Router, RAG retrieval, API call, indexación — con duración de cada operación.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">🔄</div>
-      <h4>Sync Claude Code</h4>
-      <p>Importa sesiones del historial de Claude Code al DB del orquestador. Puede ejecutarse automáticamente vía hook Stop de Claude Code.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">⭐</div>
-      <h4>Aprendizaje por ratings</h4>
-      <p>Los runs marcados como [ÚTIL] o [ERRÓNEO] retroalimentan al router. Las próximas tareas similares evitan proveedores que fallaron y prefieren los que funcionaron.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">🎯</div>
-      <h4>Modelo por complejidad</h4>
-      <p>El router elige no solo el proveedor sino también el tier de modelo. Tareas simples reciben modelos livianos (Haiku, gpt-4o-mini); tareas complejas reciben el modelo configurado.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">📝</div>
-      <h4>CLAUDE.md auto-generado</h4>
-      <p>Al registrar un proyecto, el orquestador genera un CLAUDE.md con instrucciones para que Claude Code use el MCP automáticamente al inicio de cada sesión.</p>
+      <h4>Sustrato mínimo</h4>
+      <p>Sin frameworks de orquestación externos. SQLite como única base de datos. Vanilla JS en el frontend. Dependencias intencionalmente reducidas para maximizar longevidad y portabilidad.</p>
     </div>
   </div>
 
   <h3>Fuera del alcance</h3>
   <ul>
-    <li>No es un proxy de API — el proceso debe estar corriendo localmente</li>
-    <li>No orquesta agentes en paralelo — una tarea a la vez por run</li>
-    <li>No gestiona el historial de conversación — cada run es stateless salvo el contexto RAG</li>
+    <li><strong>No es un proxy de API</strong> — el proceso debe estar corriendo localmente; no es un servicio cloud.</li>
+    <li><strong>No orquesta agentes en paralelo</strong> — una tarea a la vez por run; el paralelismo es trabajo futuro.</li>
+    <li><strong>No gestiona conversaciones</strong> — cada run es stateless salvo el contexto RAG inyectado.</li>
+    <li><strong>No tiene autenticación</strong> — está diseñado para uso local en un entorno de desarrollo personal.</li>
   </ul>
 </section>
 
-<!-- ── DISEÑO ── -->
+<!-- ══════════════════════════════════════════
+     §2  MOTIVACIÓN
+     ══════════════════════════════════════════ -->
+<section id="motivacion">
+  <div class="sec-num">§ 2</div>
+  <div class="sec-label">Motivación</div>
+  <h2>El problema de ruteo en entornos multi-proveedor</h2>
+
+  <p>La proliferación de modelos de lenguaje con capacidades complementarias — y precios muy distintos — genera un problema de asignación: dado un tipo de tarea, ¿qué modelo maximiza la relación calidad/costo? La respuesta varía por proyecto, por tipo de tarea, por el historial de lo que funcionó, y cambia a medida que los modelos evolucionan.</p>
+
+  <h3>Las estrategias de ruteo habituales y sus problemas</h3>
+  <table>
+    <tr><th>Estrategia</th><th>Problema</th></tr>
+    <tr><td>Proveedor fijo por defecto</td><td>Se paga por capacidad innecesaria en tareas simples; o se infrautiliza el modelo correcto en tareas complejas.</td></tr>
+    <tr><td>Alternancia manual por tarea</td><td>Requiere contexto mental del desarrollador en cada run. No escala. No aprende de errores pasados.</td></tr>
+    <tr><td>Reglas estáticas por keyword</td><td>Frágil ante variaciones de redacción. No captura similitud semántica. No incorpora retroalimentación.</td></tr>
+    <tr><td>Delegar a un modelo caro la decisión</td><td>El costo del router supera el beneficio del ahorro. Contradice el objetivo.</td></tr>
+  </table>
+
+  <h3>Por qué los frameworks generales no resuelven el caso local</h3>
+  <p>Existen herramientas establecidas para orquestación de LLMs. Cada una resuelve un problema distinto al que aborda este sistema:</p>
+  <table>
+    <tr><th>Herramienta</th><th>Enfoque</th><th>Diferencia con ai-orchestrator</th></tr>
+    <tr><td>LangChain Router</td><td>Enrutamiento entre chains definidas por el desarrollador. Framework-heavy.</td><td>No tiene ciclo de feedback local. Requiere definir los destinos explícitamente. Sin tracking de costo ni historial persistente.</td></tr>
+    <tr><td>AutoGen</td><td>Conversaciones multi-agente con roles definidos.</td><td>Orquestación conversacional, no de tareas puntuales. No selecciona proveedor por costo/complejidad. Sin RAG en la decisión de ruteo.</td></tr>
+    <tr><td>LlamaIndex RouterQueryEngine</td><td>Enrutamiento entre fuentes de datos (RAG).</td><td>Ruta entre índices, no entre proveedores. Sin historial de ejecuciones ni feedback loop.</td></tr>
+    <tr><td>OpenRouter</td><td>Proxy cloud que agrega múltiples providers bajo una API.</td><td>Servicio externo — toda la tarea pasa por un tercero. Sin persistencia local, sin contexto de proyecto, sin feedback.</td></tr>
+    <tr><td>Semantic Router</td><td>Clasificación de intenciones para enrutar prompts.</td><td>Solo clasifica texto de entrada; no considera historial, costo, contexto de proyecto ni feedback de ejecuciones previas.</td></tr>
+  </table>
+
+  <div class="callout callout-blue">
+    <strong>El gap:</strong> ninguna de estas herramientas implementa un ciclo donde la calidad observada de ejecuciones previas retroalimenta la decisión de ruteo futura para tareas similares del mismo proyecto — sin reentrenamiento y con costo de routing cercano a cero.
+  </div>
+
+  <h3>El costo real de no orquestar</h3>
+  <p>Los datos del sistema sobre proyectos propios ilustran el problema. En el período de registro, el gasto en sesiones de Claude Code y Codex ejecutadas <em>fuera</em> del router acumuló $344 USD. Los 18 runs ejecutados <em>a través</em> del router costaron $0.026 USD en total — $0.0014 por run en promedio. La diferencia no es un ahorro directo (son distintos tipos de tarea), sino evidencia de la magnitud del gasto que ocurre sin ningún mecanismo de optimización.</p>
+</section>
+
+<!-- ══════════════════════════════════════════
+     §3  TRABAJOS RELACIONADOS → ya en §2
+     §4  POSTULADO E HIPÓTESIS
+     ══════════════════════════════════════════ -->
+<section id="postulado">
+  <div class="sec-num">§ 3</div>
+  <div class="sec-label">Postulado</div>
+  <h2>Propuesta central e hipótesis verificables</h2>
+
+  <div class="postulate">
+    <p>Un sistema de orquestación local de agentes IA puede optimizar la relación calidad/costo de inferencia mediante un ciclo adaptativo de tres componentes: (1) enrutamiento semántico de bajo costo que selecciona proveedor y tier de modelo según contexto del proyecto, (2) recuperación semántica aumentada que inyecta contexto documental y de ejecuciones previas en la decisión de ruteo, y (3) retroalimentación explícita por ratings que pondera las señales de runs similares. El ciclo requiere volumen mínimo de runs autónomos para producir señal útil — la infraestructura puede construirse antes, pero el aprendizaje comienza cuando el router toma decisiones sin intervención manual.</p>
+  </div>
+
+  <h3>Hipótesis derivadas</h3>
+
+  <div class="hyp">
+    <div class="hyp-id">H1 — Eficacia del router económico</div>
+    <div class="hyp-text">Un modelo de $0.14/M tokens con contexto semántico suficiente produce decisiones de ruteo correctas — medido por la tasa de runs con rating <code>useful</code> vs <code>wrong</code> en runs donde el router decidió de forma autónoma.</div>
+    <div class="hyp-metric">Métrica: <code>% runs autonomos con rating=useful / total runs autonomos calificados</code></div>
+  </div>
+
+  <div class="hyp">
+    <div class="hyp-id">H2 — Mejora por feedback acumulativo</div>
+    <div class="hyp-text">La tasa de runs calificados como erróneos disminuye a medida que el historial de ratings crece — sin reentrenamiento del modelo router ni intervención manual en las reglas de ruteo.</div>
+    <div class="hyp-metric">Métrica: <code>tasa_wrong por ventana temporal de 20 runs (tendencia decreciente)</code></div>
+  </div>
+
+  <div class="hyp">
+    <div class="hyp-id">H3 — Valor del RAG en el router</div>
+    <div class="hyp-text">Los runs donde el router recuperó contexto RAG relevante (context_hits &gt; 0) tienen mayor tasa de rating <code>useful</code> que los runs sin hits — verificando que RAG en la capa de decisión agrega señal más allá de las keywords estáticas.</div>
+    <div class="hyp-metric">Métrica: <code>useful_rate(runs con hits) vs useful_rate(runs sin hits)</code></div>
+  </div>
+
+  <h3>Condición de activación del ciclo</h3>
+  <p>Las tres hipótesis requieren que el router tome decisiones autónomas. Mientras el usuario especifica el provider con <code>--model</code>, el router no decide — acumula datos de costo y tokens pero no genera señal de calidad. El ciclo de aprendizaje arranca cuando:</p>
+  <ul>
+    <li>Al menos 20 runs son ejecutados sin override de provider</li>
+    <li>Al menos 10 de esos runs reciben una calificación (útil / parcial / erróneo)</li>
+    <li>Los runs provienen de al menos 2 proyectos distintos con contexto.yaml configurado</li>
+  </ul>
+
+  <div class="callout">
+    <strong>Estado actual:</strong> La infraestructura del ciclo está completa. Los 18 runs via router registrados hasta junio 2026 fueron todos con override manual (<code>routing_reason = "Elegido manualmente"</code>). El rating de todos los runs es <code>null</code>. El ciclo está en fase de activación.
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     §4  DISEÑO DEL SISTEMA
+     ══════════════════════════════════════════ -->
 <section id="diseno">
+  <div class="sec-num">§ 4</div>
   <div class="sec-label">Diseño</div>
   <h2>Arquitectura del sistema</h2>
 
@@ -217,201 +324,503 @@
     <pre>
 <span class="hl">CLI / HTTP Server</span>  (cli.py · Typer + BaseHTTPRequestHandler)
     │
-    ├── <span class="hl">Router</span>            (router.py)
+    ├── <span class="hl">Router</span>            (router.py · DeepSeek Flash)
     │       Analiza tarea + context.yaml + keyword_hints
-    │       Recupera runs similares ponderados por rating (useful/wrong)
-    │       Llama a DeepSeek Flash → devuelve provider + model + reason
-    │       Enforce de step.provider si hay contexto activo
+    │       Recupera runs similares ponderados por rating [ÚTIL] / [ERRÓNEO]
+    │       Llama DeepSeek Flash → devuelve { provider, model, reason }
+    │       Enforce de step.provider si hay contexto de pasos activo
     │
     ├── <span class="hl">RAG</span>               (rag.py · ChromaDB / FTS5 fallback)
-    │       retrieve_docs()     — chunks del código/docs del proyecto
-    │       retrieve_responses() — respuestas previas similares
+    │       retrieve_docs()      — chunks del código/docs del proyecto
+    │       retrieve_responses() — respuestas previas similares a la tarea
     │       build_context_block() — bloque de contexto para el system prompt
     │
     ├── <span class="hl">Providers</span>         (providers/)
-    │       claude.py   → Anthropic API (claude-sonnet-4-6 / opus)
-    │       openai.py   → OpenAI API   (gpt-4o)
-    │       deepseek.py → DeepSeek API (deepseek-v4-flash / pro)
+    │       claude.py   → Anthropic API  (sonnet-4-6 / opus / haiku)
+    │       openai.py   → OpenAI API    (gpt-4o / gpt-4o-mini)
+    │       deepseek.py → DeepSeek API  (v4-flash / pro)
     │
     ├── <span class="hl">DB</span>                (db.py · SQLite WAL)
-    │       runs, contexts, steps, chunks, alignments, tool_calls
+    │       runs, contexts, steps, chunks, alignments, tool_calls, context_hits
     │       FTS5 virtual table sobre runs para búsqueda full-text
+    │       Thread-local connections · monotonic migrations
     │
     ├── <span class="hl">SSE Bus</span>           (sse.py)
-    │       BUS.publish(event, data) → todas las conexiones /events
-    │       Eventos: run_started, run_done, run_failed, trace, budget_warning
+    │       BUS.publish(event, data) → fan-out a todas las conexiones /events
+    │       Cola por suscriptor (maxsize=100) — descarte sin bloqueo
+    │
+    ├── <span class="hl">MCP Server</span>        (mcp_server.py · JSON-RPC 2.0 sobre stdio)
+    │       11 tools: get_context, list_steps, advance_step, confirm_alignment…
+    │       Consumible por Claude Code via CLAUDE.md auto-generado
     │
     └── <span class="hl">Dashboard</span>         (dashboard.py)
             HTML generado server-side con f-strings
-            JS vanilla — fetch, SSE, template literals</pre>
+            JS vanilla — fetch, SSE, template literals — sin frameworks</pre>
   </div>
 
-  <h3>Flujo de una tarea</h3>
+  <h3>Flujo de una tarea (router autónomo)</h3>
   <div class="flow">
     <div class="flow-step fs-green">CLI / Dashboard</div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step fs-default">submit_run()</div>
+    <div class="flow-step fs-sky">Router<br><small style="font-weight:400;font-size:11px">DeepSeek Flash</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step fs-sky">Router</div>
+    <div class="flow-step fs-blue">RAG retrieval<br><small style="font-weight:400;font-size:11px">docs + responses</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step fs-blue">RAG retrieval</div>
+    <div class="flow-step fs-orange">Provider API<br><small style="font-weight:400;font-size:11px">Claude / OpenAI / DS</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step fs-orange">Provider API</div>
+    <div class="flow-step fs-default">DB write<br><small style="font-weight:400;font-size:11px">run + step_id</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step fs-default">DB update</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-step fs-purple">Index response</div>
+    <div class="flow-step fs-purple">Index response<br><small style="font-weight:400;font-size:11px">ChromaDB</small></div>
     <div class="flow-arrow">→</div>
     <div class="flow-step fs-green">SSE → Dashboard</div>
   </div>
 
-  <h3>Directorios</h3>
+  <h3>Ciclo de aprendizaje acumulativo</h3>
+  <div class="flow">
+    <div class="flow-step fs-green">Run autónomo</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-default">SQLite + ChromaDB</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-orange">Rating (útil / parcial / erróneo)</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-sky">Router recupera similares con rating</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-blue">Prompt con [ÚTIL] / [ERRÓNEO]</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step fs-green">Decisión ajustada</div>
+  </div>
+
+  <h3>Esquema de datos</h3>
+  <table>
+    <tr><th>Tabla</th><th>Contenido</th><th>Relación</th></tr>
+    <tr><td>runs</td><td>Cada llamada a un proveedor. Tokens, costo, duración, respuesta completa, rating, step_id.</td><td>step_id → steps</td></tr>
+    <tr><td>contexts</td><td>Flujos de trabajo multi-paso (título, descripción, estado, proyecto).</td><td>—</td></tr>
+    <tr><td>steps</td><td>Pasos dentro de un contexto. Provider sugerido, orden, estado.</td><td>context_id → contexts</td></tr>
+    <tr><td>context_hits</td><td>Chunks RAG usados por cada run. Permite medir efectividad de RAG por proyecto.</td><td>run_id → runs</td></tr>
+    <tr><td>chunks</td><td>Registro de archivos indexados (proyecto, path, cantidad de chunks).</td><td>—</td></tr>
+    <tr><td>alignments</td><td>Checkpoints de alineación confirmados por el agente MCP.</td><td>step_id → steps</td></tr>
+    <tr><td>tool_calls</td><td>Herramientas invocadas durante un paso (nombre, input, output, duración).</td><td>step_id → steps</td></tr>
+  </table>
+
+  <h3>Colecciones ChromaDB</h3>
+  <table>
+    <tr><th>Colección</th><th>Contenido</th><th>Metadata</th></tr>
+    <tr><td>docs</td><td>Chunks de archivos .md, .py, .yaml del proyecto.</td><td>project, source, chunk_idx</td></tr>
+    <tr><td>responses</td><td>Respuestas previas de los modelos, para recuperar contexto similar a la tarea actual.</td><td>project, run_id</td></tr>
+    <tr><td>runs</td><td>Resúmenes de runs para similitud semántica en el router.</td><td>project, provider, rating</td></tr>
+  </table>
+
+  <div class="callout">
+    <strong>Fallback automático:</strong> Si ChromaDB no está instalado, el sistema usa FTS5 (SQLite full-text search). FTS5 hace matching de keywords; ChromaDB hace similitud semántica por embeddings. El resto del sistema funciona igual en ambos casos.
+  </div>
+
+  <h3>Estructura de archivos</h3>
   <div class="code-block"><pre><span class="cm"># Instalación del orquestador</span>
 C:\ruta\ai-orchestrator\
 ├── orchestrator\
 │   ├── cli.py          <span class="cm">← servidor HTTP + comandos Typer</span>
-│   ├── router.py       <span class="cm">← decisión de proveedor</span>
-│   ├── db.py           <span class="cm">← SQLite WAL</span>
-│   ├── rag.py          <span class="cm">← ChromaDB / FTS5</span>
-│   ├── tracer.py       <span class="cm">← spans al SSE bus</span>
-│   ├── background.py   <span class="cm">← worker threads</span>
-│   ├── dashboard.py    <span class="cm">← HTML del panel</span>
-│   ├── sse.py          <span class="cm">← Server-Sent Events</span>
-│   └── providers\      <span class="cm">← claude · openai · deepseek</span>
-└── docs\               <span class="cm">← esta página</span>
+│   ├── router.py       <span class="cm">← decisión de proveedor y tier de modelo</span>
+│   ├── db.py           <span class="cm">← SQLite WAL + migraciones monotónicas</span>
+│   ├── rag.py          <span class="cm">← ChromaDB / FTS5 + secret detection</span>
+│   ├── similarity.py   <span class="cm">← Strategy: ChromaBackend / FTS5Backend</span>
+│   ├── sse.py          <span class="cm">← SSEBus fan-out pub/sub</span>
+│   ├── tracer.py       <span class="cm">← spans al bus SSE (duración por operación)</span>
+│   ├── context.py      <span class="cm">← parsing de context.yaml + CLAUDE.md</span>
+│   ├── dashboard.py    <span class="cm">← HTML del panel generado server-side</span>
+│   ├── watcher.py      <span class="cm">← importador de sesiones Claude Code</span>
+│   ├── codex_watcher.py <span class="cm">← importador de sesiones Codex</span>
+│   └── providers\      <span class="cm">← claude · openai · deepseek · base · factory</span>
 
-<span class="cm"># Datos runtime (no versionados)</span>
+<span class="cm"># Datos runtime (excluidos del repositorio)</span>
 ~\.ai-orchestrator\
-├── config.yaml         <span class="cm">← API keys y modelos</span>
-├── index.yaml          <span class="cm">← alias → path de cada proyecto</span>
+├── config.yaml         <span class="cm">← API keys y modelos por proveedor</span>
+├── index.yaml          <span class="cm">← alias → path de cada proyecto registrado</span>
 ├── runs.db             <span class="cm">← historial SQLite</span>
-└── chroma\             <span class="cm">← índice vectorial</span>
+└── chroma\             <span class="cm">← índice vectorial por proyecto</span>
 
-<span class="cm"># Dentro de cada proyecto (versionado en su repo)</span>
+<span class="cm"># Dentro de cada proyecto (versionado con el proyecto)</span>
 mi-proyecto\
 ├── CLAUDE.md           <span class="cm">← instrucciones MCP para Claude Code (auto-generado)</span>
 └── .orchestrator\
-    └── context.yaml    <span class="cm">← stack, convenciones, reglas de ruteo</span></pre></div>
+    └── context.yaml    <span class="cm">← stack, convenciones, keyword_hints, preferred_models</span></pre></div>
+</section>
 
-  <h3>Base de datos SQLite</h3>
+<!-- ══════════════════════════════════════════
+     §5  TÉCNICAS IMPLEMENTADAS
+     ══════════════════════════════════════════ -->
+<section id="tecnicas">
+  <div class="sec-num">§ 5</div>
+  <div class="sec-label">Técnicas</div>
+  <h2>Técnicas implementadas por categoría</h2>
+  <p>Las decisiones de implementación se agrupan en seis categorías funcionales. Cada técnica responde a una restricción concreta del entorno local: sin servidor central, sin MLOps, con dependencias mínimas, con múltiples threads concurrentes.</p>
+
+  <h3>5.1 — Persistencia y recuperación eficiente</h3>
   <table>
-    <tr><th>Tabla</th><th>Contenido</th><th>Clave foránea</th></tr>
-    <tr><td>runs</td><td>Cada llamada a un proveedor. Tokens, costo, duración, respuesta completa.</td><td>step_id → steps</td></tr>
-    <tr><td>contexts</td><td>Flujos de trabajo multi-paso (título, descripción, estado).</td><td>—</td></tr>
-    <tr><td>steps</td><td>Pasos dentro de un contexto. Provider sugerido, orden, estado.</td><td>context_id → contexts</td></tr>
-    <tr><td>chunks</td><td>Registro de archivos indexados por RAG (proyecto, path, cantidad de chunks).</td><td>—</td></tr>
-    <tr><td>alignments</td><td>Checkpoints de alineación confirmados por el agente.</td><td>step_id → steps</td></tr>
-    <tr><td>tool_calls</td><td>Herramientas invocadas durante un paso (nombre, input, output, duración).</td><td>step_id → steps</td></tr>
+    <tr><th>Técnica</th><th>Dónde</th><th>Por qué</th></tr>
+    <tr><td>SQLite WAL mode</td><td><code>db.py</code></td><td>Permite lecturas concurrentes sin bloquear escrituras. El handler SSE puede leer mientras el worker thread escribe un run simultáneamente.</td></tr>
+    <tr><td>FTS5 virtual tables + triggers</td><td><code>db.py</code> schema</td><td>Full-text search sobre <code>runs.task</code> sin índice manual. Los triggers INSERT/UPDATE/DELETE mantienen el índice sincronizado automáticamente.</td></tr>
+    <tr><td>Thread-local DB connections</td><td><code>db.py:threading.local()</code></td><td>Cada hilo (HTTP handler, worker thread, MCP server) mantiene su propia conexión SQLite para evitar contención y errores de thread-safety.</td></tr>
+    <tr><td>Migraciones monotónicas</td><td><code>migrate.py + _migrations</code></td><td>Tabla de control con flag de aplicación. Cada migración es idempotente, se aplica exactamente una vez — sin ORM, sin downtime, sin rollback necesario.</td></tr>
+    <tr><td>UNIQUE constraint session_id</td><td><code>runs.session_id</code></td><td>Importaciones repetidas de la misma sesión CC o Codex son ignoradas por constraint de SQLite, sin lógica adicional en Python. Deduplicación a costo cero.</td></tr>
   </table>
 
-  <h3>ChromaDB — colecciones</h3>
+  <h3>5.2 — Recuperación semántica aumentada (RAG)</h3>
   <table>
-    <tr><th>Colección</th><th>Contenido</th><th>Metadata</th></tr>
-    <tr><td>docs</td><td>Chunks de archivos .md, .py, .yaml del proyecto.</td><td>project, source, chunk_idx</td></tr>
-    <tr><td>responses</td><td>Respuestas previas de los modelos, para recuperar contexto similar.</td><td>project, run_id</td></tr>
-    <tr><td>runs</td><td>Resúmenes de runs para el router de similitud semántica.</td><td>project, provider</td></tr>
+    <tr><th>Técnica</th><th>Dónde</th><th>Por qué</th></tr>
+    <tr><td>Embeddings locales (all-MiniLM-L6-v2)</td><td><code>rag.py · ChromaDB</code></td><td>Modelo de embeddings que corre en CPU local. Sin llamadas a APIs externas, sin costo por indexación, sin datos del proyecto que salgan del equipo.</td></tr>
+    <tr><td>Overlap chunking (1500 / 200 chars)</td><td><code>rag.py:_chunk()</code></td><td>Chunks de 1500 caracteres con 200 de overlap. El overlap preserva contexto en los bordes — una función o bloque que atraviesa el límite queda representado en ambos chunks.</td></tr>
+    <tr><td>Umbral de similitud L2=0.9</td><td><code>rag.py</code></td><td>Equivale a cosine_similarity ≥ 0.60 aproximadamente. Filtra ruido semántico: un chunk que no es lo suficientemente similar no contamina el contexto del router.</td></tr>
+    <tr><td>FTS5 fallback</td><td><code>similarity.py:FTS5Backend</code></td><td>Degradación elegante cuando ChromaDB no está instalado. El sistema sigue funcionando con búsqueda por keywords — sin cambios en la interfaz de llamada.</td></tr>
+    <tr><td>Secret pattern detection</td><td><code>rag.py:_has_secrets()</code></td><td>Regex aplicado sobre el contenido de cada archivo antes de indexar. Archivos con patrones de API keys, tokens o claves privadas se omiten del índice RAG.</td></tr>
+    <tr><td>RAG en la capa de routing</td><td><code>router.py:_fetch_similar_runs()</code></td><td>El contexto recuperado no solo enriquece el prompt del provider — informa la decisión de <em>a quién</em> se manda la tarea. RAG en la capa de decisión, no solo de ejecución.</td></tr>
   </table>
 
-  <div class="callout">
-    <strong>Fallback automático:</strong> Si ChromaDB no está instalado, el router usa FTS5 (SQLite full-text search). La diferencia es que FTS5 hace matching de keywords exactas; ChromaDB hace similitud semántica por embeddings. El resto del sistema funciona igual.
+  <h3>5.3 — Router adaptativo</h3>
+  <table>
+    <tr><th>Técnica</th><th>Dónde</th><th>Por qué</th></tr>
+    <tr><td>One-shot con modelo económico</td><td><code>router.py · DeepSeek Flash</code></td><td>$0.14/M tokens vs $3+/M del provider ejecutor. La decisión de ruteo representa &lt;5% del costo total de un run típico.</td></tr>
+    <tr><td>Keyword hints pre-LLM</td><td><code>context.py:keyword_hints</code></td><td>Señales léxicas calculadas en Python antes de llamar al router. Enriquecen el prompt con pesos por topic ("seguridad → claude weight:3") sin sustituir la decisión semántica.</td></tr>
+    <tr><td>Rating feedback loop</td><td><code>router.py:_build_router_prompt()</code></td><td>Runs similares recuperados de ChromaDB incluyen su rating. El prompt del router recibe etiquetas [ÚTIL] / [ERRÓNEO — evitar para este tipo de tarea] que ajustan la decisión sin fine-tuning.</td></tr>
+    <tr><td>Context compression</td><td><code>router.py:_compress_context()</code></td><td>Si las convenciones del proyecto superan un umbral de caracteres, se filtran solo las más relevantes para la tarea. Evita superar el context limit del router económico.</td></tr>
+    <tr><td>Model tier selection</td><td><code>router.py:RoutingDecision.model</code></td><td>El router devuelve no solo el proveedor sino también el tier de modelo (Haiku para tareas simples, Sonnet/Opus para complejas). La selección de tier es parte de la optimización de costo.</td></tr>
+    <tr><td>Step provider enforcement</td><td><code>cli.py:submit_run()</code></td><td>Si hay un paso activo en el contexto de trabajo con un provider sugerido, el router respeta esa restricción. El contexto de planificación tiene precedencia sobre la decisión semántica.</td></tr>
+  </table>
+
+  <h3>5.4 — Observabilidad en tiempo real</h3>
+  <table>
+    <tr><th>Técnica</th><th>Dónde</th><th>Por qué</th></tr>
+    <tr><td>SSE fan-out pub/sub</td><td><code>sse.py:SSEBus</code></td><td>Cola independiente por suscriptor (maxsize=100). Si el browser es lento, la queue se descarta sin bloquear al publicador ni afectar otras conexiones. O(n) por suscriptor.</td></tr>
+    <tr><td>Span tracing</td><td><code>tracer.py:span()</code></td><td>Context manager que mide duración de cada operación (Router, RAG, API call, Index) y emite eventos al SSE bus. La barra de actividad del dashboard consume estos spans.</td></tr>
+    <tr><td>Budget tracking</td><td><code>db.py + dashboard.py</code></td><td>Costo acumulado del día vs presupuesto diario definido en config.yaml. Gauge visual + alerta SSE al cruzar el threshold configurado.</td></tr>
+    <tr><td>RAG effectiveness panel</td><td><code>db.py:read_inspector_data()</code></td><td>Porcentaje de runs con al menos un context_hit por proyecto. Hace visible si el RAG está produciendo señal útil o si el índice necesita actualizarse.</td></tr>
+  </table>
+
+  <h3>5.5 — Integración con agentes externos</h3>
+  <table>
+    <tr><th>Técnica</th><th>Dónde</th><th>Por qué</th></tr>
+    <tr><td>MCP server (JSON-RPC 2.0 stdio)</td><td><code>mcp_server.py · 11 tools</code></td><td>Protocolo estándar de Model Context Protocol. Claude Code puede consumir el orquestador sin configuración adicional más allá de registrar el servidor.</td></tr>
+    <tr><td>CLAUDE.md auto-generado</td><td><code>context.py:create_claude_md()</code></td><td>Al registrar un proyecto, el orquestador escribe un CLAUDE.md con instrucciones para que Claude Code invoque las herramientas MCP al inicio de cada sesión. Reduce la fricción de onboarding a cero.</td></tr>
+    <tr><td>Session importers (CC + Codex)</td><td><code>watcher.py · codex_watcher.py</code></td><td>Importan sesiones de Claude Code y Codex al historial unificado. UNIQUE constraint en session_id garantiza idempotencia. Las sesiones importadas se vinculan al paso activo del contexto de trabajo.</td></tr>
+  </table>
+
+  <h3>5.6 — Patrones estructurales</h3>
+  <div class="cards">
+    <div class="card">
+      <h4>Factory</h4>
+      <p><code>providers/factory.py</code> — instancia el provider correcto a partir del nombre en config. El resto del sistema recibe un objeto con interfaz uniforme, sin saber qué proveedor es.</p>
+    </div>
+    <div class="card">
+      <h4>Strategy + Protocol</h4>
+      <p><code>similarity.py:SimilarityBackend</code> — interfaz <code>@runtime_checkable</code>. ChromaBackend y FTS5Backend son intercambiables sin herencia; basta con implementar <code>upsert()</code> y <code>query()</code>.</p>
+    </div>
+    <div class="card">
+      <h4>Observer</h4>
+      <p><code>sse.py:SSEBus</code> — fan-out de eventos a todos los suscriptores activos. El publicador no conoce a los suscriptores; cada conexión <code>/events</code> recibe una queue independiente.</p>
+    </div>
+    <div class="card">
+      <h4>Repository</h4>
+      <p><code>db.py</code> — abstrae SQLite del resto del sistema. El código llama a <code>insert_run()</code>, <code>read_runs()</code> sin conocer SQL, paths de archivo, ni el modo WAL.</p>
+    </div>
+    <div class="card">
+      <h4>Template Method</h4>
+      <p><code>providers/base.py:BaseProvider</code> — contrato abstracto <code>complete(prompt, system) → CompletionResult</code>. Cada provider implementa solo la diferencia: headers, endpoint, parsing de tokens.</p>
+    </div>
+    <div class="card">
+      <h4>Duck typing estructural</h4>
+      <p><code>similarity.py</code> — Python Protocols como interfaz estructural. No hay herencia de clases concretas. El sistema acepta cualquier objeto que implemente el protocolo, sin importar su origen.</p>
+    </div>
+  </div>
+
+  <h3>Stack tecnológico</h3>
+  <table>
+    <tr><th>Categoría</th><th>Tecnología</th><th>Uso en el sistema</th></tr>
+    <tr><td>Lenguaje</td><td>Python 3.10+</td><td>Todo el backend: CLI, MCP server, HTTP server, importadores, router</td></tr>
+    <tr><td>CLI</td><td>Typer + Rich</td><td>Comandos con tipado estático y autocompletado; output con colores y tablas formateadas</td></tr>
+    <tr><td>HTTP</td><td>BaseHTTPRequestHandler (stdlib)</td><td>Dashboard y endpoints REST — sin frameworks externos; máxima portabilidad</td></tr>
+    <tr><td>HTTP Client</td><td>httpx (sync)</td><td>Llamadas a APIs de Anthropic, OpenAI, DeepSeek con timeout y retry</td></tr>
+    <tr><td>Base de datos</td><td>SQLite 3 + WAL mode</td><td>Historial de runs, contextos, pasos, alignments, tool_calls, context_hits</td></tr>
+    <tr><td>Full-text search</td><td>FTS5 (SQLite virtual table)</td><td>Búsqueda textual sobre runs.task; fallback cuando ChromaDB no está disponible</td></tr>
+    <tr><td>Vector store</td><td>ChromaDB + all-MiniLM-L6-v2</td><td>RAG de docs y respuestas; similitud semántica para el router</td></tr>
+    <tr><td>Serialización</td><td>PyYAML</td><td>config.yaml, context.yaml, index.yaml — formato legible y editable a mano</td></tr>
+    <tr><td>Frontend</td><td>Vanilla JS + CSS3</td><td>Dashboard — sin frameworks; máxima longevidad sin mantenimiento de dependencias JS</td></tr>
+    <tr><td>Push real-time</td><td>Server-Sent Events (SSE)</td><td>Actualizaciones live del dashboard sin WebSocket ni polling</td></tr>
+    <tr><td>Concurrencia</td><td>threading (stdlib)</td><td>Worker threads para runs desde dashboard; thread-local DB connections</td></tr>
+    <tr><td>Tipado</td><td>dataclasses + annotations</td><td>RoutingDecision, CompletionResult, ProjectContext — contratos explícitos sin overhead de ORM</td></tr>
+  </table>
+</section>
+
+<!-- ══════════════════════════════════════════
+     §6  ESTADO ACTUAL Y MÉTRICAS
+     ══════════════════════════════════════════ -->
+<section id="metricas">
+  <div class="sec-num">§ 6</div>
+  <div class="sec-label">Métricas</div>
+  <h2>Estado actual del sistema y datos observados</h2>
+  <p>Datos extraídos de <code>runs.db</code> al 28 de junio de 2026. El DB es la fuente de verdad del sistema — todo lo que se muestra aquí es observable y reproducible con el Inspector del dashboard.</p>
+
+  <h3>Actividad total registrada</h3>
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="val">430</div>
+      <div class="lbl">Runs totales</div>
+      <div class="sub">Incluye sesiones importadas y commits git</div>
+    </div>
+    <div class="metric-card">
+      <div class="val">53</div>
+      <div class="lbl">Sesiones IA importadas</div>
+      <div class="sub">27 Claude Code · 26 Codex</div>
+    </div>
+    <div class="metric-card">
+      <div class="val">18</div>
+      <div class="lbl">Runs via router</div>
+      <div class="sub">Todos con override manual <code>--model</code></div>
+    </div>
+    <div class="metric-card">
+      <div class="val">$344</div>
+      <div class="lbl">Costo total rastreado</div>
+      <div class="sub">USD · 6 proyectos · 2025–2026</div>
+    </div>
+    <div class="metric-card">
+      <div class="val">576</div>
+      <div class="lbl">Chunks RAG indexados</div>
+      <div class="sub">6 proyectos en ChromaDB</div>
+    </div>
+    <div class="metric-card">
+      <div class="val">14</div>
+      <div class="lbl">Contextos creados</div>
+      <div class="sub">62 pasos · 13 completados</div>
+    </div>
+  </div>
+
+  <h3>Distribución de costo por tipo de actividad</h3>
+  <table>
+    <tr><th>Fuente</th><th>Runs</th><th>Costo USD</th><th>Costo/run</th><th>Notas</th></tr>
+    <tr><td>claude-code (importado)</td><td>27</td><td>$234.96</td><td>~$8.70</td><td>Sesiones CC completas — incluye todo el contexto de conversación</td></tr>
+    <tr><td>codex (importado)</td><td>26</td><td>$109.23</td><td>~$4.20</td><td>Sesiones Codex — gpt-5.5 y gpt-5.1-codex-max</td></tr>
+    <tr><td>claude (via router)</td><td>9</td><td>$0.0255</td><td>~$0.0028</td><td>Todos con <code>--model claude</code> manual</td></tr>
+    <tr><td>deepseek (via router)</td><td>9</td><td>$0.0006</td><td>~$0.00007</td><td>Todos con <code>--model deepseek</code> manual</td></tr>
+    <tr><td>git (commits importados)</td><td>359</td><td>$0</td><td>—</td><td>Historial de commits — sin costo de inferencia</td></tr>
+  </table>
+
+  <div class="callout callout-blue">
+    <strong>Lectura del contraste de costo:</strong> Las 53 sesiones no orquestadas (CC + Codex) acumularon $344 USD. Los 18 runs directos via router costaron $0.026 en total — $0.0014 por run promedio. Esto no implica que el router "reemplaza" a CC o Codex, sino que ilustra el costo marginal del router como capa de decisión: prácticamente cero.
+  </div>
+
+  <h3>Eficiencia de cache en sesiones Claude Code</h3>
+  <table>
+    <tr><th>Métrica</th><th>Valor</th></tr>
+    <tr><td>Tokens de entrada (input)</td><td>69,380</td></tr>
+    <tr><td>Tokens de cache read</td><td>392,595,714</td></tr>
+    <tr><td>Cache hit rate efectiva</td><td>~99.98%</td></tr>
+  </table>
+  <p>El costo real de las sesiones CC está casi enteramente en la generación de output, no en procesar el contexto de entrada — el prompt caching de Anthropic absorbe prácticamente todos los tokens de input.</p>
+
+  <h3>Tokens totales procesados (todas las fuentes)</h3>
+  <table>
+    <tr><th>Tipo de token</th><th>Cantidad</th></tr>
+    <tr><td>Input tokens</td><td>116,734,010</td></tr>
+    <tr><td>Output tokens</td><td>5,018,234</td></tr>
+    <tr><td>Cache read tokens</td><td>502,916,482</td></tr>
+    <tr><td>Cache creation tokens</td><td>13,337,655</td></tr>
+  </table>
+
+  <h3>Actividad de contextos y pasos</h3>
+  <table>
+    <tr><th>Métrica</th><th>Valor</th></tr>
+    <tr><td>Contextos totales</td><td>14 (13 completados · 1 programado)</td></tr>
+    <tr><td>Pasos totales</td><td>62 (55 completados · 5 pendientes · 2 saltados)</td></tr>
+    <tr><td>Tool calls registrados (MCP)</td><td>18</td></tr>
+    <tr><td>Runs vinculados a un paso</td><td>0 (implementado — sin runs autónomos posteriores aún)</td></tr>
+  </table>
+
+  <h3>Estado del ciclo de aprendizaje</h3>
+  <table>
+    <tr><th>Componente</th><th>Estado</th><th>Observación</th></tr>
+    <tr><td>Infraestructura de router</td><td><span class="pill pill-green">Implementado</span></td><td>Router opera, produce decisiones, registra routing_reason</td></tr>
+    <tr><td>Rating feedback loop</td><td><span class="pill pill-orange">Sin activar</span></td><td>0 de 430 runs tiene rating asignado</td></tr>
+    <tr><td>RAG indexación</td><td><span class="pill pill-green">Activo</span></td><td>576 chunks en ChromaDB para 6 proyectos</td></tr>
+    <tr><td>RAG context hits</td><td><span class="pill pill-orange">Sin activar</span></td><td>0 hits — runs via router fueron manuales; RAG no se ejercitó autónomamente</td></tr>
+    <tr><td>Step linkage (imports)</td><td><span class="pill pill-green">Implementado</span></td><td>Lógica activa en watcher.py y codex_watcher.py; sin runs posteriores aún</td></tr>
+    <tr><td>Runs autónomos del router</td><td><span class="pill pill-orange">Pendiente</span></td><td>Todos los runs via router tuvieron override <code>--model</code></td></tr>
+  </table>
+
+  <h3>Distribución temporal</h3>
+  <p>El sistema comenzó a registrar actividad en febrero 2025. El pico de junio 2026 coincide con el inicio del desarrollo activo del orquestador como proyecto documentado — el sistema se comió su propia cola para desarrollarse.</p>
+  <table>
+    <tr><th>Período</th><th>Runs</th><th>Costo USD</th></tr>
+    <tr><td>2025-02 a 2025-11</td><td>107</td><td>~$0 (commits git)</td></tr>
+    <tr><td>2025-12</td><td>102</td><td>$5.74</td></tr>
+    <tr><td>2026-03 a 2026-05</td><td>32</td><td>$7.53</td></tr>
+    <tr><td>2026-06 (mes actual)</td><td>181</td><td>$330.95</td></tr>
+  </table>
+</section>
+
+<!-- ══════════════════════════════════════════
+     §7  LIMITACIONES
+     ══════════════════════════════════════════ -->
+<section id="limitaciones">
+  <div class="sec-num">§ 7</div>
+  <div class="sec-label">Limitaciones</div>
+  <h2>Limitaciones conocidas</h2>
+
+  <h3>Limitaciones de diseño</h3>
+  <table>
+    <tr><th>Limitación</th><th>Impacto</th><th>Decisión de diseño</th></tr>
+    <tr><td>Una tarea a la vez</td><td>No puede ejecutar runs en paralelo. Tareas largas bloquean el worker thread.</td><td>Simplicidad sobre throughput. El paralelismo requeriría un pool de workers y sincronización de DB más compleja.</td></tr>
+    <tr><td>Runs stateless (sin historial de conversación)</td><td>Cada run es independiente — no hay memoria de turnos anteriores dentro de un run.</td><td>El orquestador gestiona selección de proveedor, no conversaciones. El historial de sesiones está en CC/Codex.</td></tr>
+    <tr><td>Sin autenticación en el dashboard</td><td>Cualquiera con acceso a la red local puede ver el dashboard y ejecutar tareas.</td><td>Diseñado para uso local personal. Agregar auth añadiría fricción sin beneficio en ese contexto.</td></tr>
+    <tr><td>El router depende de la calidad del modelo económico</td><td>Si DeepSeek Flash produce una decisión incorrecta, no hay segundo intento — va directamente al provider equivocado.</td><td>El fallback_provider en config.yaml actúa si el provider elegido falla. Las malas decisiones se corrigen via ratings.</td></tr>
+  </table>
+
+  <h3>Limitaciones del ciclo de aprendizaje</h3>
+  <table>
+    <tr><th>Limitación</th><th>Consecuencia</th></tr>
+    <tr><td>El ciclo requiere runs autónomos para arrancar</td><td>Mientras el usuario usa <code>--model</code>, el router no genera señal de calidad. La infraestructura existe pero no aprende.</td></tr>
+    <tr><td>Rating es manual</td><td>El usuario tiene que calificar los runs explícitamente. Sin ratings, el feedback loop no tiene señal.</td></tr>
+    <tr><td>RAG hit rate actual: 0%</td><td>576 chunks indexados, pero 0 context_hits — los runs via router fueron todos manuales y el sistema no ejercitó la recuperación de contexto de forma autónoma aún.</td></tr>
+    <tr><td>Sin evaluación automática de respuestas</td><td>No hay mecanismo para evaluar la calidad de una respuesta sin intervención humana. El feedback es cualitativamente binario (útil / erróneo).</td></tr>
+  </table>
+
+  <h3>Limitaciones operativas</h3>
+  <ul>
+    <li><strong>Requiere proceso activo:</strong> el orquestador debe estar corriendo (<code>serve</code>) para aceptar tareas. No hay cola persistente que sobreviva a un reinicio.</li>
+    <li><strong>ChromaDB en CPU:</strong> la indexación de proyectos grandes puede ser lenta en máquinas sin GPU. Los embeddings son locales pero no acelerados por hardware.</li>
+    <li><strong>config.yaml sin cifrado:</strong> las API keys se almacenan en texto plano en <code>~/.ai-orchestrator/config.yaml</code>. La seguridad depende de los permisos del sistema de archivos.</li>
+  </ul>
+</section>
+
+<!-- ══════════════════════════════════════════
+     §8  TRABAJO FUTURO
+     ══════════════════════════════════════════ -->
+<section id="futuro">
+  <div class="sec-num">§ 8</div>
+  <div class="sec-label">Trabajo futuro</div>
+  <h2>Próximos pasos e investigación abierta</h2>
+
+  <h3>Inmediato — activar el ciclo de aprendizaje</h3>
+  <p>El primer bloque de trabajo futuro no es código nuevo — es uso del sistema tal como está:</p>
+  <ul>
+    <li>Ejecutar al menos 20 runs sin <code>--model</code> override para que el router tome decisiones autónomas</li>
+    <li>Asignar ratings (útil / parcial / erróneo) a esos runs desde el dashboard</li>
+    <li>Medir si la tasa de <code>wrong</code> disminuye con el historial creciendo — validación de H2</li>
+    <li>Verificar que context_hits aumenta cuando el router opera sin override — validación de H3</li>
+  </ul>
+
+  <h3>Corto plazo — mejoras al ciclo</h3>
+  <ul>
+    <li><strong>Rating sugerido automático:</strong> comparar la respuesta del provider con la descripción de la tarea usando un modelo liviano — pre-poblar el rating para que el usuario solo confirme o corrija</li>
+    <li><strong>Panel de comparación de providers:</strong> para un tipo de tarea dado, mostrar historial de qué provider fue elegido y cuál fue su rating — visualización directa de H1</li>
+    <li><strong>Alertas de drift:</strong> si un provider que antes era ÚTIL empieza a producir ERRÓNEO en el mismo tipo de tarea, notificar al usuario</li>
+  </ul>
+
+  <h3>Mediano plazo — escala y colaboración</h3>
+  <ul>
+    <li><strong>Paralelismo de runs:</strong> pool de worker threads con cola persistente en SQLite. Permite ejecutar varias tareas simultáneamente sin bloquear el dashboard</li>
+    <li><strong>Modo equipo:</strong> compartir el DB entre múltiples instancias (SQLite WAL ya lo soporta en red local) para que ratings de distintos usuarios alimenten el mismo ciclo</li>
+    <li><strong>Exportación de modelo de routing:</strong> si el historial de ratings es suficiente, entrenar un clasificador local que reemplace al LLM router para tipos de tarea recurrentes</li>
+  </ul>
+
+  <h3>Investigación abierta</h3>
+  <ul>
+    <li>¿Cuántos runs calificados son necesarios para que el feedback produzca una mejora estadísticamente significativa en la tasa de decisiones correctas?</li>
+    <li>¿El umbral de similitud RAG óptimo varía por tipo de proyecto (PHP vs Python vs JS)?</li>
+    <li>¿El rating por run es suficiente señal o se necesita rating por fragmento de respuesta (partial credit)?</li>
+  </ul>
+</section>
+
+<!-- ══════════════════════════════════════════
+     §9  CONCLUSIÓN
+     ══════════════════════════════════════════ -->
+<section id="conclusion">
+  <div class="sec-num">§ 9</div>
+  <div class="sec-label">Conclusión</div>
+  <h2>Conclusión</h2>
+
+  <p>El sistema implementa todos los componentes necesarios para el ciclo de enrutamiento adaptativo postulado: un router económico de un solo paso, recuperación semántica de contexto documental y de ejecuciones previas, retroalimentación por ratings, y observabilidad completa del estado interno.</p>
+
+  <p>Los datos del período de uso (febrero 2025 — junio 2026) confirman que la infraestructura funciona: $344 USD en actividad rastreada a través de 6 proyectos, 576 chunks indexados, 14 contextos con 62 pasos gestionados, y un costo por run via router de $0.0014 USD promedio — validando que el router económico es viable como capa de decisión.</p>
+
+  <p>Lo que los datos también revelan con claridad es la condición necesaria que el postulado anticipa: el ciclo de aprendizaje requiere runs autónomos. Mientras el usuario especifica el provider con <code>--model</code>, el router acumula datos de costo pero no genera señal de calidad. El feedback loop, el RAG hits y el step linkage están implementados y funcionan — pero aún no han sido ejercitados en condiciones autónomas.</p>
+
+  <p>El siguiente capítulo de este estudio es operacional: ejecutar el ciclo, medir, y evaluar si las tres hipótesis se sostienen con datos reales.</p>
+
+  <div class="postulate">
+    <p>Un sistema de orquestación local puede construir su ciclo de aprendizaje antes de que ese ciclo tenga datos — y esa infraestructura pre-construida es precisamente lo que hace posible que el aprendizaje arranque sin fricción cuando las condiciones se dan.</p>
   </div>
 </section>
 
-<!-- ── HERRAMIENTAS ── -->
-<section id="herramientas">
-  <div class="sec-label">Herramientas</div>
-  <h2>CLI y Dashboard</h2>
+<!-- ══════════════════════════════════════════
+     §REF  REFERENCIA TÉCNICA
+     ══════════════════════════════════════════ -->
+<section id="referencia">
+  <div class="sec-num">Referencia</div>
+  <div class="sec-label">Uso del sistema</div>
+  <h2>CLI y configuración</h2>
+  <p>Referencia de comandos y archivos de configuración. Para el diseño del sistema, ver §4. Para técnicas implementadas, ver §5.</p>
+
+  <h3>Instalación</h3>
+  <div class="code-block"><pre><span class="cm"># Clonar e instalar</span>
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .
+
+<span class="cm"># Configuración inicial</span>
+<span class="cmd">cp</span> config.example.yaml %USERPROFILE%\.ai-orchestrator\config.yaml
+
+<span class="cm"># Búsqueda vectorial (opcional, recomendada)</span>
+pip install chromadb</pre></div>
 
   <h3>Gestión de proyectos</h3>
-  <div class="code-block"><pre><span class="cm"># Registrar un proyecto</span>
-<span class="cmd">ai-orchestrator</span> add mi-proyecto <span class="flag">--path</span> <span class="str">"C:\ruta\al\proyecto"</span>
-
-<span class="cm"># Listar proyectos registrados</span>
+  <div class="code-block"><pre><span class="cmd">ai-orchestrator</span> add mi-proyecto <span class="flag">--path</span> <span class="str">"C:\ruta\al\proyecto"</span>
 <span class="cmd">ai-orchestrator</span> list
-
-<span class="cm"># Quitar del índice</span>
 <span class="cmd">ai-orchestrator</span> remove mi-proyecto</pre></div>
 
   <h3>Ejecutar tareas</h3>
   <div class="code-block"><pre><span class="cm"># Router decide el proveedor automáticamente</span>
 <span class="cmd">ai-orchestrator</span> run <span class="flag">--project</span> mi-proyecto <span class="flag">--task</span> <span class="str">"revisar el endpoint de login"</span>
 
-<span class="cm"># Forzar proveedor específico</span>
+<span class="cm"># Forzar proveedor específico (bypasea el router)</span>
 <span class="cmd">ai-orchestrator</span> run <span class="flag">--project</span> mi-proyecto <span class="flag">--task</span> <span class="str">"..."</span> <span class="flag">--model</span> claude
 
 <span class="cm"># Modo investigación (Claude Opus)</span>
 <span class="cmd">ai-orchestrator</span> run <span class="flag">--project</span> mi-proyecto <span class="flag">--task</span> <span class="str">"..."</span> <span class="flag">--research</span></pre></div>
 
-  <h3>Dashboard web</h3>
-  <div class="code-block"><pre><span class="cm"># Lanza el panel en http://127.0.0.1:8080</span>
-<span class="cmd">ai-orchestrator</span> serve
+  <div class="callout callout-warn">
+    <strong>Nota sobre el ciclo de aprendizaje:</strong> usar <code>--model</code> bypasea el router. Para que el feedback loop funcione, ejecutar runs sin especificar provider — dejar que el router decida.
+  </div>
 
-<span class="cm"># Puerto alternativo, sin abrir el browser</span>
+  <h3>Dashboard web</h3>
+  <div class="code-block"><pre><span class="cmd">ai-orchestrator</span> serve               <span class="cm"># http://127.0.0.1:8080</span>
 <span class="cmd">ai-orchestrator</span> serve <span class="flag">--port</span> 9090 <span class="flag">--no-open</span></pre></div>
 
-  <p>El dashboard tiene dos pestañas:</p>
   <table>
     <tr><th>Pestaña</th><th>Contenido</th></tr>
-    <tr><td>Dashboard</td><td>Tabla de runs en tiempo real (SSE), formulario de nueva tarea, panel de detalle, gauge de presupuesto diario, barra de actividad en tiempo real.</td></tr>
-    <tr><td>Inspector</td><td>Estado interno del sistema: tablas SQLite (conteos + últimos registros), colecciones ChromaDB con breakdown por proyecto, registro y acciones de indexación.</td></tr>
+    <tr><td>Dashboard</td><td>Runs en tiempo real (SSE), formulario de tarea, detalle de run, gauge de presupuesto, barra de actividad con spans.</td></tr>
+    <tr><td>Inspector</td><td>Tablas SQLite, colecciones ChromaDB por proyecto, panel de efectividad RAG, registro de proyectos con acciones de indexación.</td></tr>
   </table>
 
   <h3>Indexación RAG</h3>
-  <div class="code-block"><pre><span class="cm"># Indexar archivos de un proyecto en ChromaDB</span>
-<span class="cmd">ai-orchestrator</span> index-docs mi-proyecto
-
-<span class="cm"># También disponible desde el Inspector del dashboard</span></pre></div>
+  <div class="code-block"><pre><span class="cmd">ai-orchestrator</span> index-docs mi-proyecto   <span class="cm"># también disponible desde el Inspector</span></pre></div>
 
   <div class="callout">
-    <strong>Sin costo de IA:</strong> La indexación usa embeddings locales de ChromaDB (<code>all-MiniLM-L6-v2</code>), no llama a ningún proveedor externo. El único costo ocurre al <em>recuperar</em> contexto durante un run.
+    <strong>Sin costo de IA:</strong> la indexación usa embeddings locales (<code>all-MiniLM-L6-v2</code>) — no llama a ningún proveedor externo. El costo ocurre solo al <em>recuperar</em> contexto durante un run.
   </div>
 
-  <h3>Historial</h3>
-  <div class="code-block"><pre><span class="cm"># Últimos 20 runs con costo</span>
-<span class="cmd">ai-orchestrator</span> history
-
-<span class="cm"># Filtrar por proyecto</span>
-<span class="cmd">ai-orchestrator</span> history <span class="flag">--project</span> mi-proyecto <span class="flag">--last</span> 50</pre></div>
-
-  <h3>Contextos y pasos</h3>
-  <div class="code-block"><pre><span class="cm"># Crear un contexto de trabajo</span>
+  <h3>Historial y contextos</h3>
+  <div class="code-block"><pre><span class="cmd">ai-orchestrator</span> history <span class="flag">--project</span> mi-proyecto <span class="flag">--last</span> 50
 <span class="cmd">ai-orchestrator</span> create-context mi-proyecto <span class="str">"Implementar autenticación JWT"</span>
-
-<span class="cm"># Ver contextos activos</span>
 <span class="cmd">ai-orchestrator</span> list-contexts mi-proyecto</pre></div>
 
-  <h3>Sync de sesiones Claude Code</h3>
-  <div class="code-block"><pre><span class="cm"># Importar sesiones nuevas al historial</span>
-<span class="cmd">ai-orchestrator</span> sync-cc
-
-<span class="cm"># Silencioso (para uso en hooks)</span>
-<span class="cmd">ai-orchestrator</span> sync-cc <span class="flag">--quiet</span></pre></div>
+  <h3>Sync de sesiones Claude Code y Codex</h3>
+  <div class="code-block"><pre><span class="cmd">ai-orchestrator</span> sync-cc            <span class="cm"># importa sesiones CC nuevas</span>
+<span class="cmd">ai-orchestrator</span> sync-cc <span class="flag">--quiet</span>   <span class="cm"># para uso en hooks de Claude Code</span></pre></div>
 
   <div class="callout">
-    <strong>Integración automática:</strong> Agregar en <code>~/.claude/settings.json</code> bajo <code>hooks.Stop</code> para sincronizar automáticamente al cerrar cada sesión de Claude Code.
+    <strong>Automatización:</strong> agregar en <code>~/.claude/settings.json</code> bajo <code>hooks.Stop</code> para sincronizar automáticamente al cerrar cada sesión de Claude Code.
   </div>
 
-  <h3>Barra de actividad</h3>
-  <p>La barra fijada al fondo del dashboard muestra <em>spans</em> en tiempo real. Cada operación emite un evento cuando inicia (<code>running</code>) y cuando termina (<code>done/error + ms</code>). Spans disponibles:</p>
-  <table>
-    <tr><th>Span</th><th>Qué mide</th></tr>
-    <tr><td>Router</td><td>Tiempo de decisión del router (llamada a DeepSeek Flash)</td></tr>
-    <tr><td>RAG retrieval</td><td>Búsqueda semántica en ChromaDB</td></tr>
-    <tr><td>{provider} · API</td><td>Llamada HTTP al proveedor (Claude / OpenAI / DeepSeek)</td></tr>
-    <tr><td>Indexar respuesta</td><td>Guardado de la respuesta en ChromaDB</td></tr>
-    <tr><td>Inspector · SQLite</td><td>Lectura de tablas para el panel Inspector</td></tr>
-    <tr><td>Inspector · ChromaDB</td><td>Consulta de colecciones para el panel Inspector</td></tr>
-    <tr><td>index-docs · {proyecto}</td><td>Indexación completa de un proyecto</td></tr>
-  </table>
-</section>
-
-<!-- ── CONFIGURACIÓN ── -->
-<section id="configuracion">
-  <div class="sec-label">Configuración</div>
-  <h2>Archivos de configuración</h2>
-
-  <h3>~/.ai-orchestrator/config.yaml</h3>
-  <p>Credenciales, modelos y presupuestos. Nunca se versiona.</p>
+  <h3>config.yaml</h3>
   <div class="code-block"><pre><span class="kw">providers</span>:
   <span class="kw">claude</span>:
     api_key: <span class="str">"sk-ant-..."</span>
@@ -429,15 +838,14 @@ mi-proyecto\
 
 <span class="kw">pricing</span>:
   claude-sonnet-4-6:
-    input: <span class="str">3.00</span>   <span class="cm"># USD / 1M tokens</span>
+    input: <span class="str">3.00</span>
     output: <span class="str">15.00</span>
 
 <span class="kw">budgets</span>:
   default_daily_budget_usd: <span class="str">5.00</span>
-  warning_threshold: <span class="str">0.80</span>  <span class="cm"># alerta al 80%</span></pre></div>
+  warning_threshold: <span class="str">0.80</span></pre></div>
 
-  <h3>.orchestrator/context.yaml</h3>
-  <p>Por proyecto. Se versiona junto al código del proyecto.</p>
+  <h3>context.yaml (por proyecto)</h3>
   <div class="code-block"><pre><span class="kw">name</span>: mi-proyecto
 <span class="kw">stack</span>: <span class="str">PHP/Laravel</span>
 <span class="kw">description</span>: <span class="str">Aplicación web con autenticación y roles</span>
@@ -460,133 +868,15 @@ mi-proyecto\
     provider: deepseek
     weight: 2</pre></div>
 
-  <table>
-    <tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr>
-    <tr><td>name</td><td>string</td><td>Nombre legible del proyecto.</td></tr>
-    <tr><td>stack</td><td>string</td><td>Stack tecnológico (ej. "PHP/Laravel", "Python/FastAPI").</td></tr>
-    <tr><td>conventions</td><td>list</td><td>Convenciones de código que el router incluye en el contexto.</td></tr>
-    <tr><td>preferred_models.notes</td><td>string</td><td>Texto libre con reglas de ruteo. Lo lee el router LLM directamente.</td></tr>
-    <tr><td>keyword_hints</td><td>list</td><td>Señales calculadas en Python antes de llamar al router. No deciden solos — son contexto adicional.</td></tr>
-  </table>
-
   <div class="callout callout-warn">
     <strong>Seguridad:</strong> <code>config.yaml</code>, <code>index.yaml</code>, <code>*.db</code> y el directorio <code>chroma/</code> están en <code>.gitignore</code> y nunca deben subirse a un repositorio.
-  </div>
-
-  <h3>Instalación</h3>
-  <div class="code-block"><pre><span class="cm"># Clonar e instalar</span>
-<span class="cmd">cd</span> C:\ruta\ai-orchestrator
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-pip install -e .
-
-<span class="cm"># Configuración inicial</span>
-<span class="cmd">cp</span> config.example.yaml %USERPROFILE%\.ai-orchestrator\config.yaml
-
-<span class="cm"># Búsqueda vectorial (opcional, recomendada)</span>
-pip install chromadb</pre></div>
-</section>
-
-<!-- ── TÉCNICAS ── -->
-<section id="tecnicas">
-  <div class="sec-label">Ingeniería</div>
-  <h2>Stack tecnológico y técnicas aplicadas</h2>
-  <p>Registro de las tecnologías, patrones y técnicas que conforman el sistema — para referencia de desarrollo y onboarding.</p>
-
-  <h3>Stack principal</h3>
-  <table>
-    <tr><th>Categoría</th><th>Tecnología</th><th>Uso</th></tr>
-    <tr><td>Lenguaje</td><td>Python 3.10+</td><td>Todo el backend: CLI, MCP server, HTTP server, importadores</td></tr>
-    <tr><td>CLI</td><td>Typer + Rich</td><td>Comandos tipados con autocompletado; output con colores y tablas</td></tr>
-    <tr><td>HTTP</td><td>BaseHTTPRequestHandler (stdlib)</td><td>Dashboard y endpoints — sin frameworks externos</td></tr>
-    <tr><td>HTTP Client</td><td>httpx (sync)</td><td>Llamadas a APIs de Anthropic, OpenAI, DeepSeek</td></tr>
-    <tr><td>Base de datos</td><td>SQLite 3 + WAL mode</td><td>Historial de runs, contextos, pasos, alignments, tool_calls</td></tr>
-    <tr><td>Full-text search</td><td>FTS5 (SQLite virtual table)</td><td>Búsqueda textual sobre runs; fallback cuando ChromaDB no está instalado</td></tr>
-    <tr><td>Vector store</td><td>ChromaDB + all-MiniLM-L6-v2</td><td>RAG de docs y respuestas; similitud semántica para el router</td></tr>
-    <tr><td>Serialización</td><td>PyYAML</td><td>config.yaml, context.yaml, index.yaml</td></tr>
-    <tr><td>Frontend</td><td>Vanilla JS + CSS3</td><td>Dashboard — sin frameworks; máxima portabilidad</td></tr>
-    <tr><td>Push real-time</td><td>Server-Sent Events (SSE)</td><td>Actualización live del dashboard sin WebSocket</td></tr>
-    <tr><td>Concurrencia</td><td>threading (stdlib)</td><td>Worker threads para runs desde dashboard; thread-local DB connections</td></tr>
-    <tr><td>Tipado</td><td>dataclasses + from __future__ import annotations</td><td>RoutingDecision, CompletionResult, ProjectContext</td></tr>
-  </table>
-
-  <h3>Patrones de diseño aplicados</h3>
-  <div class="cards">
-    <div class="card">
-      <div class="card-icon">🏭</div>
-      <h4>Factory</h4>
-      <p><code>providers/factory.py</code> — instancia el provider correcto (Claude/OpenAI/DeepSeek) a partir del nombre en config, sin acoplar el resto del sistema a implementaciones concretas.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">🔀</div>
-      <h4>Strategy</h4>
-      <p><code>similarity.py</code> — ChromaBackend y FTS5Backend implementan el mismo protocolo <code>SimilarityBackend</code>. El sistema elige uno sin que el router lo sepa.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">📡</div>
-      <h4>Observer</h4>
-      <p><code>sse.py</code> — SSEBus hace fan-out de eventos a todos los suscriptores. Cada conexión <code>/events</code> recibe una queue independiente; el publish es O(n) por suscriptor.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">🗄️</div>
-      <h4>Repository</h4>
-      <p><code>db.py</code> — abstrae SQLite del resto del sistema. El resto del código llama a <code>insert_run()</code>, <code>read_runs()</code> sin saber de SQL ni de paths de archivos.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">📐</div>
-      <h4>Template Method</h4>
-      <p><code>providers/base.py</code> — <code>BaseProvider</code> define el contrato abstracto <code>complete(prompt, system) → CompletionResult</code>. Cada provider implementa solo la diferencia (headers, endpoint, parsing).</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">🔌</div>
-      <h4>Protocol (duck typing)</h4>
-      <p><code>similarity.py:SimilarityBackend</code> — interfaz estructural de Python (<code>@runtime_checkable</code>). Los backends son intercambiables sin herencia; basta con implementar <code>upsert()</code> y <code>query()</code>.</p>
-    </div>
-  </div>
-
-  <h3>Técnicas avanzadas</h3>
-  <table>
-    <tr><th>Técnica</th><th>Dónde</th><th>Por qué</th></tr>
-    <tr><td>SQLite WAL mode</td><td><code>db.py</code></td><td>Lecturas concurrentes sin bloquear escrituras. El dashboard SSE puede leer mientras el worker escribe un run.</td></tr>
-    <tr><td>FTS5 virtual tables + triggers</td><td><code>db.py</code> schema</td><td>Full-text search sobre <code>runs.task</code> sin índice manual. Los triggers INSERT/UPDATE/DELETE mantienen el índice sincronizado.</td></tr>
-    <tr><td>Thread-local DB connections</td><td><code>db.py:_local</code></td><td>Cada hilo (HTTP handler, worker thread, MCP server) mantiene su propia conexión SQLite para evitar contención de locks.</td></tr>
-    <tr><td>Monotonic migrations</td><td><code>migrate.py</code></td><td>Tabla <code>_migrations</code> con flag de aplicación. Cada migración es idempotente y se aplica una sola vez — sin ORM, sin downtime.</td></tr>
-    <tr><td>RAG con overlap chunking</td><td><code>rag.py</code></td><td>Chunks de 1500 chars con 200 de overlap preservan contexto en los bordes. Umbral L2=0.9 ≈ cosine_sim≥0.60 evita ruido.</td></tr>
-    <tr><td>One-shot router económico</td><td><code>router.py</code></td><td>Se usa DeepSeek Flash ($0.14/M tokens) para decidir a qué proveedor mandar cada tarea — incluyendo el tier de modelo y la señal de ratings.</td></tr>
-    <tr><td>Rating feedback loop</td><td><code>router.py</code></td><td>Runs similares recuperados de ChromaDB incluyen su rating. El router recibe etiquetas [ÚTIL]/[ERRÓNEO] en el prompt y ajusta la decisión.</td></tr>
-    <tr><td>Context compression</td><td><code>router.py:_compress_context</code></td><td>Si las convenciones del proyecto superan el umbral de chars, se filtran solo las relevantes para la tarea — evita superar el context limit del router.</td></tr>
-    <tr><td>SSE fan-out pub/sub</td><td><code>sse.py:SSEBus</code></td><td>Cola por suscriptor (maxsize=100). Si el browser es lento, la queue se descarta sin bloquear al publicador ni afectar otras conexiones.</td></tr>
-    <tr><td>Span tracing</td><td><code>tracer.py</code></td><td>Context manager que mide duración de cada operación (Router, RAG, API, Index) y la emite al SSE bus para la barra de actividad del dashboard.</td></tr>
-    <tr><td>Secret pattern detection</td><td><code>rag.py</code></td><td>Regex sobre contenido de archivos antes de indexar. Archivos con patrones de API keys, tokens o claves privadas se omiten del índice RAG.</td></tr>
-    <tr><td>Deduplicación por session_id</td><td><code>db.py</code> UNIQUE constraint</td><td>Importaciones repetidas de la misma sesión de Claude Code o Codex son ignoradas por constraint SQLite, sin lógica adicional en Python.</td></tr>
-  </table>
-
-  <h3>Flujo de aprendizaje acumulativo</h3>
-  <p>El sistema aprende con el uso mediante un ciclo que conecta ejecución, feedback y decisión:</p>
-  <div class="flow">
-    <div class="flow-step fs-green">Ejecutar run</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-step fs-default">Guardar en SQLite + ChromaDB</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-step fs-orange">Calificar (useful / wrong / partial)</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-step fs-sky">Router recupera runs similares con rating</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-step fs-blue">Decisión ajustada [ÚTIL] / [ERRÓNEO]</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-step fs-green">Mejor provider + modelo elegido</div>
-  </div>
-
-  <div class="callout">
-    <strong>Pendiente:</strong> Panel de efectividad RAG en Inspector (% runs con context_hits) y linkeo de sesiones importadas a contextos activos — próximas mejoras en la hoja de ruta.
   </div>
 </section>
 
 </div><!-- /page -->
 
 <footer>
-  ai-orchestrator — MIT License — <a href="/">Dashboard</a>
+  ai-orchestrator — MIT License — Carlos Santis — <a href="/">Dashboard</a> · <a href="/mcp">MCP</a> · <a href="/security">Seguridad</a>
 </footer>
 
 </body>
