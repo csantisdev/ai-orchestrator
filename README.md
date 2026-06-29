@@ -219,6 +219,8 @@ El dashboard tiene dos pestañas:
 - **Dashboard** — tabla de runs en tiempo real, formulario de nueva tarea, panel de detalle, gauge de presupuesto, barra de actividad con spans
 - **Inspector** — estado interno de ChromaDB y SQLite, registro de proyectos con folder picker nativo
 
+> **Tipo de cambio USD/CLP (opcional):** El dashboard incluye un panel para consultar el tipo de cambio vía la API del Banco Central de Chile (`si3.bcentral.cl`). Es una feature opcional y específica de Chile — requiere credenciales gratuitas en ese sitio. Usuarios fuera de Chile pueden ignorarla; el resto del dashboard funciona sin configurarla.
+
 La documentación completa está en **`http://127.0.0.1:8080/docs`** una vez levantado el servidor.
 
 ### Indexación RAG
