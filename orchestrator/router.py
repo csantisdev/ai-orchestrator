@@ -142,6 +142,7 @@ def _build_router_prompt(
         lines = "\n".join(
             f"- [{r['project']}] → {r['provider']}: \"{r['routing_reason']}\""
             f"{' [ÚTIL]' if r.get('rating') == 'useful' else ''}"
+            f"{' [PARCIALMENTE ÚTIL]' if r.get('rating') == 'partial' else ''}"
             f"{' [ERRÓNEO — evitar este provider para esta tarea]' if r.get('rating') == 'wrong' else ''}"
             for r in similar_runs
         )

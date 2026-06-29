@@ -78,6 +78,8 @@ def _worker(
             )
 
         provider = build_provider(config, decision.provider)
+        if decision.model:
+            provider.model = decision.model
 
         system_prompt = (
             f"Eres un asistente técnico. Estás trabajando en el proyecto '{project}'.\n"
