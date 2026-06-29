@@ -2437,8 +2437,9 @@ function renderProyectos(data) {
 
     const topRows = ragChunks.map(c => {
       const src   = c.source || '';
-      const parts = src.split(/[\/\\]/);
-      const short = parts.slice(-2).join('/');
+      const i1    = Math.max(src.lastIndexOf('/'), src.lastIndexOf('\\'));
+      const i2    = i1 > 0 ? Math.max(src.lastIndexOf('/', i1 - 1), src.lastIndexOf('\\', i1 - 1)) : -1;
+      const short = i2 >= 0 ? src.slice(i2 + 1) : src;
       return '<tr style="border-bottom:1px solid var(--border-faint)">' +
         '<td style="padding:5px 10px;font-size:11px;font-family:monospace;color:var(--text-primary)">' + escHtml(c.project) + '</td>' +
         '<td style="padding:5px 10px;font-size:11px;color:var(--text-muted)" title="' + escHtml(src) + '">' + escHtml(short) + '</td>' +
