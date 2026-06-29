@@ -16,6 +16,8 @@ con dashboard en vivo, tracking de costo y memoria RAG.
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-818cf8?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-71717a?style=flat-square)
 
+**[github.com/csantisdev/ai-orchestrator](https://github.com/csantisdev/ai-orchestrator)**
+
 </div>
 
 ---
