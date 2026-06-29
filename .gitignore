@@ -60,6 +60,9 @@ dist/
 # Claude Code — configuración local de sesión (rutas de máquina, permisos)
 .claude/
 
+# Documento de trabajo interno para Codex — no es documentación pública
+docs/codex-context.md
+
 # MCP config local — contiene paths absolutos específicos de cada máquina
 # Usar .mcp.json.example como referencia para crear el tuyo
 .mcp.json
