@@ -2420,6 +2420,59 @@ function renderProyectos(data) {
   });
   html += `</div></div></div>`;
 
+  // ── Panel: Efectividad RAG ────────────────────────────────────────────────
+  const ragEff    = data.rag_effectiveness || [];
+  const ragChunks = data.rag_top_chunks    || [];
+  if (ragEff.length) {
+    const ragRows = ragEff.map(r => {
+      const pct   = r.hit_pct ?? 0;
+      const color = pct >= 60 ? '#22c55e' : pct >= 30 ? '#f59e0b' : '#f87171';
+      return '<tr style="border-bottom:1px solid var(--border-faint)">' +
+        '<td style="padding:7px 10px;font-size:12px;font-family:monospace;color:var(--text-primary)">'  + escHtml(r.project)       + '</td>' +
+        '<td style="padding:7px 10px;font-size:12px;color:var(--text-muted);text-align:right">'         + r.total_runs              + '</td>' +
+        '<td style="padding:7px 10px;font-size:12px;color:var(--text-muted);text-align:right">'         + r.runs_with_hits          + '</td>' +
+        '<td style="padding:7px 10px;font-size:12px;font-weight:700;color:' + color + ';text-align:right">' + pct + '%'             + '</td>' +
+      '</tr>';
+    }).join('');
+
+    const topRows = ragChunks.map(c => {
+      const src   = c.source || '';
+      const parts = src.split(/[/\\]/);
+      const short = parts.slice(-2).join('/');
+      return '<tr style="border-bottom:1px solid var(--border-faint)">' +
+        '<td style="padding:5px 10px;font-size:11px;font-family:monospace;color:var(--text-primary)">' + escHtml(c.project) + '</td>' +
+        '<td style="padding:5px 10px;font-size:11px;color:var(--text-muted)" title="' + escHtml(src) + '">' + escHtml(short) + '</td>' +
+        '<td style="padding:5px 10px;font-size:11px;color:#22c55e;text-align:right;font-weight:600">'  + c.frequency + '</td>' +
+      '</tr>';
+    }).join('');
+
+    html += `<div class="panel" style="margin-bottom:16px">
+      <h2>Efectividad RAG</h2>
+      <p class="text-muted" style="font-size:12px;margin-bottom:14px">Porcentaje de runs (excluye importaciones sync-cc / codex / git) que usaron al menos un chunk de contexto RAG en su respuesta.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:8px">Por proyecto — % con RAG hits</div>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--bg-elevated)">
+              <th style="padding:6px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.5px">Proyecto</th>
+              <th style="padding:6px 10px;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.5px">Runs</th>
+              <th style="padding:6px 10px;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.5px">Con RAG</th>
+              <th style="padding:6px 10px;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.5px">%</th>
+            </tr></thead>
+            <tbody>${ragRows}</tbody>
+          </table>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:8px">Chunks más recuperados</div>
+          ${topRows
+            ? '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:var(--bg-elevated)"><th style="padding:5px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.5px">Proyecto</th><th style="padding:5px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.5px">Chunk</th><th style="padding:5px 10px;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.5px">Hits</th></tr></thead><tbody>' + topRows + '</tbody></table>'
+            : '<p class="text-muted" style="font-size:12px">Sin datos — indexá docs y ejecutá tareas primero.</p>'
+          }
+        </div>
+      </div>
+    </div>`;
+  }
+
   // ── Panel: Importar contexto de agentes ──────────────────────────────────
   const impProjOpts = allProjects.map(p =>
     `<option value="${escHtml(p)}">${escHtml(p)}</option>`

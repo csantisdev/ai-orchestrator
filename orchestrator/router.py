@@ -31,8 +31,19 @@ Reglas generales de referencia (el proyecto puede sobreescribirlas en sus notas)
 - openai: refactors, integración de APIs, tareas de propósito general.
 - deepseek: tareas repetitivas, generación de tests, boilerplate, tareas económicas en volumen.
 
+Uso de ratings en tareas similares previas:
+- Si una tarea similar está marcada como [ERRÓNEO] para un provider, evitá ese provider a menos que no haya alternativa.
+- Si está marcada como [ÚTIL], ese provider es buena señal para esta tarea.
+
+Para "model": si la tarea es simple (boilerplate, completar código corto, formateo) sugerí el modelo más liviano del provider.
+Si "model" es null, se usará el configurado en config.yaml. Ejemplos orientativos:
+- claude + tarea simple → "claude-haiku-4-5-20251001"
+- claude + arquitectura/seguridad → null
+- deepseek + cualquier tarea → null
+- openai + tarea simple → "gpt-4o-mini"
+
 Respondé SOLO con un JSON válido, sin texto adicional, sin markdown, con este formato exacto:
-{"provider": "claude|openai|deepseek", "reason": "justificación breve en una línea"}
+{"provider": "claude|openai|deepseek", "model": "nombre-modelo-o-null", "reason": "justificación breve en una línea"}
 """
 
 
@@ -40,6 +51,7 @@ Respondé SOLO con un JSON válido, sin texto adicional, sin markdown, con este 
 class RoutingDecision:
     provider: str
     reason: str
+    model: str | None = None
     used_fallback: bool = False
 
 
@@ -111,6 +123,7 @@ def _fetch_similar_runs(task: str, n: int = 3) -> list[dict]:
                     "provider": row["provider"],
                     "routing_reason": row["routing_reason"],
                     "task_preview": row["task_preview"],
+                    "rating": row["rating"] if "rating" in row.keys() else None,
                 })
         return results
     except Exception:
@@ -128,6 +141,8 @@ def _build_router_prompt(
     if similar_runs:
         lines = "\n".join(
             f"- [{r['project']}] → {r['provider']}: \"{r['routing_reason']}\""
+            f"{' [ÚTIL]' if r.get('rating') == 'useful' else ''}"
+            f"{' [ERRÓNEO — evitar este provider para esta tarea]' if r.get('rating') == 'wrong' else ''}"
             for r in similar_runs
         )
         similar_section = f"\nDecisiones de ruteo previas en tareas similares:\n{lines}\n"
@@ -192,11 +207,12 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
         parsed = json.loads(result.text.strip())
         provider = parsed.get("provider")
         reason = parsed.get("reason", "")
+        model = parsed.get("model") or None
 
         if provider not in PROVIDERS:
             raise ValueError(f"Provider inválido devuelto por el router: {provider}")
 
-        return RoutingDecision(provider=provider, reason=reason, used_fallback=False)
+        return RoutingDecision(provider=provider, model=model, reason=reason, used_fallback=False)
 
     except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier falla del router
         return RoutingDecision(

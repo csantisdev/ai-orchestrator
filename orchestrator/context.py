@@ -112,6 +112,32 @@ def create_default_context(
     return ctx_path
 
 
+def create_claude_md(project_path: Path, alias: str) -> Path | None:
+    """Genera CLAUDE.md en la raíz del proyecto si no existe. Retorna None si ya existía."""
+    claude_md = project_path / "CLAUDE.md"
+    if claude_md.exists():
+        return None
+
+    content = (
+        f"# AI Orchestrator\n\n"
+        f"Project: `{alias}`\n\n"
+        f"## Instrucciones para el agente\n\n"
+        f"Al inicio de cualquier tarea sustancial, llamar:\n\n"
+        f"```\n"
+        f"mcp__ai-orchestrator__get_context(project='{alias}')\n"
+        f"```\n\n"
+        f"Si existe un contexto activo, llamar también:\n\n"
+        f"```\n"
+        f"mcp__ai-orchestrator__list_steps(context_id=<id>)\n"
+        f"```\n\n"
+        f"Trabajar sobre el step `in_progress`. "
+        f"Usar `confirm_alignment` antes de cambios significativos. "
+        f"Usar `advance_step` solo tras implementar y verificar el step completo.\n"
+    )
+    claude_md.write_text(content, encoding="utf-8")
+    return claude_md
+
+
 def save_skip_dirs(project_path: Path, skip_dirs: list[str]) -> None:
     """Persiste skip_dirs en el context.yaml del proyecto sin tocar el resto."""
     ctx_path = _context_file_path(project_path)

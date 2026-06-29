@@ -389,7 +389,50 @@ def read_inspector_data() -> dict:
                FROM tool_calls tc JOIN steps s ON tc.step_id = s.id
                ORDER BY tc.ts DESC LIMIT 200"""
         ),
+        "rag_effectiveness": _rows(
+            """SELECT
+                 r.project,
+                 COUNT(*) AS total_runs,
+                 COUNT(DISTINCT ch.run_id) AS runs_with_hits,
+                 ROUND(100.0 * COUNT(DISTINCT ch.run_id) / COUNT(*), 1) AS hit_pct
+               FROM runs r
+               LEFT JOIN context_hits ch ON r.id = ch.run_id
+               WHERE r.provider NOT IN ('claude-code', 'codex', 'git')
+               GROUP BY r.project
+               ORDER BY total_runs DESC
+               LIMIT 20"""
+        ),
+        "rag_top_chunks": _rows(
+            """SELECT
+                 r.project,
+                 ch.source,
+                 COUNT(*) AS frequency
+               FROM context_hits ch
+               JOIN runs r ON r.id = ch.run_id
+               GROUP BY r.project, ch.source
+               ORDER BY frequency DESC
+               LIMIT 15"""
+        ),
     }
+
+
+def get_active_step_id(project: str) -> Optional[int]:
+    """Retorna el id del paso in_progress del contexto activo del proyecto, o None."""
+    try:
+        conn = _conn()
+        ctx = conn.execute(
+            "SELECT id FROM contexts WHERE project=? AND status='active' ORDER BY ts DESC LIMIT 1",
+            (project,),
+        ).fetchone()
+        if ctx is None:
+            return None
+        step = conn.execute(
+            "SELECT id FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx LIMIT 1",
+            (ctx["id"],),
+        ).fetchone()
+        return step["id"] if step else None
+    except Exception:
+        return None
 
 
 def insert_context(project: str, title: str, description: str = "", metadata: str = "{}", parent_step_id: Optional[int] = None, status: str = "active") -> int:

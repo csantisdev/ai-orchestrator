@@ -259,6 +259,19 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                 conn.commit()
 
             run_id = cur.lastrowid
+            if run_id:
+                try:
+                    from orchestrator.db import get_active_step_id
+                    step_id = get_active_step_id(project_alias)
+                    if step_id:
+                        with _write_lock:
+                            conn.execute(
+                                "UPDATE runs SET step_id=? WHERE id=? AND step_id IS NULL",
+                                (step_id, run_id),
+                            )
+                            conn.commit()
+                except Exception:
+                    pass
             if run_id and response_text:
                 try:
                     from orchestrator.rag import index_response
