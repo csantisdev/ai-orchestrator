@@ -293,9 +293,9 @@
   </div>
 
   <div class="hyp">
-    <div class="hyp-id">H3 — Valor del RAG en el router</div>
-    <div class="hyp-text">Los runs donde el router recuperó contexto RAG relevante (context_hits &gt; 0) tienen mayor tasa de rating <code>useful</code> que los runs sin hits — verificando que RAG en la capa de decisión agrega señal más allá de las keywords estáticas.</div>
-    <div class="hyp-metric">Métrica: <code>useful_rate(runs con hits) vs useful_rate(runs sin hits)</code></div>
+    <div class="hyp-id">H3 — Valor del RAG en el prompt de ejecución</div>
+    <div class="hyp-text">Los runs donde el sistema recuperó contexto RAG relevante para el provider (<code>context_hits &gt; 0</code>) tienen mayor tasa de rating <code>useful</code> que los runs sin hits — verificando que inyectar chunks del proyecto en el system prompt mejora la calidad observable de la respuesta. Nota: este RAG (<code>rag.py → persist_context_hits</code>) es distinto del RAG del router (<code>similarity.py → _fetch_similar_runs</code>), que busca runs previos similares para ajustar la decisión de proveedor.</div>
+    <div class="hyp-metric">Métrica: <code>useful_rate(runs con context_hits &gt; 0) vs useful_rate(runs con context_hits = 0)</code></div>
   </div>
 
   <h3>Condición de activación del ciclo</h3>
@@ -639,7 +639,7 @@ mi-proyecto\
     <tr><td>Infraestructura de router</td><td><span class="pill pill-green">Implementado</span></td><td>Router opera, produce decisiones, registra routing_reason</td></tr>
     <tr><td>Rating feedback loop</td><td><span class="pill pill-orange">Sin activar</span></td><td>0 de 430 runs tiene rating asignado</td></tr>
     <tr><td>RAG indexación</td><td><span class="pill pill-green">Activo</span></td><td>576 chunks en ChromaDB para 6 proyectos</td></tr>
-    <tr><td>RAG context hits</td><td><span class="pill pill-orange">Sin activar</span></td><td>0 hits — runs via router fueron manuales; RAG no se ejercitó autónomamente</td></tr>
+    <tr><td>RAG context hits</td><td><span class="pill pill-orange">Sin hits</span></td><td>0 hits — <code>persist_context_hits</code> opera en todos los runs (manuales y autónomos); 0 indica que ninguna query superó el umbral de similitud L2=0.9 durante esos runs. Causa probable: índice escaso (576 chunks) vs variedad de tareas ejecutadas.</td></tr>
     <tr><td>Step linkage (imports)</td><td><span class="pill pill-green">Implementado</span></td><td>Lógica activa en watcher.py y codex_watcher.py; sin runs posteriores aún</td></tr>
     <tr><td>Runs autónomos del router</td><td><span class="pill pill-orange">Pendiente</span></td><td>Todos los runs via router tuvieron override <code>--model</code></td></tr>
   </table>
