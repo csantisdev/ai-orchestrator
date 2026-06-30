@@ -16,6 +16,10 @@ providers:
     api_key: "sk-..."
     model: "deepseek-v4-flash"
 
+  gemini:
+    api_key: "AIza..."
+    model: "gemini-2.5-pro"
+
 router:
   # Modelo liviano/barato usado SOLO para decidir el ruteo, no para resolver
   # la tarea en sí. DeepSeek V4-Flash es la opción más económica ($0.14/M tokens).
@@ -48,6 +52,12 @@ pricing:
   deepseek-v4-flash:
     input: 0.14
     output: 0.28
+  gemini-2.5-pro:
+    input: 1.25
+    output: 10.00
+  gemini-2.5-flash:
+    input: 0.30
+    output: 2.50
 
 # Presupuesto diario de tokens por proyecto.
 # El dashboard muestra un gauge y emite warnings cuando se supera warning_threshold.

@@ -1,6 +1,6 @@
 # Obtención de API Keys
 
-El orquestador necesita hasta tres API keys, una por proveedor. Solo son
+El orquestador necesita hasta cuatro API keys, una por proveedor. Solo son
 obligatorias las de los proveedores que vayas a usar. El mínimo funcional
 es tener **DeepSeek** (para el router) + **al menos un proveedor destino**.
 
@@ -86,6 +86,50 @@ Con cache activo baja a $0.0028 / M — prácticamente gratis para el router.
 
 ---
 
+## 4. Google Gemini
+
+**Por qué:** ventaja en contexto muy largo (hasta 1M tokens), análisis de
+repositorios completos y tareas multimodal. Buena alternativa económica con
+`gemini-2.5-flash`.
+
+**Pasos:**
+
+1. Ir a <https://aistudio.google.com/apikey>
+2. Iniciar sesión con tu cuenta Google.
+3. Click en **Create API key** → elegir un proyecto de Google Cloud existente
+   o crear uno nuevo.
+4. Copiar la key generada.
+
+**Forma de la key:** `AIza...` (39 caracteres)
+
+> Si la key tiene formato `AQ.Ab8...` es un token OAuth del Gemini CLI, no
+> una API key de AI Studio. No funciona para llamadas directas a la API —
+> generá una nueva desde aistudio.google.com/apikey.
+
+**Modelos disponibles:**
+
+| Modelo | Input | Output | Notas |
+|---|---|---|---|
+| `gemini-2.5-flash` | $0,30 / M | $2,50 / M | **Recomendado** — disponible en free tier |
+| `gemini-2.5-pro` | $1,25 / M | $10,00 / M | Requiere billing habilitado |
+| `gemini-2.5-flash-lite` | $0,10 / M | $0,40 / M | Más económico del tier free |
+
+**Modelo recomendado en config.yaml:** `gemini-2.5-flash`
+
+> ⚠️ `gemini-2.5-pro` tiene cuota 0 en el free tier. Si usás una cuenta sin
+> billing, configurá `gemini-2.5-flash` como modelo. El error `429` con
+> `limit: 0` indica exactamente esto.
+
+**Cuándo usar Gemini en el router:**
+El router elige Gemini automáticamente para tareas con contexto muy largo
+(>100K tokens) o análisis de repositorios completos. Para forzarlo manualmente:
+
+```powershell
+ai-orchestrator run --project mi-proyecto --model gemini --task "analizar todo el repo"
+```
+
+---
+
 ## Configurar las keys
 
 Una vez obtenidas las keys, editá `~/.ai-orchestrator/config.yaml`:
@@ -103,6 +147,10 @@ providers:
   deepseek:
     api_key: "sk-TU_KEY_AQUI"
     model: "deepseek-v4-flash"
+
+  gemini:
+    api_key: "AIza-TU_KEY_AQUI"
+    model: "gemini-2.5-flash"
 
 router:
   provider: "deepseek"

@@ -6,12 +6,14 @@ from orchestrator.config import get_provider_config
 from orchestrator.providers.base import BaseProvider
 from orchestrator.providers.claude import ClaudeProvider
 from orchestrator.providers.deepseek import DeepSeekProvider
+from orchestrator.providers.gemini import GeminiProvider
 from orchestrator.providers.openai import OpenAIProvider
 
 _REGISTRY: dict[str, type[BaseProvider]] = {
     "claude": ClaudeProvider,
     "openai": OpenAIProvider,
     "deepseek": DeepSeekProvider,
+    "gemini": GeminiProvider,
 }
 
 

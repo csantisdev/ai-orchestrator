@@ -22,7 +22,7 @@ from orchestrator.paths import PROVIDERS
 from orchestrator.providers.factory import build_provider
 
 ROUTER_SYSTEM_PROMPT = """Sos un router de tareas de desarrollo de software.
-Tu único trabajo es elegir, entre "claude", "openai" o "deepseek", cuál es
+Tu único trabajo es elegir, entre "claude", "openai", "deepseek" o "gemini", cuál es
 el motor más adecuado para resolver la tarea dada, considerando el stack
 del proyecto, sus convenciones, notas de ruteo y señales de keywords.
 
@@ -30,6 +30,7 @@ Reglas generales de referencia (el proyecto puede sobreescribirlas en sus notas)
 - claude: tareas de arquitectura, seguridad, decisiones de diseño, código complejo o ambiguo.
 - openai: refactors, integración de APIs, tareas de propósito general.
 - deepseek: tareas repetitivas, generación de tests, boilerplate, tareas económicas en volumen.
+- gemini: tareas con contexto muy largo (>100K tokens), análisis de repositorios completos, multimodal.
 
 Uso de ratings en tareas similares previas:
 - Si una tarea similar está marcada como [ERRÓNEO] para un provider, evitá ese provider a menos que no haya alternativa.
@@ -41,9 +42,11 @@ Si "model" es null, se usará el configurado en config.yaml. Ejemplos orientativ
 - claude + arquitectura/seguridad → null
 - deepseek + cualquier tarea → null
 - openai + tarea simple → "gpt-4o-mini"
+- gemini + tarea simple → "gemini-2.5-flash"
+- gemini + contexto largo/análisis → null
 
 Respondé SOLO con un JSON válido, sin texto adicional, sin markdown, con este formato exacto:
-{"provider": "claude|openai|deepseek", "model": "nombre-modelo-o-null", "reason": "justificación breve en una línea"}
+{"provider": "claude|openai|deepseek|gemini", "model": "nombre-modelo-o-null", "reason": "justificación breve en una línea"}
 """
 
 

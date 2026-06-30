@@ -30,6 +30,7 @@
     .badge-blue{background:var(--blue-bg);color:var(--blue);border-color:rgba(129,140,248,.25)}
     .badge-sky{background:var(--sky-bg);color:var(--sky);border-color:rgba(56,189,248,.25)}
     .badge-gray{background:var(--surface);color:var(--muted);border-color:var(--border)}
+    .badge-google{background:var(--google-bg);color:var(--google);border-color:rgba(66,133,244,.25)}
 
     /* ── Layout ── */
     .page{max-width:960px;margin:0 auto;padding:0 32px 80px}
@@ -164,7 +165,10 @@
     <span class="badge badge-green">Python 3.10+</span>
     <span class="badge badge-blue">SQLite WAL + ChromaDB</span>
     <span class="badge badge-sky">MCP · SSE · Typer</span>
-    <span class="badge badge-orange">Claude · OpenAI · DeepSeek</span>
+    <span class="badge badge-orange">Claude</span>
+    <span class="badge badge-blue">OpenAI</span>
+    <span class="badge badge-green">DeepSeek</span>
+    <span class="badge badge-google">Gemini</span>
     <span class="badge badge-gray">Uso local · MIT License</span>
   </div>
 </div>
@@ -339,6 +343,7 @@
     │       claude.py   → Anthropic API  (sonnet-4-6 / opus / haiku)
     │       openai.py   → OpenAI API    (gpt-4o / gpt-4o-mini)
     │       deepseek.py → DeepSeek API  (v4-flash / pro)
+    │       gemini.py   → Google API    (2.5-flash / 2.5-pro)
     │
     ├── <span class="hl">DB</span>                (db.py · SQLite WAL)
     │       runs, contexts, steps, chunks, alignments, tool_calls, context_hits
@@ -366,7 +371,7 @@
     <div class="flow-arrow">→</div>
     <div class="flow-step fs-blue">RAG retrieval<br><small style="font-weight:400;font-size:11px">docs + responses</small></div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step fs-orange">Provider API<br><small style="font-weight:400;font-size:11px">Claude / OpenAI / DS</small></div>
+    <div class="flow-step fs-orange">Provider API<br><small style="font-weight:400;font-size:11px">Claude / OpenAI / DS / Gemini</small></div>
     <div class="flow-arrow">→</div>
     <div class="flow-step fs-default">DB write<br><small style="font-weight:400;font-size:11px">run + step_id</small></div>
     <div class="flow-arrow">→</div>

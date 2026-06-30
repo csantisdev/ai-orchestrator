@@ -5,7 +5,7 @@
 <br><br>
 
 **Memoria, trazabilidad y control de costos para desarrollo asistido por agentes IA**  
-Rutea tareas entre Claude, OpenAI y DeepSeek según el contexto del proyecto,  
+Rutea tareas entre Claude, OpenAI, DeepSeek y Gemini según el contexto del proyecto,  
 con dashboard en vivo, tracking de costo y memoria RAG.
 
 <br>
@@ -14,6 +14,7 @@ con dashboard en vivo, tracking de costo y memoria RAG.
 ![Claude](https://img.shields.io/badge/Claude-Sonnet%20%2F%20Opus-fb923c?style=flat-square)
 ![DeepSeek](https://img.shields.io/badge/DeepSeek-V4--Flash-22c55e?style=flat-square)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-818cf8?style=flat-square)
+![Gemini](https://img.shields.io/badge/Gemini-2.5%20Flash%20%2F%20Pro-4285f4?style=flat-square&logo=google)
 ![License](https://img.shields.io/badge/License-MIT-71717a?style=flat-square)
 
 **[github.com/csantisdev/ai-orchestrator](https://github.com/csantisdev/ai-orchestrator)**
@@ -78,6 +79,7 @@ notepad ~/.ai-orchestrator/config.yaml
 > | Claude (Anthropic) | https://console.anthropic.com → API Keys | Sí (proveedor destino) |
 > | DeepSeek | https://platform.deepseek.com → API Keys | Sí (router) |
 > | OpenAI | https://platform.openai.com → API keys | Opcional |
+> | Gemini (Google) | https://aistudio.google.com/apikey | Opcional |
 >
 > El mínimo funcional es **DeepSeek** (router) + **Claude** (proveedor destino). Ver guía detallada en [`docs/api-keys.md`](docs/api-keys.md).
 
@@ -154,6 +156,7 @@ CLI / HTTP Server       cli.py · Typer + BaseHTTPRequestHandler
     │       claude.py   → Anthropic API
     │       openai.py   → OpenAI API
     │       deepseek.py → DeepSeek API
+    │       gemini.py   → Google Generative Language API
     │
     ├── DB              db.py · SQLite WAL
     │       runs, contexts, steps, chunks, alignments, tool_calls
@@ -186,7 +189,7 @@ C:\ruta\ai-orchestrator\          ← repo
 │   ├── dashboard.py        ← HTML del panel web
 │   ├── sse.py              ← Server-Sent Events
 │   ├── codex_watcher.py    ← importador de sesiones Codex CLI
-│   └── providers\          ← claude · openai · deepseek
+│   └── providers\          ← claude · openai · deepseek · gemini
 └── docs\
     ├── index.html      ← documentación completa en /docs
     └── img\            ← banner, logo, favicons
@@ -394,6 +397,9 @@ providers:
   deepseek:
     api_key: "sk-..."
     model: "deepseek-v4-flash"
+  gemini:
+    api_key: "AIza..."
+    model: "gemini-2.5-flash"
 
 router:
   provider: "deepseek"
@@ -411,6 +417,12 @@ pricing:
   deepseek-v4-flash:
     input: 0.14
     output: 0.28
+  gemini-2.5-flash:
+    input: 0.30
+    output: 2.50
+  gemini-2.5-pro:
+    input: 1.25
+    output: 10.00
 
 budgets:
   default_daily_budget_usd: 5.00
@@ -462,8 +474,12 @@ Ver esquema completo en [`docs/context-schema.md`](docs/context-schema.md).
 | `openai` | `gpt-4o-mini` | $0,15 | $0,60 | Tareas económicas con OpenAI |
 | `deepseek` | `deepseek-chat` | $0,14 | $0,28 | Router / borradores / tareas masivas |
 | `deepseek` | `deepseek-v4-flash` | $0,14 | $0,28 | Modelo default del router |
+| `gemini` | `gemini-2.5-flash` | $0,30 | $2,50 | Contexto largo, tareas generales |
+| `gemini` | `gemini-2.5-pro` | $1,25 | $10,00 | Análisis complejo (requiere billing) |
+| `gemini` | `gemini-2.5-flash-lite` | $0,10 | $0,40 | Tareas muy económicas |
 
 > Precios en USD por millón de tokens. Los modelos Claude soportan cache write/read (ver `pricing` en `config.yaml`).
+> `gemini-2.5-pro` requiere billing habilitado en Google Cloud — en el free tier la cuota es 0. Usar `gemini-2.5-flash` para cuentas sin billing.
 
 ---
 
@@ -474,6 +490,7 @@ Ver esquema completo en [`docs/context-schema.md`](docs/context-schema.md).
 | `ProjectNotFoundError: alias 'X' no está registrado` | El alias no existe en el índice | `ai-orchestrator add X --path "C:\ruta"` |
 | `ChromaDB no inicializa` | Permisos o directorio faltante | Verificar escritura en `~/.ai-orchestrator/chroma/` |
 | `API key inválida` | Key incorrecta o expirada | Revisar `config.yaml`, regenerar key en la plataforma |
+| `429 Too Many Requests` con Gemini | Cuota free tier agotada para `gemini-2.5-pro` | Usar `gemini-2.5-flash` (tiene cuota free) o habilitar billing en Google Cloud |
 | `ModuleNotFoundError: chromadb` | ChromaDB no instalado | `pip install chromadb` — sin él el RAG usa FTS5 como fallback |
 | Mojibake en contextos MCP desde Codex (Windows) | `sys.stdin` hereda encoding `cp1252` | Ya resuelto: el servidor fuerza `utf-8` al arrancar. Datos previos: reparar con `update_context` / `update_step` |
 | Panel de actividad se abre solo | Comportamiento esperado en la primera traza | Colapsarlo manualmente — el estado se respeta para el resto de la sesión |
