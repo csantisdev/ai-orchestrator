@@ -30,8 +30,8 @@ def calculate_cost(result: CompletionResult, pricing: dict) -> float | None:
         return None
 
     usage = (result.raw_response or {}).get("usage", {})
-    inp = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
-    out = usage.get("output_tokens") or usage.get("completion_tokens") or 0
+    inp = result.input_tokens or usage.get("input_tokens") or usage.get("prompt_tokens") or 0
+    out = result.output_tokens or usage.get("output_tokens") or usage.get("completion_tokens") or 0
     cc  = getattr(result, "cache_creation_tokens", 0) or 0
     cr  = getattr(result, "cache_read_tokens", 0) or 0
 

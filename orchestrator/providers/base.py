@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -14,6 +15,8 @@ class CompletionResult:
     raw_response: dict | None = None
     cache_creation_tokens: int = 0
     cache_read_tokens: int = 0
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
 
 
 class BaseProvider(ABC):

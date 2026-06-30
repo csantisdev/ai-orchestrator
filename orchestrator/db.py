@@ -116,6 +116,8 @@ def insert_run(
 
 
 def _extract_tokens(result: CompletionResult) -> tuple[Optional[int], Optional[int]]:
+    if result.input_tokens is not None or result.output_tokens is not None:
+        return result.input_tokens, result.output_tokens
     usage = (result.raw_response or {}).get("usage", {})
     if "input_tokens" in usage:
         return usage.get("input_tokens"), usage.get("output_tokens")
