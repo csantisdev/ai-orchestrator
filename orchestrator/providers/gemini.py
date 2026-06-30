@@ -26,8 +26,17 @@ class GeminiProvider(BaseProvider):
         response.raise_for_status()
         data = response.json()
 
-        parts = data["candidates"][0]["content"]["parts"]
+        candidates = data.get("candidates", [])
+        if not candidates:
+            block_reason = data.get("promptFeedback", {}).get("blockReason", "unknown")
+            raise RuntimeError(f"Gemini blocked prompt: {block_reason}")
+
+        candidate = candidates[0]
+        finish_reason = candidate.get("finishReason", "STOP")
+        parts = candidate.get("content", {}).get("parts", [])
         text = "".join(p.get("text", "") for p in parts)
+        if not text and finish_reason != "STOP":
+            raise RuntimeError(f"Gemini no text returned (finishReason={finish_reason})")
 
         usage = data.get("usageMetadata", {})
         model_version = data.get("modelVersion", self.model)
