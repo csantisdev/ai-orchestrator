@@ -12,7 +12,7 @@ CONFIG_PATH = HOME_DIR / "config.yaml"
 PROJECT_CONTEXT_DIRNAME = ".orchestrator"
 PROJECT_CONTEXT_FILENAME = "context.yaml"
 
-PROVIDERS = ("claude", "openai", "deepseek")
+PROVIDERS = ("claude", "openai", "deepseek", "gemini")
 
 DB_PATH     = HOME_DIR / "runs.db"
 CHROMA_PATH = HOME_DIR / "chroma"

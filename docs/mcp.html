@@ -27,8 +27,10 @@
     .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--border)}
     .badge-green{background:var(--green-bg);color:var(--green);border-color:rgba(34,197,94,.25)}
     .badge-orange{background:var(--orange-bg);color:var(--orange);border-color:rgba(251,146,60,.25)}
+    .badge-blue{background:var(--blue-bg);color:var(--blue);border-color:rgba(129,140,248,.25)}
     .badge-sky{background:var(--sky-bg);color:var(--sky);border-color:rgba(56,189,248,.25)}
     .badge-red{background:var(--red-bg);color:var(--red);border-color:rgba(248,113,113,.25)}
+    .badge-google{background:rgba(66,133,244,.12);color:#4285f4;border-color:rgba(66,133,244,.25)}
 
     .page{max-width:960px;margin:0 auto;padding:0 32px 80px}
     section{padding-top:64px}
@@ -130,10 +132,11 @@
   <p>11 herramientas para que cualquier agente IA lea el plan de trabajo, confirme alineamiento, registre su progreso en tiempo real e importe trabajo de agentes externos.</p>
   <div class="hero-badges">
     <span class="badge badge-sky">JSON-RPC · stdio</span>
-    <span class="badge badge-green">Claude Desktop</span>
-    <span class="badge badge-green">Claude Code</span>
-    <span class="badge badge-sky">OpenAI Codex</span>
-    <span class="badge badge-green">Cursor</span>
+    <span class="badge badge-orange">Claude Desktop</span>
+    <span class="badge badge-orange">Claude Code</span>
+    <span class="badge badge-blue">OpenAI Codex</span>
+    <span class="badge badge-google">Gemini Code Assist</span>
+    <span class="badge badge-sky">Cursor</span>
     <span class="badge badge-red">ChatGPT (no)</span>
   </div>
 </div>
@@ -173,7 +176,7 @@
     </div>
     <div class="client-card">
       <div class="client-card-header">
-        <div class="client-icon" style="background:rgba(250,204,21,.15)">G</div>
+        <div class="client-icon" style="background:rgba(66,133,244,.15);color:#4285f4;font-weight:700">G</div>
         <h4>Gemini Code Assist</h4>
         <span class="support s-yes">✓ nativo</span>
       </div>
@@ -416,7 +419,7 @@
           <tbody>
             <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>Contexto al que se agrega el paso.</td></tr>
             <tr><td>title<span class="param-req">*</span></td><td>string</td><td>Descripción del paso.</td></tr>
-            <tr><td>provider</td><td>string</td><td><code>claude</code> · <code>deepseek</code> · <code>openai</code> · vacío = auto.</td></tr>
+            <tr><td>provider</td><td>string</td><td><code>claude</code> · <code>deepseek</code> · <code>openai</code> · <code>gemini</code> · vacío = auto.</td></tr>
             <tr><td>order_idx</td><td>integer</td><td>Posición. Si se omite, va al final.</td></tr>
           </tbody>
         </table>

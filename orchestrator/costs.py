@@ -15,6 +15,9 @@ DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "gpt-5":              {"input": 3.00,  "output": 15.00, "cache_read": 0.75},
     "deepseek-v4-flash":  {"input": 0.14,  "output": 0.28},
     "deepseek-chat":      {"input": 0.14,  "output": 0.28},
+    "gemini-2.5-pro":     {"input": 1.25,  "output": 10.00},
+    "gemini-2.5-flash":   {"input": 0.30,  "output": 2.50},
+    "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
 }
 
 

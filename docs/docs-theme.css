@@ -14,10 +14,11 @@
   /* Accent colors (static across all themes) */
   --green:#22c55e;--orange:#fb923c;--blue:#818cf8;
   --sky:#38bdf8;--purple:#c084fc;--red:#f87171;--yellow:#fbbf24;
+  --google:#4285f4;
   --green-bg:rgba(34,197,94,.12);--orange-bg:rgba(251,146,60,.12);
   --blue-bg:rgba(129,140,248,.12);--sky-bg:rgba(56,189,248,.12);
   --purple-bg:rgba(192,132,252,.12);--red-bg:rgba(248,113,113,.12);
-  --yellow-bg:rgba(251,191,36,.12);
+  --yellow-bg:rgba(251,191,36,.12);--google-bg:rgba(66,133,244,.12);
 }
 
 [data-theme="light"]{
