@@ -730,11 +730,16 @@ def doctor(
     else:
         warn("ChromaDB vacío", "Se creará al indexar el primer proyecto con 'index-docs'")
 
-    # ── 3. Integración Claude Code / MCP ──────────────────────────────────
-    console.print("\n[bold cyan]Integración Claude Code / MCP[/bold cyan]")
+    # ── 3. Integración agentes / MCP ──────────────────────────────────────
+    console.print("\n[bold cyan]Integración agentes / MCP[/bold cyan]")
     project_root = _Path(__file__).parent.parent
     mcp_json = project_root / ".mcp.json"
     mcp_example = project_root / ".mcp.json.example"
+    mcp_entry = {
+        "command": str((project_root / ".venv" / "Scripts" / "python.exe").resolve()),
+        "args": ["-u", "-m", "orchestrator.mcp"],
+        "cwd": str(project_root.resolve()),
+    }
 
     if mcp_json.exists():
         ok(f".mcp.json presente → MCP activo al abrir desde {project_root.name}/")
@@ -790,6 +795,38 @@ def doctor(
             warn("No se pudo leer ~/.claude/settings.json")
     else:
         warn("~/.claude/settings.json no encontrado")
+
+    import os as _os
+    gemini_base = _Path(_os.environ.get("HOME") or _os.environ.get("USERPROFILE") or str(_Path.home()))
+    gemini_settings = gemini_base / ".gemini" / "settings.json"
+    if sys.platform == "win32":
+        if _os.environ.get("HOME"):
+            ok(f"HOME definido para Gemini: {_os.environ['HOME']}")
+        else:
+            warn("HOME no está definido",
+                 "Gemini resuelve ~/.gemini desde HOME; ejecutá: ai-orchestrator fix")
+    if gemini_settings.exists():
+        import json as _json
+        try:
+            gs = _json.loads(gemini_settings.read_text(encoding="utf-8"))
+            server = gs.get("mcpServers", {}).get("ai-orchestrator")
+            if not server:
+                warn("Gemini: ~/.gemini/settings.json no define mcpServers.ai-orchestrator",
+                     "Ejecutá: ai-orchestrator fix")
+            elif server.get("command") != mcp_entry["command"]:
+                warn("Gemini: ai-orchestrator apunta a otro Python",
+                     "Ejecutá: ai-orchestrator fix para actualizar ~/.gemini/settings.json")
+            elif "-m" in server.get("args", []) and "orchestrator.mcp" in server.get("args", []):
+                ok("Gemini: MCP registrado en ~/.gemini/settings.json")
+            else:
+                warn("Gemini: ai-orchestrator no apunta a orchestrator.mcp",
+                     "Ejecutá: ai-orchestrator fix para corregir ~/.gemini/settings.json")
+        except Exception:
+            warn("No se pudo leer ~/.gemini/settings.json",
+                 "Revisá que sea JSON válido o ejecutá: ai-orchestrator fix")
+    else:
+        warn("Gemini: ~/.gemini/settings.json no existe",
+             "Ejecutá: ai-orchestrator fix para crearlo con mcpServers.ai-orchestrator")
 
     # ── 4. Proyectos ──────────────────────────────────────────────────────
     console.print("\n[bold cyan]Proyectos registrados[/bold cyan]")
@@ -950,6 +987,52 @@ def fix_command(
             servers["ai-orchestrator"] = mcp_entry
             global_settings.write_text(_json.dumps(gs, indent=2, ensure_ascii=False), encoding="utf-8")
             did("MCP registrado en ~/.claude/settings.json global (disponible en todos los proyectos)")
+
+    console.print("\n[bold cyan]Gemini MCP[/bold cyan]")
+    import os as _os
+    import subprocess as _subprocess
+    if sys.platform == "win32":
+        user_home = _os.environ.get("USERPROFILE", str(_Path.home()))
+        if _os.environ.get("HOME"):
+            skip(f"HOME ya definida: {_os.environ['HOME']}")
+        else:
+            try:
+                _subprocess.run(
+                    [
+                        "powershell",
+                        "-NonInteractive",
+                        "-Command",
+                        f'[System.Environment]::SetEnvironmentVariable("HOME", "{user_home}", "User")',
+                    ],
+                    capture_output=True,
+                    timeout=15,
+                )
+                did(f"HOME definida permanentemente: {user_home} (reiniciá VS Code/Gemini)")
+            except Exception as exc:
+                fail(f"No se pudo definir HOME para Gemini: {exc}")
+
+    gemini_base = _Path(_os.environ.get("HOME") or _os.environ.get("USERPROFILE") or str(_Path.home()))
+    gemini_settings = gemini_base / ".gemini" / "settings.json"
+    gemini_settings.parent.mkdir(parents=True, exist_ok=True)
+    gemini_entry = {
+        "command": str((project_root / ".venv" / "Scripts" / "python.exe").resolve()),
+        "args": ["-u", "-m", "orchestrator.mcp"],
+        "cwd": str(project_root.resolve()),
+    }
+    if gemini_settings.exists():
+        try:
+            gd = _json.loads(gemini_settings.read_text(encoding="utf-8"))
+        except Exception:
+            gd = {}
+    else:
+        gd = {}
+    gemini_servers = gd.setdefault("mcpServers", {})
+    if gemini_servers.get("ai-orchestrator") == gemini_entry:
+        skip("Gemini: ~/.gemini/settings.json ya tiene ai-orchestrator")
+    else:
+        gemini_servers["ai-orchestrator"] = gemini_entry
+        gemini_settings.write_text(_json.dumps(gd, indent=2, ensure_ascii=False), encoding="utf-8")
+        did("Gemini: ai-orchestrator registrado en ~/.gemini/settings.json")
 
     # ── 3. context.yaml para proyectos sin él ─────────────────────────────
     console.print("\n[bold cyan]Proyectos[/bold cyan]")
