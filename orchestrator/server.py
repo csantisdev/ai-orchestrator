@@ -969,6 +969,28 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                     else:
                         _warn("settings.json global no encontrado")
 
+                    # HOME env var + Gemini CLI MCP
+                    import os as _os, sys as _sys
+                    if _sys.platform == "win32":
+                        if _os.environ.get("HOME"):
+                            _ok(f"HOME definido: {_os.environ['HOME']}")
+                        else:
+                            _warn("HOME no definida — Gemini CLI no resuelve ~/.gemini; ejecutá fix para definirla")
+                        _gemini_base = _P(_os.environ.get("HOME") or _os.environ.get("USERPROFILE", ""))
+                        _gemini_cfg = _gemini_base / ".gemini" / "settings.json"
+                        if _gemini_cfg.exists():
+                            try:
+                                import json as _jg
+                                _gd = _jg.loads(_gemini_cfg.read_text(encoding="utf-8"))
+                                if "ai-orchestrator" in _gd.get("mcpServers", {}):
+                                    _ok("Gemini CLI: ai-orchestrator en ~/.gemini/settings.json")
+                                else:
+                                    _warn("Gemini CLI: settings.json existe pero sin ai-orchestrator — ejecutá fix")
+                            except Exception:
+                                _warn("Gemini CLI: no se pudo leer ~/.gemini/settings.json")
+                        else:
+                            _warn("Gemini CLI: ~/.gemini/settings.json no existe — ejecutá fix para crearlo")
+
                     # Proyectos
                     try:
                         projs = index_module.list_projects()
@@ -1070,6 +1092,51 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                         )
                         _ok2(".codex/config.toml creado — abrí una sesión nueva de Codex")
                         fixed_count += 1
+
+                    # HOME env var (Gemini CLI fix)
+                    import os as _os2, sys as _sys2, subprocess as _sp2
+                    if _sys2.platform == "win32":
+                        _userprofile = _os2.environ.get("USERPROFILE", str(_P.home()))
+                        if not _os2.environ.get("HOME"):
+                            try:
+                                _sp2.run(
+                                    ["powershell", "-NonInteractive", "-Command",
+                                     f'[System.Environment]::SetEnvironmentVariable("HOME", "{_userprofile}", "User")'],
+                                    capture_output=True, timeout=15,
+                                )
+                                _ok2(f"HOME definida permanentemente: {_userprofile} — reiniciá VS Code")
+                                fixed_count += 1
+                            except Exception as exc2:
+                                _fail2(f"No se pudo definir HOME: {exc2}")
+                        else:
+                            _skip2(f"HOME ya definida: {_os2.environ['HOME']}")
+
+                        # Gemini CLI settings.json
+                        _gemini_base2 = _P(_os2.environ.get("HOME") or _userprofile)
+                        _gemini_cfg2 = _gemini_base2 / ".gemini" / "settings.json"
+                        _gemini_cfg2.parent.mkdir(parents=True, exist_ok=True)
+                        _abs_py3 = str((_P(__file__).parent.parent / ".venv" / "Scripts" / "python.exe").resolve())
+                        _cwd3 = str(_P(__file__).parent.parent.resolve())
+                        _mcp_entry = {"command": _abs_py3, "args": ["-u", "-m", "orchestrator.mcp"], "cwd": _cwd3}
+                        if _gemini_cfg2.exists():
+                            try:
+                                _gd2 = _j2.loads(_gemini_cfg2.read_text(encoding="utf-8"))
+                                if "ai-orchestrator" in _gd2.get("mcpServers", {}):
+                                    _skip2("Gemini CLI: ~/.gemini/settings.json ya tiene ai-orchestrator")
+                                else:
+                                    _gd2.setdefault("mcpServers", {})["ai-orchestrator"] = _mcp_entry
+                                    _gemini_cfg2.write_text(_j2.dumps(_gd2, indent=2, ensure_ascii=False), encoding="utf-8")
+                                    _ok2("Gemini CLI: ai-orchestrator agregado a ~/.gemini/settings.json")
+                                    fixed_count += 1
+                            except Exception as exc2:
+                                _fail2(f"Gemini CLI: error actualizando settings.json: {exc2}")
+                        else:
+                            _gemini_cfg2.write_text(
+                                _j2.dumps({"mcpServers": {"ai-orchestrator": _mcp_entry}}, indent=2, ensure_ascii=False),
+                                encoding="utf-8",
+                            )
+                            _ok2("Gemini CLI: ~/.gemini/settings.json creado")
+                            fixed_count += 1
 
                     # MCP global
                     if body.get("global_mcp") or body.get("all"):

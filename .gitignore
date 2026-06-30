@@ -56,6 +56,7 @@ dist/
 .vscode/*
 !.vscode/tasks.json
 .idea/
+.gemini/
 
 # Claude Code — configuración local de sesión (rutas de máquina, permisos)
 .claude/

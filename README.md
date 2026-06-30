@@ -114,7 +114,7 @@ ai-orchestrator serve                  # abre http://127.0.0.1:8080
 
 ## MCP Plugin
 
-El servidor MCP expone 11 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, etc.) puede invocar directamente sin usar la CLI:
+El servidor MCP expone 11 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, Gemini Code Assist, etc.) puede invocar directamente sin usar la CLI:
 
 | Tool | Propósito |
 |---|---|
@@ -130,7 +130,7 @@ El servidor MCP expone 11 herramientas que cualquier agente compatible (Claude C
 | `update_step` | Edita título, descripción o notas de un paso |
 | `import_agent_context` | Importa trabajo de un agente externo al historial + ChromaDB |
 
-Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto y registra el servidor en `~/.claude/settings.json`.
+Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto, registra Codex en `.codex/config.toml` y registra Gemini en `~/.gemini/settings.json`. Para Claude global, usá `ai-orchestrator fix --global-mcp`.
 
 ---
 
