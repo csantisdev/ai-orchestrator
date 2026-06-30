@@ -75,6 +75,23 @@ def test_cost_calculation():
     assert abs(cost - (3.00 + 15.00)) < 0.001
 
 
+def test_cost_calculation_direct_tokens():
+    from orchestrator.providers.base import CompletionResult
+    from orchestrator.costs import calculate_cost, DEFAULT_PRICING
+
+    result = CompletionResult(
+        text="r",
+        provider="claude",
+        model="claude-sonnet-4-6",
+        input_tokens=1_000_000,
+        output_tokens=1_000_000,
+        raw_response={},
+    )
+    cost = calculate_cost(result, DEFAULT_PRICING)
+    assert cost is not None
+    assert abs(cost - (3.00 + 15.00)) < 0.001
+
+
 def test_context_and_steps():
     import orchestrator.paths as paths_mod
     import orchestrator.db as db_mod
@@ -519,4 +536,53 @@ def test_similarity_backend():
         db_mod._local = threading.local()
         sim_mod._backend_cache = None
         import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_secret_filter():
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    from orchestrator.rag import (
+        _SKIP_FILENAMES,
+        _SKIP_SUFFIXES,
+        _contains_secrets,
+        _is_sensitive_file,
+        _scan_files,
+    )
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+
+    try:
+        for fname in [".env", "credentials.json", "id_rsa", ".npmrc", "secrets.yaml"]:
+            f = tmp_path / fname
+            f.write_text("VAR=value", encoding="utf-8")
+            assert _is_sensitive_file(f), f"{fname} debería ser sensible por nombre"
+
+        for suffix in [".pem", ".key", ".p12", ".pfx"]:
+            f = tmp_path / f"cert{suffix}"
+            f.write_text("dummy", encoding="utf-8")
+            assert _is_sensitive_file(f), f"cert{suffix} debería ser sensible por extensión"
+
+        assert _contains_secrets("sk-ant-api01-" + "A" * 30)
+        assert _contains_secrets("-----BEGIN RSA PRIVATE KEY-----\nMIIEo...")
+        assert not _contains_secrets("este archivo no tiene credenciales")
+        assert not _contains_secrets("sk-short")
+
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        (project_dir / "README.md").write_text("Documentación pública.", encoding="utf-8")
+        (project_dir / ".env").write_text("API_KEY=valor", encoding="utf-8")
+        (project_dir / "server.key").write_text("dummy key content", encoding="utf-8")
+
+        scanned = _scan_files(project_dir)
+        scanned_names = {f.name for f in scanned}
+
+        assert "README.md" in scanned_names
+        assert ".env" not in scanned_names
+        assert "server.key" not in scanned_names
+
+    finally:
         shutil.rmtree(tmp, ignore_errors=True)

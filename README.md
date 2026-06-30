@@ -4,7 +4,7 @@
 
 <br><br>
 
-**Orquestador local de agentes IA**  
+**Memoria, trazabilidad y control de costos para desarrollo asistido por agentes IA**  
 Rutea tareas entre Claude, OpenAI y DeepSeek según el contexto del proyecto,  
 con dashboard en vivo, tracking de costo y memoria RAG.
 
@@ -19,6 +19,14 @@ con dashboard en vivo, tracking de costo y memoria RAG.
 **[github.com/csantisdev/ai-orchestrator](https://github.com/csantisdev/ai-orchestrator)**
 
 </div>
+
+---
+
+## Por qué
+
+Los agentes IA (Claude Code, Codex, DeepSeek) generan valor en tareas acotadas, pero el historial queda disperso en archivos de sesión separados, sin visibilidad de costos ni contexto acumulado entre conversaciones. Sin memoria estructurada, cada sesión empieza desde cero y el gasto es opaco.
+
+ai-orchestrator centraliza ese historial localmente: indexa respuestas previas en ChromaDB, rutea cada tarea al modelo más eficiente según el contexto del proyecto, y registra tokens y costo USD de cada run en SQLite. El dashboard SSE muestra el estado en tiempo real. El servidor MCP expone 11 herramientas para que cualquier agente pueda leer y escribir en el historial sin salir de su entorno de trabajo.
 
 ---
 
@@ -101,6 +109,28 @@ ai-orchestrator serve                  # abre http://127.0.0.1:8080
 | **Menú de acciones** | Botones `doctor`, `fix`, `sync`, `index` en la barra de actividad del dashboard. Ejecutan las mismas acciones que la CLI y trazan resultados en tiempo real en el log de actividad |
 
 **Fuera del alcance:** no es un proxy de API (el proceso corre localmente), no orquesta agentes en paralelo, no mantiene historial de conversación entre runs.
+
+---
+
+## MCP Plugin
+
+El servidor MCP expone 11 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, etc.) puede invocar directamente sin usar la CLI:
+
+| Tool | Propósito |
+|---|---|
+| `get_context` | Retorna el objetivo y estado del contexto activo del proyecto |
+| `list_steps` | Lista los pasos ordenados de un contexto con su estado |
+| `confirm_alignment` | Registra un checkpoint antes de una acción significativa |
+| `record_tool_call` | Registra cada herramienta invocada durante un paso |
+| `advance_step` | Marca el paso actual como completado y activa el siguiente |
+| `skip_step` | Marca un paso como omitido sin ejecutarlo |
+| `create_context` | Crea un nuevo contexto de trabajo con pasos opcionales |
+| `add_step` | Agrega un paso a un contexto existente durante la ejecución |
+| `update_context` | Edita título, descripción o estado de un contexto |
+| `update_step` | Edita título, descripción o notas de un paso |
+| `import_agent_context` | Importa trabajo de un agente externo al historial + ChromaDB |
+
+Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto y registra el servidor en `~/.claude/settings.json`.
 
 ---
 
@@ -458,6 +488,20 @@ Ver la guía paso a paso en [Quick Start](#quick-start) al inicio de este docume
 `requirements.txt` ya incluye ChromaDB. Sin él el router usa FTS5 (SQLite full-text search) como fallback automático; con él la búsqueda semántica está disponible.
 
 **VS Code:** `Ctrl+Shift+P` → Tasks: Run Task → **Orchestrator: Dashboard**
+
+---
+
+## Seguridad local
+
+El orquestador nunca envía datos del proyecto a servidores externos, excepto el texto del prompt al provider elegido (Claude, OpenAI, DeepSeek).
+
+El indexador RAG excluye automáticamente:
+- **Por nombre de archivo:** `.env`, `credentials.json`, `id_rsa`, `secrets.yaml`, `.npmrc`, `auth.json`, `terraform.tfvars`, etc.
+- **Por extensión:** `.pem`, `.key`, `.p12`, `.pfx`, `.cer`, `.crt`, `.tfstate`, `.tfvars`
+- **Por directorio:** `.aws`, `.ssh`, `.kube`, `.gcloud`, `.claude`, `.codex`
+- **Por contenido:** patrones de API keys (Anthropic `sk-ant-...`, OpenAI `sk-proj-...`, MercadoPago) y bloques de clave privada PEM
+
+El dashboard HTTP escucha solo en `127.0.0.1` (loopback). No hay autenticación porque el servidor no es accesible desde la red local ni desde internet.
 
 ---
 

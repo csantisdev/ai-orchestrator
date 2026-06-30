@@ -30,6 +30,7 @@ class DeepSeekProvider(BaseProvider):
         response = httpx.post(API_URL, headers=headers, json=body, timeout=120)
         response.raise_for_status()
         data = response.json()
+        usage = data.get("usage", {})
 
         text = data["choices"][0]["message"]["content"]
 
@@ -38,4 +39,6 @@ class DeepSeekProvider(BaseProvider):
             provider=self.name,
             model=self.model,
             raw_response=data,
+            input_tokens=usage.get("prompt_tokens", 0),
+            output_tokens=usage.get("completion_tokens", 0),
         )
