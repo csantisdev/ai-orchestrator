@@ -631,6 +631,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/rate-run":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -653,6 +655,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/import-context":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -690,6 +694,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/sync-cc":
+                if not self._require_json_ct():
+                    return
                 try:
                     from orchestrator.watcher import scan_and_import
                     from orchestrator.tracer import span as _tspan
@@ -701,6 +707,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/sync-git":
+                if not self._require_json_ct():
+                    return
                 try:
                     from orchestrator.git_scanner import scan_and_import as git_import
                     from orchestrator.tracer import span as _tspan
@@ -712,6 +720,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/sync-codex":
+                if not self._require_json_ct():
+                    return
                 try:
                     from orchestrator.codex_watcher import scan_and_import as codex_import
                     from orchestrator.tracer import span as _tspan
@@ -723,6 +733,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/rates/refresh":
+                if not self._require_json_ct():
+                    return
                 try:
                     from orchestrator.rates import refresh_rate
                     result = refresh_rate(config)
@@ -732,6 +744,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/config/bcentral":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -751,6 +765,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/add-project":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -771,6 +787,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/project/rename":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -796,6 +814,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/index-docs":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -824,6 +844,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/create-context":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -850,6 +872,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/advance-step":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -873,6 +897,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/skip-step":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -896,6 +922,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path.startswith("/context/") and self.path.endswith("/delete"):
+                if not self._require_json_ct():
+                    return
                 try:
                     ctx_id_str = self.path.split("/context/", 1)[-1].split("/delete")[0]
                     ctx_id = int(ctx_id_str)
@@ -912,6 +940,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/run-doctor":
+                if not self._require_json_ct():
+                    return
                 try:
                     from pathlib import Path as _P
                     lines: list[dict] = []
@@ -1041,6 +1071,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/run-fix":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length)) if length else {}
@@ -1246,6 +1278,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
 
             if self.path != "/run":
                 self._json({"error": "not found"}, 404)
+                return
+            if not self._require_json_ct():
                 return
             try:
                 length = int(self.headers.get("Content-Length", 0))

@@ -22,10 +22,9 @@ _SKIP_DIRS = {
     "vendor",           # PHP / Ruby / Go vendor dirs
     ".claude", ".codex",
     ".aws", ".ssh", ".kube", ".gcloud",  # credential dirs
-    # stack-specific build/cache dirs
-    "storage/logs", "bootstrap/cache", "public/build",
     ".next", ".nuxt", "coverage", "target",
 }
+_SKIP_PATHS = {"storage/logs", "bootstrap/cache", "public/build"}
 _SKIP_FILENAMES = {
     # Generic config with secrets
     "config.yaml", "config.yml",
@@ -159,16 +158,17 @@ def _contains_secrets(text: str) -> bool:
 
 
 def _scan_files(project_path: Path, extra_skip: frozenset[str] = frozenset()) -> list[Path]:
-    effective_skip = _SKIP_DIRS | extra_skip
+    effective_dirs  = _SKIP_DIRS  | frozenset(d for d in extra_skip if "/" not in d)
+    effective_paths = _SKIP_PATHS | frozenset(d for d in extra_skip if "/" in d)
     files: list[Path] = []
     code_count = 0
     for f in sorted(project_path.rglob("*")):
         rel_parts = f.relative_to(project_path).parts
-        if any(part in effective_skip for part in rel_parts):
+        if any(part in effective_dirs for part in rel_parts):
             continue
-        if extra_skip:
+        if effective_paths:
             rel_str = "/".join(rel_parts)
-            if any(rel_str.startswith(d.rstrip("/") + "/") or rel_str == d for d in extra_skip):
+            if any(rel_str.startswith(p.rstrip("/") + "/") or rel_str == p for p in effective_paths):
                 continue
         if not f.is_file():
             continue

@@ -561,7 +561,7 @@ function renderRunsTable() {
       <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace">${escHtml(modelShort)}</td>
       <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:right;font-variant-numeric:tabular-nums">${_fmtRunDur(r.duration_ms)}</td>
       <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:right;font-variant-numeric:tabular-nums">${_fmtRunTokens(r.input_tokens,r.output_tokens)}</td>
-      <td style="padding:9px 12px;font-size:12px;color:#22c55e;text-align:right;font-weight:500;font-variant-numeric:tabular-nums">${_fmtRunCost(r.cost_usd)}</td>
+      <td style="padding:9px 12px;font-size:12px;color:#22c55e;text-align:right;font-weight:500;font-variant-numeric:tabular-nums">${r.status==="done"&&r.cost_usd==null?'<span style="color:#f59e0b;font-size:10px" title="Modelo sin pricing registrado">?</span>':_fmtRunCost(r.cost_usd)}</td>
       <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);text-align:center">${_fmtRunCache(r.cache_read_tokens,r.input_tokens)}</td>
       <td class="td-muted" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(task)}">${escHtml(taskD)}</td>
       <td style="padding:9px 12px;font-size:11px">${statusHtml}</td>
@@ -891,7 +891,8 @@ function openDetail(runId) {
           <span style="background:${provBg};color:${provColor};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(data.provider)}</span>
           <span class="chip-mono">${escHtml(data.model ? data.model.split('/').pop() : '—')}</span>
           <span class="chip">${data.duration_ms ? (data.duration_ms/1000).toFixed(1)+"s" : "—"}</span>
-          ${data.cost_usd ? `<span style="background:rgba(34,197,94,0.10);color:#22c55e;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${_fmtUsd(data.cost_usd)}</span>` : ''}
+          ${data.cost_usd ? `<span style="background:rgba(34,197,94,0.10);color:#22c55e;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${_fmtUsd(data.cost_usd)}</span>` : (data.status==="done" ? '<span style="background:rgba(245,158,11,0.10);color:#f59e0b;padding:3px 10px;border-radius:20px;font-size:11px" title="Modelo sin pricing registrado">sin precio</span>' : '')}
+          ${data.router_cost_usd ? `<span style="background:rgba(56,189,248,0.08);color:#38bdf8;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500" title="Costo del router (DeepSeek routing)">router ${_fmtUsd(data.router_cost_usd)}</span>` : ''}
         </div>
         <div class="detail-section">
           <label>Tarea enviada</label>
