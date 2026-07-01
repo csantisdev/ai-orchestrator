@@ -61,6 +61,13 @@ _SECRET_PATTERN = re.compile(
     r"|APP_USR-[A-Za-z0-9\-]{10,}"              # MercadoPago
     r"|token\s*=\s*[a-f0-9]{32,}"              # token=<hex> in URLs (generic)
     r"|-----BEGIN\s+(?:RSA |EC |OPENSSH |PGP )PRIVATE KEY"  # private key blocks
+    r"|AKIA[0-9A-Z]{16}"                        # AWS access key ID
+    r"|(?:aws_secret_access_key|AWS_SECRET)[\"']?\s*[=:]\s*[\"']?[A-Za-z0-9/+=]{40}"  # AWS secret
+    r"|ghp_[A-Za-z0-9]{36}"                     # GitHub PAT (classic)
+    r"|github_pat_[A-Za-z0-9_]{82}"             # GitHub PAT (fine-grained)
+    r"|gho_[A-Za-z0-9]{36}"                     # GitHub OAuth token
+    r"|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"  # JWT
+    r"|\"type\"\s*:\s*\"service_account\""      # GCP service account JSON
     r")"
 )
 
