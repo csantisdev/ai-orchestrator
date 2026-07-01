@@ -623,6 +623,7 @@ def serve(
     port: int = typer.Option(8080, "--port", help="Puerto HTTP para el dashboard."),
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Proyecto por defecto al abrir."),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Abrir en el browser al iniciar."),
+    background: bool = typer.Option(False, "--background", "-b", help="Iniciar el servidor en segundo plano (daemon)."),
 ):
     """Inicia el dashboard web interactivo en http://127.0.0.1:<port>"""
     _ensure_db()
@@ -633,6 +634,37 @@ def serve(
         console.print(f"[red]✗[/red] {exc}")
         raise typer.Exit(code=1)
 
+    if background:
+        import subprocess
+        from orchestrator.paths import HOME_DIR
+
+        pid_file = HOME_DIR / "serve.pid"
+        log_file = HOME_DIR / "serve.log"
+
+        cmd = [sys.executable, "-m", "orchestrator.cli", "serve", "--port", str(port), "--no-open"]
+        if project:
+            cmd += ["--project", project]
+
+        log_fd = open(log_file, "a")
+        popen_kwargs: dict = {
+            "stdout": log_fd,
+            "stderr": log_fd,
+            "stdin": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+        else:
+            popen_kwargs["start_new_session"] = True
+
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        pid_file.write_text(str(proc.pid), encoding="utf-8")
+
+        console.print(f"[green]✓[/green] Dashboard iniciado en segundo plano (PID {proc.pid})")
+        console.print(f"  URL:  http://127.0.0.1:{port}")
+        console.print(f"  Log:  {log_file}")
+        console.print(f"  PID:  {pid_file}")
+        return
+
     from orchestrator.server import serve as _serve
     _serve(port=port, project=project, open_browser=open_browser, config=config)
 
@@ -641,6 +673,7 @@ def serve(
 def doctor(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Limitar diagnóstico a un proyecto específico."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Mostrar detalles extra en cada check."),
+    fix: bool = typer.Option(False, "--fix", help="Aplicar automáticamente las correcciones detectadas al finalizar el diagnóstico."),
 ):
     """Diagnostica el estado de la configuración y detecta problemas pendientes."""
     _ensure_db()
@@ -877,10 +910,16 @@ def doctor(
         if issues:
             console.print(f"[bold red]{len(issues)} problema(s) crítico(s)[/bold red]  |  "
                           f"[yellow]{len(warnings)} advertencia(s)[/yellow]")
-            console.print("[dim]Ejecutá [bold]ai-orchestrator fix[/bold] para aplicar correcciones automáticas.[/dim]")
+            if not fix:
+                console.print("[dim]Ejecutá [bold]ai-orchestrator fix[/bold] o usá [bold]doctor --fix[/bold] para aplicar correcciones automáticas.[/dim]")
         else:
             console.print(f"[green]Sin errores críticos[/green]  |  [yellow]{len(warnings)} advertencia(s)[/yellow]")
-            console.print("[dim]Ejecutá [bold]ai-orchestrator fix[/bold] para resolver advertencias automáticamente.[/dim]")
+            if not fix:
+                console.print("[dim]Ejecutá [bold]ai-orchestrator fix[/bold] o usá [bold]doctor --fix[/bold] para resolver advertencias automáticamente.[/dim]")
+
+    if fix:
+        console.print("\n[bold cyan]Aplicando correcciones...[/bold cyan]")
+        fix_command()
 
 
 @app.command(name="fix")

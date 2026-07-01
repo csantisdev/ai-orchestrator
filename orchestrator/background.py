@@ -13,6 +13,11 @@ from orchestrator.sse import BUS
 
 _log = logging.getLogger(__name__)
 
+_MAX_RETRIES = 3
+_RETRY_BASE = 2.0
+_MAX_PARALLEL = 4
+_semaphore = threading.Semaphore(_MAX_PARALLEL)
+
 
 def submit_run(
     project: str,
@@ -112,9 +117,39 @@ def _worker(
         except Exception as exc:
             _log.warning("RAG retrieval failed for run %d: %s", run_id, exc)
 
+        from orchestrator.providers.base import StreamResult
+
         t0 = time.monotonic()
-        with _span(f"{decision.provider} · API", run_id=run_id):
-            result = provider.complete(prompt=task, system=system_prompt)
+        _last_exc: Exception | None = None
+        with _semaphore:
+            for _attempt in range(_MAX_RETRIES):
+                try:
+                    with _span(f"{decision.provider} · API", run_id=run_id):
+                        _gen = provider.complete_stream(prompt=task, system=system_prompt)
+                        _sr: StreamResult | None = None
+                        try:
+                            while True:
+                                _chunk = next(_gen)
+                                BUS.publish(
+                                    "run_token",
+                                    json.dumps({"run_id": run_id, "chunk": _chunk}),
+                                )
+                        except StopIteration as _si:
+                            _sr = _si.value
+                        result = _sr.to_completion_result() if _sr is not None else provider.complete(prompt=task, system=system_prompt)
+                    _last_exc = None
+                    break
+                except Exception as exc:
+                    _last_exc = exc
+                    if _attempt < _MAX_RETRIES - 1:
+                        _delay = _RETRY_BASE ** _attempt
+                        _log.warning(
+                            "Run %d attempt %d/%d failed: %s — retrying in %.0fs",
+                            run_id, _attempt + 1, _MAX_RETRIES, exc, _delay,
+                        )
+                        time.sleep(_delay)
+        if _last_exc is not None:
+            raise _last_exc
         duration_ms = int((time.monotonic() - t0) * 1000)
 
         pricing = get_pricing_table(config)

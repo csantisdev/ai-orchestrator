@@ -313,3 +313,12 @@ def run_migrations() -> None:
                     pass
                 _mark_applied(conn, "add_router_cost_usd_to_runs")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_file_hash_to_chunks"):
+                try:
+                    conn.execute("ALTER TABLE chunks ADD COLUMN file_hash TEXT")
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_file_hash_to_chunks")
+                conn.commit()
