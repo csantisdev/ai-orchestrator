@@ -197,6 +197,7 @@ def index_project(project: str, project_path: Path, extra_skip_dirs: list[str] |
     except Exception:
         return 0
 
+    import hashlib
     from datetime import datetime, timezone
     from orchestrator.db import _conn, _write_lock
 
@@ -204,14 +205,26 @@ def index_project(project: str, project_path: Path, extra_skip_dirs: list[str] |
     total = 0
     for fpath in _scan_files(project_path, extra_skip):
         try:
-            text = fpath.read_text(encoding="utf-8", errors="ignore")
+            raw = fpath.read_bytes()
+            text = raw.decode("utf-8", errors="ignore")
         except Exception:
             continue
 
         if _contains_secrets(text):
             continue
 
+        file_hash = hashlib.sha256(raw).hexdigest()
         rel = str(fpath.relative_to(project_path))
+
+        conn = _conn()
+        row = conn.execute(
+            "SELECT file_hash, chunk_count FROM chunks WHERE project=? AND source_path=?",
+            (project, rel),
+        ).fetchone()
+        if row and row[0] == file_hash:
+            total += row[1]
+            continue
+
         chunks = chunk_text(text, source=rel)
         if not chunks:
             continue
@@ -239,14 +252,13 @@ def index_project(project: str, project_path: Path, extra_skip_dirs: list[str] |
             continue
 
         ts = datetime.now(timezone.utc).isoformat()
-        conn = _conn()
         with _write_lock:
             conn.execute(
-                """INSERT INTO chunks (project, source_path, chunk_count, ts, collection)
-                   VALUES (?, ?, ?, ?, 'docs')
+                """INSERT INTO chunks (project, source_path, chunk_count, ts, collection, file_hash)
+                   VALUES (?, ?, ?, ?, 'docs', ?)
                    ON CONFLICT(project, source_path) DO UPDATE SET
-                   chunk_count=excluded.chunk_count, ts=excluded.ts""",
-                (project, rel, len(chunks), ts),
+                   chunk_count=excluded.chunk_count, ts=excluded.ts, file_hash=excluded.file_hash""",
+                (project, rel, len(chunks), ts, file_hash),
             )
             conn.commit()
 
