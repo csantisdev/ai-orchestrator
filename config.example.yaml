@@ -60,6 +60,10 @@ pricing:
   deepseek-v4-flash:
     input: 0.14
     output: 0.28
+  # verificar precio vigente en platform.deepseek.com/api-docs
+  deepseek-v4-pro:
+    input: 0.435
+    output: 0.87
   gemini-2.5-pro:
     input: 1.25
     output: 10.00

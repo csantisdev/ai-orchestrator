@@ -645,7 +645,7 @@ def main() -> None:
                 _respond(msg_id, {
                     "protocolVersion": protocol_version,
                     "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "ai-orchestrator", "version": "0.4.0"},
+                    "serverInfo": {"name": "ai-orchestrator", "version": __import__("orchestrator").__version__},
                     "instructions": SERVER_INSTRUCTIONS,
                 })
             elif method == "ping":

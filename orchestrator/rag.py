@@ -12,13 +12,19 @@ _CHUNK_OVERLAP = 200
 # L2=0.9 equivale a cosine_sim≈0.60, filtrando contexto poco relevante.
 _DISTANCE_THRESHOLD = 0.9
 _SCAN_EXTENSIONS = {".md", ".txt", ".yaml", ".yml", ".toml", ".rst", ".json"}
-_CODE_EXTENSIONS = {".py"}
+_CODE_EXTENSIONS = {
+    ".py", ".php", ".js", ".jsx", ".ts", ".tsx",
+    ".java", ".cs", ".go", ".sql", ".rb", ".rs",
+}
 _SKIP_DIRS = {
     ".venv", "venv", "__pycache__", ".git", "node_modules",
     ".eggs", "build", "dist",
     "vendor",           # PHP / Ruby / Go vendor dirs
     ".claude", ".codex",
     ".aws", ".ssh", ".kube", ".gcloud",  # credential dirs
+    # stack-specific build/cache dirs
+    "storage/logs", "bootstrap/cache", "public/build",
+    ".next", ".nuxt", "coverage", "target",
 }
 _SKIP_FILENAMES = {
     # Generic config with secrets
@@ -59,8 +65,8 @@ _SECRET_PATTERN = re.compile(
     r")"
 )
 
-_MAX_FILE_BYTES = 100_000
-_MAX_PY_FILES = 30
+_MAX_FILE_BYTES = 150_000
+_MAX_CODE_FILES = 100
 
 _STACK_SKIP_SUGGESTIONS: dict[str, list[str]] = {
     "laravel": ["vendor", "storage", "bootstrap", "public/build"],
@@ -155,7 +161,7 @@ def _contains_secrets(text: str) -> bool:
 def _scan_files(project_path: Path, extra_skip: frozenset[str] = frozenset()) -> list[Path]:
     effective_skip = _SKIP_DIRS | extra_skip
     files: list[Path] = []
-    py_count = 0
+    code_count = 0
     for f in sorted(project_path.rglob("*")):
         rel_parts = f.relative_to(project_path).parts
         if any(part in effective_skip for part in rel_parts):
@@ -172,9 +178,9 @@ def _scan_files(project_path: Path, extra_skip: frozenset[str] = frozenset()) ->
             continue
         if f.suffix in _SCAN_EXTENSIONS:
             files.append(f)
-        elif f.suffix in _CODE_EXTENSIONS and py_count < _MAX_PY_FILES:
+        elif f.suffix in _CODE_EXTENSIONS and code_count < _MAX_CODE_FILES:
             files.append(f)
-            py_count += 1
+            code_count += 1
     return files
 
 
