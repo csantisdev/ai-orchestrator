@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 _CHUNK_SIZE = 1500
@@ -234,17 +237,12 @@ def index_project(project: str, project_path: Path, extra_skip_dirs: list[str] |
         metas = [{"project": project, "source": rel, "chunk_idx": c["chunk_idx"]} for c in chunks]
 
         try:
-            previous = col.get(
-                where={
-                    "$and": [
-                        {"project": {"$eq": project}},
-                        {"source": {"$eq": rel}},
-                    ]
-                },
-                include=[],
-            )
             col.upsert(ids=ids, documents=docs, metadatas=metas)
-            stale_ids = sorted(set(previous.get("ids") or []) - set(ids))
+            previous_count = int(row["chunk_count"]) if row else 0
+            stale_ids = [
+                f"{project}::{rel}::{idx}"
+                for idx in range(len(chunks), previous_count)
+            ]
             if stale_ids:
                 col.delete(ids=stale_ids)
             total += len(chunks)
@@ -271,22 +269,27 @@ def index_project(project: str, project_path: Path, extra_skip_dirs: list[str] |
 def _purge_excluded_dirs(col, project: str, extra_skip: frozenset[str]) -> None:
     """Elimina de ChromaDB y SQLite los chunks de carpetas que ahora están excluidas."""
     try:
-        all_indexed = col.get(
-            where={"project": {"$eq": project}},
-            include=["metadatas"],
-        )
+        from orchestrator.db import _conn
+        indexed_rows = _conn().execute(
+            "SELECT source_path, chunk_count FROM chunks WHERE project=?",
+            (project,),
+        ).fetchall()
     except Exception:
         return
 
     ids_to_delete = []
     sources_to_delete: set[str] = set()
-    for doc_id, meta in zip(all_indexed.get("ids") or [], all_indexed.get("metadatas") or []):
-        source = ((meta or {}).get("source") or "").replace("\\", "/")
+    for row in indexed_rows:
+        source_path = row["source_path"]
+        source = source_path.replace("\\", "/")
         for skip_dir in extra_skip:
             prefix = skip_dir.rstrip("/")
             if source == prefix or source.startswith(prefix + "/"):
-                ids_to_delete.append(doc_id)
-                sources_to_delete.add((meta or {}).get("source", source))
+                ids_to_delete.extend(
+                    f"{project}::{source_path}::{idx}"
+                    for idx in range(int(row["chunk_count"] or 0))
+                )
+                sources_to_delete.add(source_path)
                 break
 
     if not ids_to_delete:
@@ -468,6 +471,83 @@ def chroma_stats() -> dict:
         return result
     except Exception:
         return {}
+
+
+def chroma_stats_isolated(timeout: float = 2.0) -> dict:
+    """Return Chroma stats without letting native crashes kill the dashboard."""
+    cmd = [
+        sys.executable,
+        "-c",
+        (
+            "import json;"
+            "from orchestrator.rag import chroma_stats;"
+            "print(json.dumps(chroma_stats(), ensure_ascii=False))"
+        ),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        if proc.returncode != 0:
+            return {}
+        return json.loads(proc.stdout or "{}")
+    except Exception:
+        return {}
+
+
+def index_project_isolated(
+    project: str,
+    project_path: Path,
+    extra_skip_dirs: list[str] | None = None,
+    timeout: float = 60.0,
+) -> dict:
+    """Run project indexing out of process so Chroma native crashes cannot kill the UI."""
+    payload = {
+        "project": project,
+        "project_path": str(project_path),
+        "extra_skip_dirs": extra_skip_dirs or [],
+    }
+    cmd = [
+        sys.executable,
+        "-c",
+        (
+            "import json, sys;"
+            "from pathlib import Path;"
+            "from orchestrator.rag import index_project;"
+            "p=json.loads(sys.stdin.read());"
+            "n=index_project(p['project'], Path(p['project_path']), p.get('extra_skip_dirs') or None);"
+            "print(json.dumps({'chunks': n, 'project': p['project']}, ensure_ascii=False))"
+        ),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=json.dumps(payload, ensure_ascii=False),
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+    except subprocess.TimeoutExpired:
+        return {"error": f"index-docs timeout after {int(timeout)}s", "project": project}
+    except Exception as exc:
+        return {"error": str(exc), "project": project}
+
+    if proc.returncode != 0:
+        code = proc.returncode
+        detail = (proc.stderr or "").strip().splitlines()
+        suffix = f": {detail[-1]}" if detail else ""
+        return {"error": f"index-docs failed in ChromaDB subprocess (exit {code}){suffix}", "project": project}
+    try:
+        return json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return {"error": "index-docs returned invalid JSON", "project": project}
 
 
 def purge_project_responses(project: str) -> int:

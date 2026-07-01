@@ -171,12 +171,12 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
         def _get_inspect(self, parsed):
             try:
                 from orchestrator.db import read_inspector_data
-                from orchestrator.rag import chroma_stats
+                from orchestrator.rag import chroma_stats_isolated
                 from orchestrator.tracer import span as _span
                 with _span("Inspector · SQLite"):
                     payload = read_inspector_data()
                 with _span("Inspector · ChromaDB"):
-                    payload["chroma"] = chroma_stats()
+                    payload["chroma"] = chroma_stats_isolated()
                 try:
                     registered = set(index_module.list_projects().keys())
                 except Exception:
@@ -395,7 +395,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             try:
                 from orchestrator.db import _conn
                 from orchestrator.index import list_projects
-                from orchestrator.rag import chroma_stats
+                from orchestrator.rag import chroma_stats_isolated
                 conn = _conn()
                 registered = set(list_projects().keys())
                 rows = conn.execute(
@@ -427,7 +427,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                     ctx_by_proj[p]["total"] += r["n"]
                     ctx_by_proj[p]["by_status"][r["status"]] = r["n"]
                 # ChromaDB stats
-                cs = chroma_stats()
+                cs = chroma_stats_isolated()
                 self._json({
                     "projects": list(projects_info.values()),
                     "registered": sorted(registered),
@@ -870,7 +870,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 extra_skip = body.get("extra_skip_dirs", []) or []
                 do_save = bool(body.get("save_skip_dirs", False))
                 proj_path = index_module.get_project_path(proj)
-                from orchestrator.rag import index_project
+                from orchestrator.rag import index_project_isolated
                 from orchestrator.tracer import span as _span
                 from pathlib import Path as _Path
                 if do_save and extra_skip:
@@ -879,8 +879,11 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                     except Exception:
                         pass
                 with _span(f"index-docs · {proj}"):
-                    n = index_project(proj, _Path(proj_path), extra_skip_dirs=extra_skip or None)
-                self._json({"chunks": n, "project": proj})
+                    result = index_project_isolated(proj, _Path(proj_path), extra_skip_dirs=extra_skip or None)
+                if result.get("error"):
+                    self._json(result, 500)
+                    return
+                self._json({"chunks": result.get("chunks", 0), "project": proj})
             except ProjectNotFoundError:
                 self._json({"error": f"Proyecto no registrado: {proj}"}, 404)
             except Exception as exc:
