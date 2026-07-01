@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from typing import Optional
 
 from orchestrator.db import fail_run, insert_run, update_run
 from orchestrator.sse import BUS
+
+_log = logging.getLogger(__name__)
 
 
 def submit_run(
@@ -106,8 +109,8 @@ def _worker(
                 rag_block = build_context_block(_doc_chunks, _resp_chunks)
             if rag_block:
                 system_prompt += "\n\n" + rag_block
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("RAG retrieval failed for run %d: %s", run_id, exc)
 
         t0 = time.monotonic()
         with _span(f"{decision.provider} · API", run_id=run_id):
@@ -123,21 +126,22 @@ def _worker(
             duration_ms=duration_ms,
             routing_reason=decision.reason,
             cost_usd=cost_usd,
+            router_cost_usd=decision.router_cost_usd,
         )
 
         if _rag_chunks:
             try:
                 from orchestrator.rag import persist_context_hits
                 persist_context_hits(run_id, _rag_chunks)
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning("persist_context_hits failed for run %d: %s", run_id, exc)
 
         try:
             from orchestrator.rag import index_response
             with _span("Indexar respuesta", run_id=run_id):
                 index_response(run_id, project, task, result.text)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("index_response failed for run %d: %s", run_id, exc)
 
         event = {
             "run_id": run_id,

@@ -56,6 +56,7 @@ class RoutingDecision:
     reason: str
     model: str | None = None
     used_fallback: bool = False
+    router_cost_usd: float | None = None
 
 
 def _calculate_keyword_signals(task: str, ctx: ProjectContext) -> list[dict]:
@@ -216,7 +217,11 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
         if provider not in PROVIDERS:
             raise ValueError(f"Provider inválido devuelto por el router: {provider}")
 
-        return RoutingDecision(provider=provider, model=model, reason=reason, used_fallback=False)
+        from orchestrator.config import get_pricing_table
+        from orchestrator.costs import calculate_cost
+        router_cost = calculate_cost(result, get_pricing_table(config))
+
+        return RoutingDecision(provider=provider, model=model, reason=reason, used_fallback=False, router_cost_usd=router_cost)
 
     except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier falla del router
         return RoutingDecision(

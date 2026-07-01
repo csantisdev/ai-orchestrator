@@ -304,3 +304,12 @@ def run_migrations() -> None:
                 """)
                 _mark_applied(conn, "create_exchange_rates_table")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_router_cost_usd_to_runs"):
+                try:
+                    conn.execute("ALTER TABLE runs ADD COLUMN router_cost_usd REAL")
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_router_cost_usd_to_runs")
+                conn.commit()

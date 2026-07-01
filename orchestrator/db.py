@@ -132,6 +132,7 @@ def update_run(
     duration_ms: int,
     routing_reason: str,
     cost_usd: Optional[float] = None,
+    router_cost_usd: Optional[float] = None,
 ) -> None:
     conn = _conn()
     in_tok, out_tok = _extract_tokens(result)
@@ -141,14 +142,14 @@ def update_run(
                provider=?, model=?, status='done', response=?,
                duration_ms=?, input_tokens=?, output_tokens=?,
                cache_creation_tokens=?, cache_read_tokens=?,
-               cost_usd=?, routing_reason=?
+               cost_usd=?, routing_reason=?, router_cost_usd=?
                WHERE id=?""",
             (
                 result.provider, result.model, result.text,
                 duration_ms, in_tok, out_tok,
                 getattr(result, "cache_creation_tokens", 0),
                 getattr(result, "cache_read_tokens", 0),
-                cost_usd, routing_reason, run_id,
+                cost_usd, routing_reason, router_cost_usd, run_id,
             ),
         )
         conn.commit()

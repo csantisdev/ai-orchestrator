@@ -463,8 +463,17 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             except (BrokenPipeError, ConnectionAbortedError, OSError):
                 pass
 
+        def _require_json_ct(self) -> bool:
+            ct = self.headers.get("Content-Type", "")
+            if "application/json" not in ct:
+                self._json({"error": "Content-Type: application/json required"}, 415)
+                return False
+            return True
+
         def do_POST(self):
             if self.path == "/clean/unmapped":
+                if not self._require_json_ct():
+                    return
                 try:
                     from orchestrator.db import _conn, _write_lock
                     from orchestrator.index import list_projects
@@ -498,6 +507,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/purge-chroma-docs":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -521,6 +532,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/purge-chroma-responses":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -543,6 +556,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/delete-contexts":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -579,6 +594,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 return
 
             if self.path == "/clear-imports":
+                if not self._require_json_ct():
+                    return
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     body = json_mod.loads(self.rfile.read(length))
@@ -1258,7 +1275,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Origin", f"http://127.0.0.1:{self.server.server_address[1]}")
             self.end_headers()
             q = BUS.subscribe()
             try:
@@ -1281,7 +1298,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Origin", f"http://127.0.0.1:{self.server.server_address[1]}")
                 self.end_headers()
                 self.wfile.write(body)
             except (BrokenPipeError, ConnectionAbortedError, OSError):

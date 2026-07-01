@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from orchestrator.providers.base import CompletionResult
+
+_log = logging.getLogger(__name__)
 
 DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "claude-sonnet-4-6":  {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
@@ -15,6 +19,8 @@ DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "gpt-5":              {"input": 3.00,  "output": 15.00, "cache_read": 0.75},
     "deepseek-v4-flash":  {"input": 0.14,  "output": 0.28},
     "deepseek-chat":      {"input": 0.14,  "output": 0.28},
+    # verificar precio vigente en platform.deepseek.com/api-docs
+    "deepseek-v4-pro":    {"input": 0.435, "output": 0.87},
     "gemini-2.5-pro":     {"input": 1.25,  "output": 10.00},
     "gemini-2.5-flash":   {"input": 0.30,  "output": 2.50},
     "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
@@ -28,6 +34,7 @@ def calculate_cost(result: CompletionResult, pricing: dict) -> float | None:
         for key in pricing:
             if key in model_key:
                 table = pricing[key]
+                _log.warning("pricing: substring fallback %r → %r; add exact key to config", model_key, key)
                 break
     if not table:
         return None

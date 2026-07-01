@@ -1,6 +1,6 @@
 [project]
 name = "ai-orchestrator"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Orquestador local de agentes IA multi-proveedor (Claude, OpenAI, DeepSeek)"
 authors = []
 requires-python = ">=3.10"
@@ -13,6 +13,11 @@ dependencies = [
 
 [project.optional-dependencies]
 vector = ["chromadb>=0.4.0"]
+dev   = ["pytest>=8.0.0"]
+all   = ["chromadb>=0.4.0", "pytest>=8.0.0"]
+
+[tool.setuptools.dynamic]
+version = {attr = "orchestrator.__version__"}
 
 [project.scripts]
 ai-orchestrator = "orchestrator.cli:app"
