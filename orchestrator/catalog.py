@@ -105,16 +105,19 @@ def _write_cache(payload: dict) -> None:
         _log.warning("catalog: no se pudo escribir cache: %s", exc)
 
 
-def load_price_catalog(config: dict, refresh: bool = False) -> dict:
-    """Resuelve la tabla de precios efectiva (forma legacy `{model: {input, output, ...}}`)."""
+def resolve_pricing(config: dict, refresh: bool = False) -> tuple[dict, dict]:
+    """Como `load_price_catalog`, pero retorna tambien metadata de la fuente usada.
+
+    Metadata: `{"source": "config"|"cache"|"remote"|"static"|"default", "updated_at": str|None}`.
+    """
     if config.get("pricing"):
-        return config["pricing"]
+        return config["pricing"], {"source": "config", "updated_at": None}
 
     cached = _read_cache(config)
     if cached:
         pricing = _extract_pricing(cached)
         if pricing:
-            return pricing
+            return pricing, {"source": "cache", "updated_at": cached.get("updated_at")}
 
     if refresh:
         remote = _fetch_remote(config)
@@ -122,15 +125,20 @@ def load_price_catalog(config: dict, refresh: bool = False) -> dict:
             pricing = _extract_pricing(remote)
             if pricing:
                 _write_cache(remote)
-                return pricing
+                return pricing, {"source": "remote", "updated_at": remote.get("updated_at")}
 
     static = _load_json(STATIC_CATALOG_PATH)
     if static:
         pricing = _extract_pricing(static)
         if pricing:
-            return pricing
+            return pricing, {"source": "static", "updated_at": static.get("updated_at")}
 
-    return DEFAULT_PRICING
+    return DEFAULT_PRICING, {"source": "default", "updated_at": None}
+
+
+def load_price_catalog(config: dict, refresh: bool = False) -> dict:
+    """Resuelve la tabla de precios efectiva (forma legacy `{model: {input, output, ...}}`)."""
+    return resolve_pricing(config, refresh)[0]
 
 
 def get_effective_pricing(config: dict) -> dict:
@@ -150,3 +158,19 @@ def list_catalog_models(config: dict, provider: str | None = None) -> list[dict]
         for model_id, model_data in provider_data.get("models", {}).items():
             models.append(model_data)
     return models
+
+
+def list_used_models_without_price(config: dict) -> list[dict]:
+    """Modelos con runs registrados en `runs.db` que no tienen entrada en la tabla efectiva."""
+    from orchestrator.db import _conn
+
+    pricing = get_effective_pricing(config)
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT DISTINCT provider, model FROM runs WHERE model != '' ORDER BY provider, model"
+    ).fetchall()
+    return [
+        {"provider": row["provider"], "model": row["model"]}
+        for row in rows
+        if row["model"] not in pricing
+    ]

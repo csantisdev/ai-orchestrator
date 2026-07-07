@@ -1194,5 +1194,74 @@ def fix_command(
         console.print("[dim]  --all          Aplicar todas las mejoras anteriores[/dim]")
 
 
+pricing_app = typer.Typer(help="Consulta y actualiza el catálogo de precios de modelos (Decisión 0002).")
+app.add_typer(pricing_app, name="pricing")
+
+
+@pricing_app.command("show")
+def pricing_show():
+    """Muestra la tabla de precios efectiva, su fuente y fecha de actualización."""
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+    from orchestrator.catalog import resolve_pricing
+    pricing, meta = resolve_pricing(config)
+
+    table = Table(title=f"Precios efectivos (fuente: {meta['source']})")
+    table.add_column("Modelo")
+    table.add_column("Input $/M", justify="right")
+    table.add_column("Output $/M", justify="right")
+    table.add_column("Cache write $/M", justify="right")
+    table.add_column("Cache read $/M", justify="right")
+    for model, prices in sorted(pricing.items()):
+        table.add_row(
+            model,
+            f"{prices.get('input', 0):.3f}",
+            f"{prices.get('output', 0):.3f}",
+            f"{prices['cache_write']:.3f}" if "cache_write" in prices else "-",
+            f"{prices['cache_read']:.3f}" if "cache_read" in prices else "-",
+        )
+    console.print(table)
+    if meta.get("updated_at"):
+        console.print(f"[dim]Catálogo actualizado: {meta['updated_at']}[/dim]")
+
+
+@pricing_app.command("refresh")
+def pricing_refresh():
+    """Descarga el catálogo remoto (si catalog.allow_remote está activo) y actualiza la cache local."""
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+    from orchestrator.catalog import resolve_pricing
+    if not config.get("catalog", {}).get("allow_remote"):
+        console.print("[yellow]catalog.allow_remote no está activo en config.yaml — no se intenta descarga remota.[/yellow]")
+    pricing, meta = resolve_pricing(config, refresh=True)
+    console.print(f"[green]✓[/green] Precios resueltos desde fuente: [bold]{meta['source']}[/bold] ({len(pricing)} modelos)")
+
+
+@pricing_app.command("validate")
+def pricing_validate():
+    """Lista modelos usados en runs.db que no tienen precio en el catálogo efectivo."""
+    _ensure_db()
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+    from orchestrator.catalog import list_used_models_without_price
+    missing = list_used_models_without_price(config)
+    if not missing:
+        console.print("[green]✓[/green] Todos los modelos usados en runs tienen precio.")
+        return
+    table = Table(title="Modelos usados sin precio")
+    table.add_column("Provider")
+    table.add_column("Modelo")
+    for m in missing:
+        table.add_row(m["provider"], m["model"])
+    console.print(table)
+    console.print(f"[yellow]{len(missing)} modelo(s) sin precio.[/yellow]")
+
+
 if __name__ == "__main__":
     app()

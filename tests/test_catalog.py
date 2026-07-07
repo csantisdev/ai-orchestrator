@@ -153,6 +153,42 @@ def test_list_catalog_models_filters_by_provider(tmp_path, monkeypatch):
     assert all(m["provider"] == "deepseek" for m in models)
 
 
+def test_resolve_pricing_reports_source_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
+
+    pricing, meta = catalog.resolve_pricing({"pricing": {"x": {"input": 1, "output": 1}}})
+    assert meta["source"] == "config"
+
+    pricing, meta = catalog.resolve_pricing({})
+    assert meta["source"] == "static"
+    assert pricing.get("claude-sonnet-4-6") is not None
+
+    monkeypatch.setattr(catalog, "STATIC_CATALOG_PATH", tmp_path / "missing.json")
+    pricing, meta = catalog.resolve_pricing({})
+    assert meta["source"] == "default"
+
+
+def test_list_used_models_without_price(tmp_path, monkeypatch):
+    import threading
+
+    import orchestrator.db as db_mod
+    import orchestrator.paths as paths_mod
+
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
+    monkeypatch.setattr(paths_mod, "HOME_DIR", tmp_path)
+    monkeypatch.setattr(paths_mod, "DB_PATH", tmp_path / "runs.db")
+    monkeypatch.setattr(db_mod, "_local", threading.local())
+    db_mod.init_db()
+
+    db_mod.insert_run("proj", "tarea 1", "claude", "claude-sonnet-4-6")
+    db_mod.insert_run("proj", "tarea 2", "mystery", "modelo-inexistente")
+
+    missing = catalog.list_used_models_without_price({})
+
+    assert {"provider": "mystery", "model": "modelo-inexistente"} in missing
+    assert not any(m["model"] == "claude-sonnet-4-6" for m in missing)
+
+
 def test_calculate_cost_still_works_via_get_pricing_table():
     from orchestrator.config import get_pricing_table
     from orchestrator.costs import calculate_cost
