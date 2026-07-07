@@ -868,6 +868,12 @@ def doctor(
     else:
         from rich.markup import escape as _esc
         filter_alias = project
+
+        chroma_stats: dict = {}
+        if chroma_path.exists():
+            from orchestrator.rag import chroma_stats_isolated
+            chroma_stats = chroma_stats_isolated(timeout=15.0)
+
         for alias, path in sorted(projects.items()):
             if filter_alias and alias != filter_alias:
                 continue
@@ -888,19 +894,14 @@ def doctor(
 
             # Indexado en ChromaDB
             if chroma_path.exists():
-                try:
-                    from orchestrator.rag import chroma_stats
-                    stats = chroma_stats()
-                    docs_count = stats.get("docs", {}).get("by_project", {}).get(alias, 0)
-                    resp_count = stats.get("responses", {}).get("by_project", {}).get(alias, 0)
-                    if docs_count > 0:
-                        info(f"  RAG docs: {docs_count} chunks")
-                    else:
-                        warn(f"  {a}: no indexado en ChromaDB docs", f"Ejecutá: ai-orchestrator fix  (o 'index-docs -p {alias}')")
-                    if resp_count > 0:
-                        info(f"  RAG responses: {resp_count} vectores")
-                except Exception:
-                    pass
+                docs_count = chroma_stats.get("docs", {}).get("by_project", {}).get(alias, 0)
+                resp_count = chroma_stats.get("responses", {}).get("by_project", {}).get(alias, 0)
+                if docs_count > 0:
+                    info(f"  RAG docs: {docs_count} chunks")
+                else:
+                    warn(f"  {a}: no indexado en ChromaDB docs", f"Ejecutá: ai-orchestrator fix  (o 'index-docs -p {alias}')")
+                if resp_count > 0:
+                    info(f"  RAG responses: {resp_count} vectores")
 
     # ── 5. Resumen ─────────────────────────────────────────────────────────
     console.print()
@@ -1124,6 +1125,20 @@ def fix_command(
                 did(f"{a3}: {n} chunks indexados en ChromaDB")
             except Exception as exc:
                 fail(f"{a3}: error al indexar: {exc}")
+
+        try:
+            from orchestrator.rag import index_response
+            from orchestrator.db import _conn
+            conn = _conn()
+            rows = conn.execute(
+                "SELECT id, project, task, response FROM runs WHERE response IS NOT NULL AND response != ''"
+            ).fetchall()
+            with console.status("[dim]Repoblando respuestas en ChromaDB...[/dim]"):
+                for run_id, run_project, task, response in rows:
+                    index_response(run_id, run_project, task, response)
+            did(f"responses: {len(rows)} runs repoblados en ChromaDB")
+        except Exception as exc:
+            fail(f"responses: error al repoblar: {exc}")
 
     # ── 5. Sync Claude Code + Git ──────────────────────────────────────────
     if sync or all_fixes:
