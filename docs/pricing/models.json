@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0",
+  "currency": "USD",
+  "unit": "per_1m_tokens",
+  "updated_at": "2026-07-01T00:00:00Z",
+  "provider_aliases": {
+    "claude": "anthropic",
+    "anthropic": "anthropic",
+    "openai": "openai",
+    "deepseek": "deepseek",
+    "gemini": "google",
+    "google": "google"
+  },
+  "providers": {
+    "anthropic": {
+      "display_name": "Anthropic",
+      "models": {
+        "claude-sonnet-4-6": {
+          "id": "claude-sonnet-4-6",
+          "provider": "anthropic",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 3.00, "output": 15.00, "cache_write": 3.75, "cache_read": 0.30 },
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-07-01"
+        },
+        "claude-opus-4-8": {
+          "id": "claude-opus-4-8",
+          "provider": "anthropic",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 15.00, "output": 75.00, "cache_write": 18.75, "cache_read": 1.50 },
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-07-01"
+        },
+        "claude-haiku-4-5-20251001": {
+          "id": "claude-haiku-4-5-20251001",
+          "provider": "anthropic",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 0.80, "output": 4.00, "cache_write": 1.00, "cache_read": 0.08 },
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-07-01"
+        }
+      }
+    },
+    "openai": {
+      "display_name": "OpenAI",
+      "models": {
+        "gpt-4o": {
+          "id": "gpt-4o",
+          "provider": "openai",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 5.00, "output": 15.00, "cache_read": 1.25 },
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-07-01"
+        },
+        "gpt-4o-mini": {
+          "id": "gpt-4o-mini",
+          "provider": "openai",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 0.15, "output": 0.60, "cache_read": 0.075 },
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-07-01"
+        },
+        "gpt-5": {
+          "id": "gpt-5",
+          "provider": "openai",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 3.00, "output": 15.00, "cache_read": 0.75 },
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-07-01",
+          "notes": "Codex CLI. Verificar precio vigente por version en platform.openai.com/pricing."
+        },
+        "gpt-5.4-mini": {
+          "id": "gpt-5.4-mini",
+          "provider": "openai",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 1.50, "output": 6.00, "cache_read": 0.375 },
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-07-01",
+          "notes": "Codex CLI. Verificar precio vigente por version en platform.openai.com/pricing."
+        }
+      }
+    },
+    "deepseek": {
+      "display_name": "DeepSeek",
+      "models": {
+        "deepseek-v4-flash": {
+          "id": "deepseek-v4-flash",
+          "provider": "deepseek",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 0.14, "output": 0.28 },
+          "source_url": "https://api-docs.deepseek.com/",
+          "verified_at": "2026-07-01"
+        },
+        "deepseek-chat": {
+          "id": "deepseek-chat",
+          "provider": "deepseek",
+          "status": "deprecated",
+          "aliases": [],
+          "pricing": { "input": 0.14, "output": 0.28 },
+          "source_url": "https://api-docs.deepseek.com/",
+          "verified_at": "2026-07-01",
+          "notes": "Deprecado — usar deepseek-v4-flash."
+        },
+        "deepseek-v4-pro": {
+          "id": "deepseek-v4-pro",
+          "provider": "deepseek",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 0.435, "output": 0.87 },
+          "source_url": "https://api-docs.deepseek.com/",
+          "verified_at": "2026-07-01",
+          "notes": "Verificar precio vigente en platform.deepseek.com/api-docs."
+        }
+      }
+    },
+    "google": {
+      "display_name": "Google Gemini",
+      "models": {
+        "gemini-2.5-pro": {
+          "id": "gemini-2.5-pro",
+          "provider": "google",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 1.25, "output": 10.00 },
+          "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+          "verified_at": "2026-07-01"
+        },
+        "gemini-2.5-flash": {
+          "id": "gemini-2.5-flash",
+          "provider": "google",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 0.30, "output": 2.50 },
+          "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+          "verified_at": "2026-07-01"
+        },
+        "gemini-2.5-flash-lite": {
+          "id": "gemini-2.5-flash-lite",
+          "provider": "google",
+          "status": "active",
+          "aliases": [],
+          "pricing": { "input": 0.10, "output": 0.40 },
+          "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+          "verified_at": "2026-07-01"
+        }
+      }
+    }
+  }
+}

@@ -161,12 +161,12 @@ Reglas:
 
 ## Checklist inicial
 
-- [ ] Crear archivos publicos en `docs/pricing/`.
-- [ ] Implementar `orchestrator/catalog.py`.
-- [ ] Agregar constantes de cache en `orchestrator/paths.py`.
-- [ ] Migrar `get_pricing_table(config)`.
-- [ ] Migrar `watcher.py` y `codex_watcher.py`.
-- [ ] Agregar tests de precedencia y fallback.
+- [x] Crear archivos publicos en `docs/pricing/`.
+- [x] Implementar `orchestrator/catalog.py`.
+- [x] Agregar constantes de cache en `orchestrator/paths.py`.
+- [x] Migrar `get_pricing_table(config)`.
+- [x] Migrar `watcher.py` y `codex_watcher.py`.
+- [x] Agregar tests de precedencia y fallback.
 - [ ] Agregar `pricing validate`.
 - [ ] Agregar `GET /pricing`.
 - [ ] Planificar discovery de modelos.
