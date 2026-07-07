@@ -21,6 +21,14 @@
           "status": "active",
           "aliases": [],
           "pricing": { "input": 3.00, "output": 15.00, "cache_write": 3.75, "cache_read": 0.30 },
+          "purpose": {
+            "summary": "Modelo balanceado de Claude para arquitectura, seguridad y código complejo.",
+            "strengths": ["architecture", "security_review", "code_review", "reasoning"],
+            "weaknesses": ["low_cost", "boilerplate"],
+            "recommended_for": ["decisiones de arquitectura", "revisión de seguridad", "código complejo o ambiguo"],
+            "avoid_for": ["boilerplate masivo", "formateo simple"],
+            "routing_weight": 0.85
+          },
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
           "verified_at": "2026-07-01"
         },
@@ -39,6 +47,14 @@
           "status": "active",
           "aliases": [],
           "pricing": { "input": 0.80, "output": 4.00, "cache_write": 1.00, "cache_read": 0.08 },
+          "purpose": {
+            "summary": "Modelo económico/rápido de Claude para tareas simples.",
+            "strengths": ["low_latency", "low_cost", "boilerplate", "documentation"],
+            "weaknesses": ["architecture", "security_review"],
+            "recommended_for": ["boilerplate", "completar código corto", "formateo"],
+            "avoid_for": ["decisiones de arquitectura", "auditoría de seguridad"],
+            "routing_weight": 0.5
+          },
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
           "verified_at": "2026-07-01"
         }
@@ -53,6 +69,14 @@
           "status": "active",
           "aliases": [],
           "pricing": { "input": 5.00, "output": 15.00, "cache_read": 1.25 },
+          "purpose": {
+            "summary": "Modelo de propósito general de OpenAI para refactors e integración de APIs.",
+            "strengths": ["api_integration", "code_generation", "reasoning"],
+            "weaknesses": ["low_cost"],
+            "recommended_for": ["refactors", "integración de APIs", "tareas de propósito general"],
+            "avoid_for": ["tareas ultra económicas de volumen"],
+            "routing_weight": 0.65
+          },
           "source_url": "https://developers.openai.com/api/docs/pricing",
           "verified_at": "2026-07-01"
         },
@@ -62,6 +86,14 @@
           "status": "active",
           "aliases": [],
           "pricing": { "input": 0.15, "output": 0.60, "cache_read": 0.075 },
+          "purpose": {
+            "summary": "Modelo económico/rápido de OpenAI para tareas simples.",
+            "strengths": ["low_latency", "low_cost", "boilerplate"],
+            "weaknesses": ["reasoning", "architecture"],
+            "recommended_for": ["tareas simples", "formateo"],
+            "avoid_for": ["refactors complejos"],
+            "routing_weight": 0.4
+          },
           "source_url": "https://developers.openai.com/api/docs/pricing",
           "verified_at": "2026-07-01"
         },
@@ -96,6 +128,14 @@
           "status": "active",
           "aliases": [],
           "pricing": { "input": 0.14, "output": 0.28 },
+          "purpose": {
+            "summary": "Modelo económico de DeepSeek para tests, boilerplate y volumen.",
+            "strengths": ["test_generation", "boilerplate", "low_cost"],
+            "weaknesses": ["architecture", "security_review"],
+            "recommended_for": ["tests repetitivos", "boilerplate", "tareas de volumen económicas"],
+            "avoid_for": ["decisiones críticas", "arquitectura"],
+            "routing_weight": 0.45
+          },
           "source_url": "https://api-docs.deepseek.com/",
           "verified_at": "2026-07-01"
         },
@@ -130,6 +170,14 @@
           "status": "active",
           "aliases": [],
           "pricing": { "input": 1.25, "output": 10.00 },
+          "purpose": {
+            "summary": "Modelo fuerte de Gemini para contexto largo, análisis de repos y multimodal.",
+            "strengths": ["long_context", "multimodal", "reasoning", "data_extraction"],
+            "weaknesses": ["low_cost"],
+            "recommended_for": ["contexto >100K tokens", "análisis de repositorios completos", "tareas multimodales"],
+            "avoid_for": ["tareas cortas de bajo valor"],
+            "routing_weight": 0.75
+          },
           "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
           "verified_at": "2026-07-01"
         },
@@ -139,6 +187,14 @@
           "status": "active",
           "aliases": [],
           "pricing": { "input": 0.30, "output": 2.50 },
+          "purpose": {
+            "summary": "Modelo económico/rápido de Gemini para tareas simples dentro de Gemini.",
+            "strengths": ["low_latency", "low_cost", "documentation"],
+            "weaknesses": ["long_context", "multimodal"],
+            "recommended_for": ["tareas simples", "resúmenes cortos"],
+            "avoid_for": ["análisis de repositorios completos"],
+            "routing_weight": 0.5
+          },
           "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
           "verified_at": "2026-07-01"
         },
