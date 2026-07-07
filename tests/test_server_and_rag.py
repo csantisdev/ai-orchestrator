@@ -114,6 +114,7 @@ def test_server_post_requires_json_ct():
             "/skip-step",
             "/add-project",
             "/index-docs",
+            "/pricing/refresh",
         ]
         for ep in mutating_endpoints:
             conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
@@ -142,6 +143,59 @@ def test_server_post_requires_json_ct():
             f"/run with application/json should not return 415, got {resp.status}"
         )
         conn.close()
+
+    finally:
+        paths_mod.HOME_DIR = orig_home
+        paths_mod.DB_PATH = orig_db
+        db_mod._local = threading.local()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_pricing_endpoints():
+    """GET /pricing y POST /pricing/refresh devuelven la tabla efectiva y su fuente."""
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+    from orchestrator.server import serve
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    orig_home = paths_mod.HOME_DIR
+    orig_db = paths_mod.DB_PATH
+    port = 19978
+
+    def _run():
+        paths_mod.HOME_DIR = tmp_path
+        paths_mod.DB_PATH = tmp_path / "runs.db"
+        db_mod._local = threading.local()
+        db_mod.init_db()
+        serve(port, None, False, {})
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    try:
+        assert _wait_for_port(port), "server did not start in time"
+
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        conn.request("GET", "/pricing")
+        resp = conn.getresponse()
+        data = json.loads(resp.read())
+        conn.close()
+        assert resp.status == 200
+        assert data["source"] in ("config", "cache", "remote", "static", "default")
+        assert "claude-sonnet-4-6" in data["pricing"]
+
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        body = b"{}"
+        conn.request("POST", "/pricing/refresh", body=body, headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+        })
+        resp = conn.getresponse()
+        data = json.loads(resp.read())
+        conn.close()
+        assert resp.status == 200
+        assert data["source"] in ("config", "cache", "remote", "static", "default")
 
     finally:
         paths_mod.HOME_DIR = orig_home

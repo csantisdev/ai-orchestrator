@@ -67,6 +67,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/clean-preview":            self._get_clean_preview,
                 "/integrations/status":      self._get_integrations_status,
                 "/rates":                    self._get_rates,
+                "/pricing":                  self._get_pricing,
                 "/export-csv":              self._get_export_csv,
             }.get(path, self._get_dashboard)
             handler(parsed)
@@ -472,6 +473,15 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 self._json({"error": str(exc)}, 500)
             return
 
+        def _get_pricing(self, parsed):
+            try:
+                from orchestrator.catalog import resolve_pricing
+                pricing, meta = resolve_pricing(config)
+                self._json({"pricing": pricing, "source": meta["source"], "updated_at": meta.get("updated_at")})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+            return
+
         def _get_dashboard(self, parsed):
             params = urllib.parse.parse_qs(parsed.query)
             sel_project = params.get("project", [project or ""])[0]
@@ -527,6 +537,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/sync-git":                self._post_sync_git,
                 "/sync-codex":              self._post_sync_codex,
                 "/rates/refresh":           self._post_rates_refresh,
+                "/pricing/refresh":         self._post_pricing_refresh,
                 "/config/bcentral":         self._post_config_bcentral,
                 "/add-project":             self._post_add_project,
                 "/project/rename":          self._post_project_rename,
@@ -791,6 +802,15 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 from orchestrator.rates import refresh_rate
                 result = refresh_rate(config)
                 self._json(result)
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+            return
+
+        def _post_pricing_refresh(self):
+            try:
+                from orchestrator.catalog import resolve_pricing
+                pricing, meta = resolve_pricing(config, refresh=True)
+                self._json({"pricing": pricing, "source": meta["source"], "updated_at": meta.get("updated_at")})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
             return
