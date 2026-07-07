@@ -1263,5 +1263,51 @@ def pricing_validate():
     console.print(f"[yellow]{len(missing)} modelo(s) sin precio.[/yellow]")
 
 
+models_app = typer.Typer(help="Discovery de modelos disponibles por proveedor (Decisión 0002).")
+app.add_typer(models_app, name="models")
+
+
+@models_app.command("refresh")
+def models_refresh():
+    """Consulta el API de cada proveedor configurado y cachea los modelos disponibles."""
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    from orchestrator.model_discovery import refresh_available_models
+    result = refresh_available_models(config)
+    for provider, data in result["providers"].items():
+        if data["error"]:
+            console.print(f"  [red]✗[/red] {provider}: {data['error']}")
+        else:
+            console.print(f"  [green]✓[/green] {provider}: {len(data['models'])} modelo(s)")
+
+
+@models_app.command("list")
+def models_list():
+    """Lista modelos disponibles (desde cache local) y si tienen precio en el catálogo."""
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+
+    from orchestrator.model_discovery import compare_available_vs_priced
+    comparison = compare_available_vs_priced(config)
+    if not comparison:
+        console.print("[yellow]Sin datos — ejecutá 'ai-orchestrator models refresh' primero.[/yellow]")
+        return
+
+    table = Table(title="Modelos disponibles")
+    table.add_column("Provider")
+    table.add_column("Modelo")
+    table.add_column("Precio", justify="center")
+    for row in sorted(comparison, key=lambda r: (r["provider"], r["id"])):
+        precio = "[green]sí[/green]" if row["has_price"] else "[yellow]no[/yellow]"
+        table.add_row(row["provider"], row["id"], precio)
+    console.print(table)
+
+
 if __name__ == "__main__":
     app()

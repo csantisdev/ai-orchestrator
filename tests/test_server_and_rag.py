@@ -115,6 +115,7 @@ def test_server_post_requires_json_ct():
             "/add-project",
             "/index-docs",
             "/pricing/refresh",
+            "/models/refresh",
         ]
         for ep in mutating_endpoints:
             conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
@@ -196,6 +197,58 @@ def test_pricing_endpoints():
         conn.close()
         assert resp.status == 200
         assert data["source"] in ("config", "cache", "remote", "static", "default")
+
+    finally:
+        paths_mod.HOME_DIR = orig_home
+        paths_mod.DB_PATH = orig_db
+        db_mod._local = threading.local()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_models_endpoints():
+    """GET /models y POST /models/refresh no rompen el servidor sin proveedores configurados."""
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+    from orchestrator.server import serve
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    orig_home = paths_mod.HOME_DIR
+    orig_db = paths_mod.DB_PATH
+    port = 19979
+
+    def _run():
+        paths_mod.HOME_DIR = tmp_path
+        paths_mod.DB_PATH = tmp_path / "runs.db"
+        db_mod._local = threading.local()
+        db_mod.init_db()
+        serve(port, None, False, {})
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    try:
+        assert _wait_for_port(port), "server did not start in time"
+
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        conn.request("GET", "/models")
+        resp = conn.getresponse()
+        data = json.loads(resp.read())
+        conn.close()
+        assert resp.status == 200
+        assert data["models"] == []
+
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        body = b"{}"
+        conn.request("POST", "/models/refresh", body=body, headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+        })
+        resp = conn.getresponse()
+        data = json.loads(resp.read())
+        conn.close()
+        assert resp.status == 200
+        assert data["providers"] == {}
 
     finally:
         paths_mod.HOME_DIR = orig_home
