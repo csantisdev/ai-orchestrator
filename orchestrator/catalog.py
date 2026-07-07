@@ -160,6 +160,48 @@ def list_catalog_models(config: dict, provider: str | None = None) -> list[dict]
     return models
 
 
+def _canonical_to_short_provider(catalog: dict) -> dict:
+    """Invierte `provider_aliases` para mapear el nombre canonico del catalogo
+    (anthropic/google/...) al nombre corto que usa el resto del orquestador
+    (claude/gemini/openai/deepseek, ver `orchestrator.paths.PROVIDERS`)."""
+    from orchestrator.paths import PROVIDERS
+
+    aliases = catalog.get("provider_aliases", {})
+    return {aliases.get(short, short): short for short in PROVIDERS}
+
+
+def get_model_profiles(config: dict, include_deprecated: bool = False) -> list[dict]:
+    """Vista compacta del catalogo para el router (`profiles_for_router`).
+
+    Solo incluye modelos con `purpose` definido en el catalogo — los que no
+    tienen perfil quedan fuera para que el router siga usando sus heuristicas
+    de fallback. Por defecto excluye modelos `deprecated` salvo
+    `include_deprecated=True`.
+    """
+    pricing = get_effective_pricing(config)
+    catalog = _read_cache(config) or _load_json(STATIC_CATALOG_PATH) or {}
+    canonical_to_short = _canonical_to_short_provider(catalog)
+
+    profiles = []
+    for provider, provider_data in catalog.get("providers", {}).items():
+        short_provider = canonical_to_short.get(provider, provider)
+        for model_id, model_data in provider_data.get("models", {}).items():
+            purpose = model_data.get("purpose")
+            if not purpose:
+                continue
+            status = model_data.get("status", "unknown")
+            if status == "deprecated" and not include_deprecated:
+                continue
+            profiles.append({
+                "provider": short_provider,
+                "id": model_id,
+                "status": status,
+                "has_price": model_id in pricing,
+                "purpose": purpose,
+            })
+    return profiles
+
+
 def list_used_models_without_price(config: dict) -> list[dict]:
     """Modelos con runs registrados en `runs.db` que no tienen entrada en la tabla efectiva."""
     from orchestrator.db import _conn

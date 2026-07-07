@@ -36,6 +36,14 @@ Uso de ratings en tareas similares previas:
 - Si una tarea similar está marcada como [ERRÓNEO] para un provider, evitá ese provider a menos que no haya alternativa.
 - Si está marcada como [ÚTIL], ese provider es buena señal para esta tarea.
 
+Si se incluye una sección "Perfiles de modelos desde el catálogo", usala como señal
+adicional sobre el modelo específico a sugerir (no solo el provider):
+- Preferí modelos marcados como fuertes en tags relevantes a la tarea.
+- Evitá modelos marcados "[SIN PRECIO]" salvo que no haya alternativa con precio.
+- Nunca sugieras un modelo marcado "[DEPRECATED]".
+Estas reglas del catálogo tienen prioridad sobre las reglas generales de arriba
+cuando ambas aplican al mismo proveedor.
+
 Para "model": si la tarea es simple (boilerplate, completar código corto, formateo) sugerí el modelo más liviano del provider.
 Si "model" es null, se usará el configurado en config.yaml. Ejemplos orientativos:
 - claude + tarea simple → "claude-haiku-4-5-20251001"
@@ -134,12 +142,35 @@ def _fetch_similar_runs(task: str, n: int = 3) -> list[dict]:
         return []
 
 
+def _format_profiles_section(profiles: list[dict]) -> str:
+    """Formatea la vista compacta del catalogo (`get_model_profiles`) para el prompt del router."""
+    if not profiles:
+        return ""
+    lines = []
+    for p in profiles:
+        purpose = p["purpose"]
+        strengths = ", ".join(purpose.get("strengths", [])) or "-"
+        weaknesses = ", ".join(purpose.get("weaknesses", [])) or "-"
+        flags = []
+        if not p["has_price"]:
+            flags.append("[SIN PRECIO]")
+        if p["status"] == "deprecated":
+            flags.append("[DEPRECATED]")
+        flag_str = f" {' '.join(flags)}" if flags else ""
+        lines.append(
+            f"- {p['provider']}/{p['id']}: {purpose.get('summary', '')} "
+            f"Fuerte en: {strengths}. Evitar: {weaknesses}.{flag_str}"
+        )
+    return "\nPerfiles de modelos desde el catálogo:\n" + "\n".join(lines) + "\n"
+
+
 def _build_router_prompt(
     task: str,
     ctx: ProjectContext,
     signals: list[dict],
     similar_runs: list[dict] | None = None,
     active_context: dict | None = None,
+    profiles_section: str = "",
 ) -> str:
     similar_section = ""
     if similar_runs:
@@ -177,7 +208,7 @@ Notas de ruteo del proyecto: {ctx.routing_notes or "(sin notas específicas)"}
 Proveedor por defecto del proyecto: {ctx.default_provider or "(sin definir)"}
 {context_section}
 Señales de keywords detectadas en la tarea: {json.dumps(signals, ensure_ascii=False) if signals else "(ninguna)"}
-{similar_section}
+{similar_section}{profiles_section}
 Tarea a resolver:
 \"\"\"{task}\"\"\"
 
@@ -202,8 +233,19 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
                 reason=f"Paso activo [{step['order_idx']}]: {step['title']} → provider definido: {step['provider']}",
             )
 
+    try:
+        from orchestrator.catalog import get_model_profiles
+        include_deprecated = config.get("catalog", {}).get("allow_deprecated_models", False)
+        profiles = get_model_profiles(config, include_deprecated=include_deprecated)
+    except Exception:
+        profiles = []
+    profiles_section = _format_profiles_section(profiles)
+
     ctx_compressed = _compress_context(ctx, task)
-    prompt = _build_router_prompt(task, ctx_compressed, signals, similar_runs=similar, active_context=active_ctx)
+    prompt = _build_router_prompt(
+        task, ctx_compressed, signals, similar_runs=similar, active_context=active_ctx,
+        profiles_section=profiles_section,
+    )
 
     try:
         router = build_provider(config, router_provider_name)

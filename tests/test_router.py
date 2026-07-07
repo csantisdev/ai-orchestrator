@@ -5,6 +5,7 @@ from orchestrator.context import ProjectContext
 from orchestrator.router import (
     RoutingDecision,
     _calculate_keyword_signals,
+    _format_profiles_section,
     decide_provider,
 )
 
@@ -66,6 +67,45 @@ def test_decide_provider_fallback_on_exception():
     assert decision.provider == "claude"
     assert decision.used_fallback is True
     assert "fallback" in decision.reason.lower() or "claude" in decision.reason
+
+
+def test_format_profiles_section_empty():
+    assert _format_profiles_section([]) == ""
+
+
+def test_format_profiles_section_includes_flags():
+    profiles = [
+        {
+            "provider": "deepseek", "id": "deepseek-v4-flash", "status": "active", "has_price": True,
+            "purpose": {"summary": "económico para tests", "strengths": ["test_generation"], "weaknesses": ["architecture"]},
+        },
+        {
+            "provider": "fake", "id": "fake-model", "status": "deprecated", "has_price": False,
+            "purpose": {"summary": "viejo", "strengths": [], "weaknesses": []},
+        },
+    ]
+    section = _format_profiles_section(profiles)
+
+    assert "deepseek/deepseek-v4-flash" in section
+    assert "test_generation" in section
+    assert "[SIN PRECIO]" in section
+    assert "[DEPRECATED]" in section
+
+
+def test_decide_provider_includes_catalog_profiles_in_prompt():
+    mock_result = MagicMock()
+    mock_result.text = '{"provider": "deepseek", "model": null, "reason": "boilerplate economico"}'
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = mock_result
+
+    with patch("orchestrator.router.build_provider", return_value=mock_provider), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._fetch_similar_runs", return_value=[]):
+        decide_provider("generar tests de boilerplate", _ctx(), _CONFIG)
+
+    sent_prompt = mock_provider.complete.call_args.kwargs["prompt"]
+    assert "Perfiles de modelos desde el catálogo" in sent_prompt
+    assert "deepseek/deepseek-v4-flash" in sent_prompt
 
 
 def test_decide_provider_active_step_overrides_router():

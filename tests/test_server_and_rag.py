@@ -152,16 +152,18 @@ def test_server_post_requires_json_ct():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def test_pricing_endpoints():
+def test_pricing_endpoints(monkeypatch):
     """GET /pricing y POST /pricing/refresh devuelven la tabla efectiva y su fuente."""
     import orchestrator.paths as paths_mod
     import orchestrator.db as db_mod
+    import orchestrator.catalog as catalog_mod
     from orchestrator.server import serve
 
     tmp = tempfile.mkdtemp()
     tmp_path = Path(tmp)
     orig_home = paths_mod.HOME_DIR
     orig_db = paths_mod.DB_PATH
+    monkeypatch.setattr(catalog_mod, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
     port = 19978
 
     def _run():
@@ -205,16 +207,18 @@ def test_pricing_endpoints():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def test_models_endpoints():
+def test_models_endpoints(monkeypatch):
     """GET /models y POST /models/refresh no rompen el servidor sin proveedores configurados."""
     import orchestrator.paths as paths_mod
     import orchestrator.db as db_mod
+    import orchestrator.model_discovery as model_discovery_mod
     from orchestrator.server import serve
 
     tmp = tempfile.mkdtemp()
     tmp_path = Path(tmp)
     orig_home = paths_mod.HOME_DIR
     orig_db = paths_mod.DB_PATH
+    monkeypatch.setattr(model_discovery_mod, "MODELS_CACHE_PATH", tmp_path / "models-cache.json")
     port = 19979
 
     def _run():

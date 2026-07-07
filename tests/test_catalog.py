@@ -189,6 +189,83 @@ def test_list_used_models_without_price(tmp_path, monkeypatch):
     assert not any(m["model"] == "claude-sonnet-4-6" for m in missing)
 
 
+def _catalog_payload_with_purpose(model_id="fake-model", status="active", has_purpose=True, has_price=True):
+    model_entry = {
+        "id": model_id,
+        "provider": "fake",
+        "status": status,
+        "source_url": "https://example.com",
+        "verified_at": "2026-07-01",
+    }
+    if has_price:
+        model_entry["pricing"] = {"input": 1.0, "output": 2.0}
+    if has_purpose:
+        model_entry["purpose"] = {
+            "summary": "resumen de prueba",
+            "strengths": ["test_generation"],
+            "weaknesses": ["architecture"],
+            "routing_weight": 0.5,
+        }
+    return {
+        "schema_version": catalog.SCHEMA_VERSION,
+        "currency": "USD",
+        "unit": "per_1m_tokens",
+        "updated_at": "2026-07-01T00:00:00Z",
+        "providers": {"fake": {"display_name": "Fake", "models": {model_id: model_entry}}},
+    }
+
+
+def test_get_model_profiles_only_includes_models_with_purpose(tmp_path, monkeypatch):
+    cache_path = tmp_path / "pricing-cache.json"
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", cache_path)
+    payload = _catalog_payload_with_purpose("with-purpose", has_purpose=True)
+    payload["providers"]["fake"]["models"]["no-purpose"] = {
+        "id": "no-purpose", "provider": "fake", "status": "active",
+        "pricing": {"input": 1.0, "output": 1.0},
+        "source_url": "https://example.com", "verified_at": "2026-07-01",
+    }
+    _write_cache(cache_path, payload)
+
+    profiles = catalog.get_model_profiles({})
+
+    ids = {p["id"] for p in profiles}
+    assert "with-purpose" in ids
+    assert "no-purpose" not in ids
+
+
+def test_get_model_profiles_excludes_deprecated_by_default(tmp_path, monkeypatch):
+    cache_path = tmp_path / "pricing-cache.json"
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", cache_path)
+    _write_cache(cache_path, _catalog_payload_with_purpose("old-model", status="deprecated"))
+
+    assert catalog.get_model_profiles({}) == []
+    profiles = catalog.get_model_profiles({}, include_deprecated=True)
+    assert len(profiles) == 1
+    assert profiles[0]["status"] == "deprecated"
+
+
+def test_get_model_profiles_flags_models_without_price(tmp_path, monkeypatch):
+    cache_path = tmp_path / "pricing-cache.json"
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", cache_path)
+    _write_cache(cache_path, _catalog_payload_with_purpose("free-model", has_price=False))
+
+    profiles = catalog.get_model_profiles({})
+
+    assert len(profiles) == 1
+    assert profiles[0]["has_price"] is False
+
+
+def test_get_model_profiles_maps_canonical_provider_to_short_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
+
+    profiles = catalog.get_model_profiles({})
+    providers = {p["provider"] for p in profiles}
+
+    assert providers <= {"claude", "openai", "deepseek", "gemini"}
+    assert "anthropic" not in providers
+    assert "google" not in providers
+
+
 def test_calculate_cost_still_works_via_get_pricing_table():
     from orchestrator.config import get_pricing_table
     from orchestrator.costs import calculate_cost
