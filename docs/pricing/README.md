@@ -32,9 +32,35 @@ Editar `models.json` a mano, respetando `schema.json`, y actualizar
 `updated_at` (catalogo) y `verified_at` (por modelo). No se recalculan
 costos ya persistidos en `runs.db` al cambiar este archivo.
 
+## Perfiles de proposito (`purpose`)
+
+Los modelos usados por defecto en `ROUTER_SYSTEM_PROMPT` tienen un campo
+`purpose` (summary/strengths/weaknesses/recommended_for/avoid_for/routing_weight).
+`orchestrator/catalog.get_model_profiles(config)` genera la vista compacta que
+el router inyecta en su prompt — ver `orchestrator/router.py:_format_profiles_section`.
+Modelos sin `purpose` simplemente no aparecen en esa vista; el router sigue
+usando sus heuristicas generales de fallback para ellos.
+
+## Validacion automatica
+
+`scripts/validate_pricing_catalog.py` valida `models.json` contra
+`schema.json` y, con `--report`, audita:
+
+- modelos con `verified_at` de mas de 180 dias (potencialmente desactualizados);
+- modelos en `DEFAULT_PRICING` (costs.py) sin entrada en el catalogo, o viceversa.
+
+No hace llamadas de red ni modifica precios. El workflow
+`.github/workflows/pricing-catalog.yml` lo corre en cada PR/push que toque
+`docs/pricing/**` (falla el job solo si el schema es invalido) y semanalmente
+por cron, abriendo o actualizando un issue de GitHub si hay hallazgos.
+
 ## Etapas futuras
 
-Discovery de modelos por API de proveedor, comandos `pricing`/`models` en el
-CLI, endpoints `/pricing` y `/models`, y uso del catalogo en el router estan
-fuera del alcance de la Etapa 1 — ver el
-[mapa de implementacion](../decisions/0002-implementation-map.md).
+Discovery de modelos por API de proveedor (`orchestrator/model_discovery.py`),
+comandos `pricing`/`models` en el CLI, endpoints `/pricing` y `/models`, y uso
+del catalogo en el router ya estan implementados — ver el
+[mapa de implementacion](../decisions/0002-implementation-map.md) para el
+detalle por etapa. Queda pendiente evaluar si conviene automatizar tambien
+el discovery de modelos (Etapa 3) desde el mismo workflow, usando secrets de
+API keys en CI — decision deliberadamente diferida por el riesgo de exponer
+credenciales en logs de Actions.

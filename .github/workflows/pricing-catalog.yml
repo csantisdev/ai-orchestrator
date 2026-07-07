@@ -1,0 +1,69 @@
+name: Pricing catalog
+
+on:
+  push:
+    branches: [production]
+    paths:
+      - "docs/pricing/**"
+      - "orchestrator/costs.py"
+      - "scripts/validate_pricing_catalog.py"
+  pull_request:
+    paths:
+      - "docs/pricing/**"
+      - "orchestrator/costs.py"
+      - "scripts/validate_pricing_catalog.py"
+  schedule:
+    - cron: "0 6 * * 1" # lunes 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  validate:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jsonschema
+      - name: Validar catalogo contra schema
+        run: |
+          python scripts/validate_pricing_catalog.py --report
+          code=$?
+          # Exit 2 = solo hallazgos informativos (staleness/gaps), no bloquea el merge.
+          # Exit 1 = catalogo invalido contra schema.json, si bloquea.
+          if [ "$code" -eq 1 ]; then
+            exit 1
+          fi
+          exit 0
+
+  weekly-audit:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jsonschema
+      - name: Ejecutar auditoria
+        id: audit
+        run: |
+          set +e
+          python scripts/validate_pricing_catalog.py --report > audit_output.txt
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          cat audit_output.txt
+      - name: Abrir o actualizar issue con hallazgos
+        if: steps.audit.outputs.code != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="Pricing catalog: hallazgos de auditoria"
+          EXISTING=$(gh issue list --search "$TITLE in:title" --state open --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file audit_output.txt
+          else
+            gh issue create --title "$TITLE" --body-file audit_output.txt
+          fi
