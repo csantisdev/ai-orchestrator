@@ -43,8 +43,8 @@ def get_default_provider(config: dict) -> str:
 
 
 def get_pricing_table(config: dict) -> dict:
-    from orchestrator.costs import DEFAULT_PRICING
-    return config.get("pricing", DEFAULT_PRICING)
+    from orchestrator.catalog import get_effective_pricing
+    return get_effective_pricing(config)
 
 
 def get_budget_config(config: dict) -> dict:

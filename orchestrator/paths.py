@@ -16,3 +16,4 @@ PROVIDERS = ("claude", "openai", "deepseek", "gemini")
 
 DB_PATH     = HOME_DIR / "runs.db"
 CHROMA_PATH = HOME_DIR / "chroma"
+PRICING_CACHE_PATH = HOME_DIR / "pricing-cache.json"

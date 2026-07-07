@@ -139,7 +139,8 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
     """
     import sqlite3
 
-    from orchestrator.costs import DEFAULT_PRICING, calculate_cost
+    from orchestrator.config import get_pricing_table
+    from orchestrator.costs import calculate_cost
     from orchestrator.db import _conn, _write_lock, init_db
     from orchestrator.index import load_index
     from orchestrator.providers.base import CompletionResult
@@ -147,7 +148,7 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
     init_db()
     conn = _conn()
     index = load_index().get("projects", {})
-    pricing = config.get("pricing", {}) or DEFAULT_PRICING
+    pricing = get_pricing_table(config)
     imported: list[dict] = []
 
     state_db = _find_state_db()
