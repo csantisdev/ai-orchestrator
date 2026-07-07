@@ -13,8 +13,8 @@ dependencies = [
 
 [project.optional-dependencies]
 vector = ["chromadb>=0.4.0"]
-dev   = ["pytest>=8.0.0"]
-all   = ["chromadb>=0.4.0", "pytest>=8.0.0"]
+dev   = ["pytest>=8.0.0", "jsonschema>=4.0.0"]
+all   = ["chromadb>=0.4.0", "pytest>=8.0.0", "jsonschema>=4.0.0"]
 
 [tool.setuptools.dynamic]
 version = {attr = "orchestrator.__version__"}
