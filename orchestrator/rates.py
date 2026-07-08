@@ -157,4 +157,4 @@ def save_bcentral_credentials(user: str, password: str) -> None:
     cfg["bcentral"]["pass"] = password
 
     with CONFIG_PATH.open("w", encoding="utf-8") as f:
-        yaml.dump(cfg, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        yaml.safe_dump(cfg, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
