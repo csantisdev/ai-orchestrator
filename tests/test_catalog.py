@@ -279,3 +279,46 @@ def test_calculate_cost_still_works_via_get_pricing_table():
     cost = calculate_cost(result, pricing)
 
     assert cost == 18.0
+
+
+# ---------------------------------------------------------------------------
+# validate_model_for_provider
+# ---------------------------------------------------------------------------
+
+def test_validate_model_for_provider_known_active_model():
+    result = catalog.validate_model_for_provider({}, "claude", "claude-sonnet-4-6")
+    assert result["valid"] is True
+    assert result["status"] == "active"
+    assert result["has_price"] is True
+
+
+def test_validate_model_for_provider_deprecated_model():
+    result = catalog.validate_model_for_provider({}, "deepseek", "deepseek-chat")
+    assert result["valid"] is True
+    assert result["status"] == "deprecated"
+
+
+def test_validate_model_for_provider_wrong_provider():
+    # claude-sonnet-4-6 pertenece a claude/anthropic, no a openai
+    result = catalog.validate_model_for_provider({}, "openai", "claude-sonnet-4-6")
+    assert result["valid"] is False
+    assert result["status"] is None
+
+
+def test_validate_model_for_provider_unknown_model():
+    result = catalog.validate_model_for_provider({}, "openai", "gpt-nonexistent-99")
+    assert result["valid"] is False
+    assert result["status"] is None
+
+
+def test_validate_model_for_provider_unknown_provider():
+    result = catalog.validate_model_for_provider({}, "unknownprov", "any-model")
+    assert result["valid"] is False
+    assert result["status"] is None
+    assert "no mapeado" in result["reason"]
+
+
+def test_validate_model_for_provider_gemini_uses_google_canonical():
+    result = catalog.validate_model_for_provider({}, "gemini", "gemini-2.5-flash")
+    assert result["valid"] is True
+    assert result["status"] == "active"

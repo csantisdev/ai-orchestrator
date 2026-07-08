@@ -297,6 +297,26 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
         if provider not in PROVIDERS:
             raise ValueError(f"Provider inválido devuelto por el router: {provider}")
 
+        # Validar que el provider elegido tenga API key configurada.
+        from orchestrator.config import ConfigError, get_provider_config
+        try:
+            prov_cfg = get_provider_config(config, provider)
+            if not prov_cfg.get("api_key", "").strip():
+                raise ConfigError(f"Provider '{provider}' no tiene API key configurada.")
+        except ConfigError as exc:
+            return RoutingDecision(
+                provider=fallback,
+                reason=f"Router eligió '{provider}' sin API key disponible; se usó fallback '{fallback}'. ({exc})",
+                used_fallback=True,
+            )
+
+        # Validar el modelo sugerido contra el catálogo (si el router propuso uno).
+        if model:
+            from orchestrator.catalog import validate_model_for_provider
+            validation = validate_model_for_provider(config, provider, model)
+            if not validation["valid"] or validation["status"] == "deprecated":
+                model = None  # descartar modelo inválido o deprecated; se usará el de config.yaml
+
         from orchestrator.config import get_pricing_table
         from orchestrator.costs import calculate_cost
         router_cost = calculate_cost(result, get_pricing_table(config))
