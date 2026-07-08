@@ -451,13 +451,16 @@ def insert_context(project: str, title: str, description: str = "", metadata: st
         return cur.lastrowid  # type: ignore[return-value]
 
 
-def insert_step(context_id: int, order_idx: int, title: str, description: str = "", provider: str = "") -> int:
+def insert_step(
+    context_id: int, order_idx: int, title: str,
+    description: str = "", provider: str = "", agent_preset: str = "",
+) -> int:
     conn = _conn()
     with _write_lock:
         cur = conn.execute(
-            """INSERT INTO steps (context_id, order_idx, title, description, status, provider)
-               VALUES (?, ?, ?, ?, 'pending', ?)""",
-            (context_id, order_idx, title, description, provider),
+            """INSERT INTO steps (context_id, order_idx, title, description, status, provider, agent_preset)
+               VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
+            (context_id, order_idx, title, description, provider, agent_preset),
         )
         conn.commit()
         return cur.lastrowid  # type: ignore[return-value]

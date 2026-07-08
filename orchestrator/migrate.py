@@ -322,3 +322,12 @@ def run_migrations() -> None:
                     pass
                 _mark_applied(conn, "add_file_hash_to_chunks")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_agent_preset_to_steps"):
+                try:
+                    conn.execute("ALTER TABLE steps ADD COLUMN agent_preset TEXT")
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_agent_preset_to_steps")
+                conn.commit()

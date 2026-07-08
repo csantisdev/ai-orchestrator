@@ -222,6 +222,9 @@ def run(
         f"Stack: {ctx.stack}\n"
         f"Convenciones: {', '.join(ctx.conventions) if ctx.conventions else 'ninguna registrada'}\n"
     )
+    if decision.system_prompt_addition:
+        system_prompt += f"\n{decision.system_prompt_addition}\n"
+
     _rag_chunks: list[dict] = []
     try:
         from orchestrator.rag import retrieve_docs, retrieve_responses, build_context_block
@@ -1307,6 +1310,71 @@ def models_list():
         precio = "[green]sí[/green]" if row["has_price"] else "[yellow]no[/yellow]"
         table.add_row(row["provider"], row["id"], precio)
     console.print(table)
+
+
+agents_app = typer.Typer(help="Gestiona agentes: presets reutilizables de provider/model/system-prompt.")
+app.add_typer(agents_app, name="agents")
+
+
+@agents_app.command("list")
+def agents_list():
+    """Lista los agentes registrados."""
+    from orchestrator.agents import list_agents
+    agents = list_agents()
+    if not agents:
+        console.print("[yellow]No hay agentes registrados. Usá 'ai-orchestrator agents add'.[/yellow]")
+        return
+    table = Table(title="Agentes registrados")
+    table.add_column("Nombre")
+    table.add_column("Display name")
+    table.add_column("Provider")
+    table.add_column("Model")
+    for a in agents:
+        table.add_row(a.name, a.display_name or "-", a.provider or "(sin definir)", a.model or "(sin definir)")
+    console.print(table)
+
+
+@agents_app.command("show")
+def agents_show(name: str = typer.Argument(..., help="Nombre del agente.")):
+    """Muestra el detalle completo de un agente."""
+    from orchestrator.agents import get_agent
+    agent = get_agent(name)
+    if agent is None:
+        console.print(f"[red]✗[/red] Agente '{name}' no encontrado.")
+        raise typer.Exit(code=1)
+    console.print(agent.to_dict())
+
+
+@agents_app.command("add")
+def agents_add(
+    name: str = typer.Argument(..., help="Slug único del agente."),
+    display_name: str = typer.Option("", "--display-name"),
+    description: str = typer.Option("", "--description"),
+    provider: Optional[str] = typer.Option(None, "--provider", help=f"Uno de: {', '.join(PROVIDERS)}"),
+    model: Optional[str] = typer.Option(None, "--model"),
+    system_prompt_addition: str = typer.Option("", "--system-prompt-addition"),
+):
+    """Crea o actualiza (upsert) un agente."""
+    from orchestrator.agents import AgentDefinition, upsert_agent
+    try:
+        upsert_agent(AgentDefinition(
+            name=name, display_name=display_name, description=description,
+            provider=provider, model=model, system_prompt_addition=system_prompt_addition,
+        ))
+    except ValueError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+    console.print(f"[green]✓[/green] Agente '{name}' guardado.")
+
+
+@agents_app.command("remove")
+def agents_remove(name: str = typer.Argument(..., help="Nombre del agente a eliminar.")):
+    """Elimina un agente registrado."""
+    from orchestrator.agents import delete_agent
+    if not delete_agent(name):
+        console.print(f"[red]✗[/red] Agente '{name}' no encontrado.")
+        raise typer.Exit(code=1)
+    console.print(f"[green]✓[/green] Agente '{name}' eliminado.")
 
 
 if __name__ == "__main__":

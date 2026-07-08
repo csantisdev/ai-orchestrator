@@ -150,6 +150,10 @@ TOOLS = [
                         "properties": {
                             "title":    {"type": "string"},
                             "provider": {"type": "string", "default": ""},
+                            "agent_preset": {
+                                "type": "string", "default": "",
+                                "description": "Nombre de un agente registrado (preset de provider/model/system-prompt). Ver list_agents.",
+                            },
                         },
                         "required": ["title"],
                     },
@@ -180,6 +184,10 @@ TOOLS = [
                 "context_id":  {"type": "integer"},
                 "title":       {"type": "string"},
                 "provider":    {"type": "string", "default": ""},
+                "agent_preset": {
+                    "type": "string", "default": "",
+                    "description": "Nombre de un agente registrado (preset de provider/model/system-prompt). Ver list_agents.",
+                },
                 "description": {"type": "string", "default": ""},
                 "order_idx":   {"type": "integer", "description": "Posición del paso. Si se omite, se agrega al final."},
             },
@@ -236,7 +244,7 @@ TOOLS = [
     {
         "name": "update_step",
         "description": (
-            "Edita el título, descripción y/o notas de un paso existente. "
+            "Edita el título, descripción, notas y/o agente de un paso existente. "
             "Solo se actualizan los campos presentes en la llamada — los campos omitidos no se tocan. "
             "No modifica estado, timestamps ni el orden del paso."
         ),
@@ -248,8 +256,20 @@ TOOLS = [
                 "title":       {"type": "string",  "description": "Nuevo título. Si se omite, no se modifica."},
                 "description": {"type": "string",  "description": "Nueva descripción. Si se omite, no se modifica."},
                 "notes":       {"type": "string",  "description": "Nuevas notas. Si se omite, no se modifica."},
+                "agent_preset": {
+                    "type": "string",
+                    "description": "Nuevo agente asignado. Pasar '' para desasignar. Si se omite, no se modifica.",
+                },
             },
         },
+    },
+    {
+        "name": "list_agents",
+        "description": (
+            "Lista los agentes (presets de provider/model/system-prompt) registrados globalmente. "
+            "Útil antes de asignar un agente a un step con add_step/update_step/create_context."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
     },
 ]
 
@@ -381,9 +401,13 @@ def _tool_create_context(args: dict) -> dict:
     for i, s in enumerate(args.get("steps", []) or [], 1):
         step_title = (s.get("title", "") if isinstance(s, dict) else str(s)).strip()
         provider = s.get("provider", "") if isinstance(s, dict) else ""
+        agent_preset = s.get("agent_preset", "") if isinstance(s, dict) else ""
         if step_title:
-            sid = insert_step(ctx_id, i, step_title, provider=provider)
-            steps_out.append({"id": sid, "order_idx": i, "title": step_title, "provider": provider, "status": "pending"})
+            sid = insert_step(ctx_id, i, step_title, provider=provider, agent_preset=agent_preset)
+            steps_out.append({
+                "id": sid, "order_idx": i, "title": step_title,
+                "provider": provider, "agent_preset": agent_preset, "status": "pending",
+            })
     if steps_out and status == "active":
         activate_first_step(ctx_id)
         steps_out[0]["status"] = "in_progress"
@@ -441,7 +465,7 @@ def _tool_update_step(args: dict) -> dict:
         raise ValueError(f"step {step_id} not found")
 
     fields, params = [], []
-    for col in ("title", "description", "notes"):
+    for col in ("title", "description", "notes", "agent_preset"):
         if col in args:
             fields.append(f"{col}=?")
             params.append(args[col])
@@ -457,7 +481,7 @@ def _tool_update_step(args: dict) -> dict:
         )
         conn.commit()
 
-    updated_fields = [f for f in ("title", "description", "notes") if f in args]
+    updated_fields = [f for f in ("title", "description", "notes", "agent_preset") if f in args]
     return {"step_id": step_id, "updated": updated_fields}
 
 
@@ -474,9 +498,13 @@ def _tool_add_step(args: dict) -> dict:
     ).fetchone()
     order_idx = args.get("order_idx") or (row[0] + 1)
     provider = args.get("provider", "")
+    agent_preset = args.get("agent_preset", "")
     description = args.get("description", "")
-    sid = insert_step(context_id, order_idx, title, description=description, provider=provider)
-    return {"step_id": sid, "context_id": context_id, "order_idx": order_idx, "title": title, "provider": provider}
+    sid = insert_step(context_id, order_idx, title, description=description, provider=provider, agent_preset=agent_preset)
+    return {
+        "step_id": sid, "context_id": context_id, "order_idx": order_idx, "title": title,
+        "provider": provider, "agent_preset": agent_preset,
+    }
 
 
 def _tool_advance_step(args: dict) -> dict:
@@ -558,6 +586,11 @@ def _tool_import_agent_context(args: dict) -> dict:
     return {"run_id": run_id, "project": project, "indexed": indexed}
 
 
+def _tool_list_agents(args: dict) -> dict:
+    from orchestrator.agents import list_agents
+    return {"agents": [a.to_dict() for a in list_agents()]}
+
+
 _HANDLERS.update({
     "get_context":            _tool_get_context,
     "list_steps":             _tool_list_steps,
@@ -570,6 +603,7 @@ _HANDLERS.update({
     "update_context":         _tool_update_context,
     "update_step":            _tool_update_step,
     "import_agent_context":   _tool_import_agent_context,
+    "list_agents":            _tool_list_agents,
 })
 
 

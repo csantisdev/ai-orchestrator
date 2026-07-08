@@ -104,6 +104,9 @@ def _worker(
             if ctx.routing_notes:
                 system_prompt += f"Notas: {ctx.routing_notes}\n"
 
+        if decision.system_prompt_addition:
+            system_prompt += f"\n{decision.system_prompt_addition}\n"
+
         _rag_chunks: list[dict] = []
         try:
             from orchestrator.rag import retrieve_docs, retrieve_responses, build_context_block

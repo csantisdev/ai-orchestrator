@@ -35,6 +35,9 @@ GoogleService-Info.plist
 # Índice de proyectos local — es específico de cada máquina
 index.yaml
 
+# Registro de agentes (presets) local — no versionado, específico de cada máquina
+agents.yaml
+
 # Python
 __pycache__/
 *.py[cod]

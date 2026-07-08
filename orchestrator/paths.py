@@ -7,6 +7,7 @@ HOME_DIR = Path.home() / ".ai-orchestrator"
 
 INDEX_PATH = HOME_DIR / "index.yaml"
 CONFIG_PATH = HOME_DIR / "config.yaml"
+AGENTS_PATH = HOME_DIR / "agents.yaml"
 
 # Nombre del archivo de contexto dentro de cada proyecto
 PROJECT_CONTEXT_DIRNAME = ".orchestrator"

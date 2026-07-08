@@ -314,14 +314,14 @@
   </div>
 
   <div class="callout callout-info">
-    <strong>Verificar conexión:</strong> Después de configurar, pedile al agente <em>"Listá los tools del servidor ai-orchestrator"</em>. Si responde con los 11 tools, la conexión funciona.
+    <strong>Verificar conexión:</strong> Después de configurar, pedile al agente <em>"Listá los tools del servidor ai-orchestrator"</em>. Si responde con los 12 tools, la conexión funciona.
   </div>
 </section>
 
 <!-- ── TOOLS ── -->
 <section id="tools">
   <div class="sec-label">Referencia</div>
-  <h2>Los 11 tools disponibles</h2>
+  <h2>Los 12 tools disponibles</h2>
   <p>Hacé click en cada tool para ver sus parámetros y el formato de respuesta. Protocolo soportado: <code>2024-11-05</code> · <code>2025-03-26</code> · <code>2025-06-18</code>.</p>
 
   <div class="tools-list">
@@ -398,7 +398,7 @@
             <tr><td>project<span class="param-req">*</span></td><td>string</td><td>Alias del proyecto registrado en el orquestador.</td></tr>
             <tr><td>title<span class="param-req">*</span></td><td>string</td><td>Objetivo del contexto (qué se va a hacer).</td></tr>
             <tr><td>description</td><td>string</td><td>Detalle adicional sobre el alcance.</td></tr>
-            <tr><td>steps</td><td>array</td><td>Lista de <code>&#123;"title": "…", "provider": "claude"&#125;</code>.</td></tr>
+            <tr><td>steps</td><td>array</td><td>Lista de <code>&#123;"title": "…", "provider": "claude", "agent_preset": "…"&#125;</code>. <code>agent_preset</code> es opcional — ver <code>list_agents</code>.</td></tr>
             <tr><td>parent_step_id</td><td>integer</td><td>Step padre para anidar contextos relacionados.</td></tr>
           </tbody>
         </table>
@@ -420,6 +420,7 @@
             <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>Contexto al que se agrega el paso.</td></tr>
             <tr><td>title<span class="param-req">*</span></td><td>string</td><td>Descripción del paso.</td></tr>
             <tr><td>provider</td><td>string</td><td><code>claude</code> · <code>deepseek</code> · <code>openai</code> · <code>gemini</code> · vacío = auto.</td></tr>
+            <tr><td>agent_preset</td><td>string</td><td>Nombre de un agente registrado (preset de provider/model/system-prompt). Ver <code>list_agents</code>. Si se define junto con <code>provider</code>, <code>provider</code> gana; el agente igual aporta <code>model</code> y el texto de system prompt.</td></tr>
             <tr><td>order_idx</td><td>integer</td><td>Posición. Si se omite, va al final.</td></tr>
           </tbody>
         </table>
@@ -564,6 +565,7 @@
             <tr><td>title</td><td>string</td><td>Nuevo título. Si se omite, no se modifica.</td></tr>
             <tr><td>description</td><td>string</td><td>Nueva descripción. Si se omite, no se modifica.</td></tr>
             <tr><td>notes</td><td>string</td><td>Nuevas notas. Si se omite, no se modifica.</td></tr>
+            <tr><td>agent_preset</td><td>string</td><td>Nuevo agente asignado. Pasar <code>""</code> para desasignar (es distinto de omitirlo). Ver <code>list_agents</code>.</td></tr>
           </tbody>
         </table>
         <div class="code-block" style="margin-top:12px">
@@ -607,6 +609,42 @@
   <span class="key">"run_id"</span>: <span class="num">142</span>,
   <span class="key">"project"</span>: <span class="str">"mi-proyecto"</span>,
   <span class="key">"indexed"</span>: <span class="kw">true</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">list_agents</span>
+        <span class="tool-desc">Lista los agentes (presets de provider/model/system-prompt) registrados</span>
+        <span class="tool-when tw-plan">Planificación</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Un agente es un preset reutilizable, global (no por proyecto): opcionalmente fija <code>provider</code>/<code>model</code> y agrega texto al system prompt de la tarea. Es una capa de conveniencia sobre el router — nunca ejecuta nada por sí solo, sigue haciendo falta disparar cada run como siempre. Se gestionan con <code>ai-orchestrator agents add/list/show/remove</code> o editando <code>~/.ai-orchestrator/agents.yaml</code> a mano. Llamalo antes de asignar un <code>agent_preset</code> con <code>add_step</code>/<code>update_step</code>/<code>create_context</code> para saber qué nombres existen.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td colspan="3"><em>Sin parámetros.</em></td></tr>
+          </tbody>
+        </table>
+        <div class="code-block" style="margin-top:12px">
+          <div class="code-header"><span class="code-lang">JSON — respuesta</span></div>
+          <pre>{
+  <span class="key">"agents"</span>: [
+    {
+      <span class="key">"name"</span>: <span class="str">"security-reviewer"</span>,
+      <span class="key">"display_name"</span>: <span class="str">""</span>,
+      <span class="key">"description"</span>: <span class="str">""</span>,
+      <span class="key">"provider"</span>: <span class="str">"claude"</span>,
+      <span class="key">"model"</span>: <span class="str">"claude-opus-4-8"</span>,
+      <span class="key">"system_prompt_addition"</span>: <span class="str">"Priorizá riesgos de seguridad..."</span>,
+      <span class="key">"strengths"</span>: [],
+      <span class="key">"recommended_for"</span>: [],
+      <span class="key">"avoid_for"</span>: []
+    }
+  ]
 }</pre>
         </div>
       </div>
