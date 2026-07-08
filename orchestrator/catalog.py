@@ -202,6 +202,51 @@ def get_model_profiles(config: dict, include_deprecated: bool = False) -> list[d
     return profiles
 
 
+def validate_model_for_provider(config: dict, provider: str, model_id: str) -> dict:
+    """Verifica que model_id pertenezca al provider indicado en el catalogo.
+
+    provider usa el nombre corto del orquestador (claude, openai, deepseek, gemini).
+
+    Retorna un dict con:
+        - valid (bool):        True si el modelo existe en el catalogo bajo ese provider.
+        - status (str|None):   "active", "deprecated", "unknown" o None si no se encontro.
+        - has_price (bool):    True si el modelo tiene entrada en la tabla efectiva de precios.
+        - reason (str):        Descripcion del resultado.
+    """
+    pricing = get_effective_pricing(config)
+    catalog = _read_cache(config) or _load_json(STATIC_CATALOG_PATH) or {}
+    canonical_to_short = _canonical_to_short_provider(catalog)
+    short_to_canonical = {v: k for k, v in canonical_to_short.items()}
+    canonical_name = short_to_canonical.get(provider)
+
+    if not canonical_name:
+        return {
+            "valid": False,
+            "status": None,
+            "has_price": model_id in pricing,
+            "reason": f"Provider '{provider}' no mapeado en el catalogo.",
+        }
+
+    provider_data = catalog.get("providers", {}).get(canonical_name, {})
+    model_data = provider_data.get("models", {}).get(model_id)
+
+    if model_data is None:
+        return {
+            "valid": False,
+            "status": None,
+            "has_price": model_id in pricing,
+            "reason": f"Modelo '{model_id}' no encontrado en el catalogo bajo '{provider}'.",
+        }
+
+    status = model_data.get("status", "unknown")
+    return {
+        "valid": True,
+        "status": status,
+        "has_price": model_id in pricing,
+        "reason": f"Modelo '{model_id}' encontrado en catalogo bajo '{provider}', status={status}.",
+    }
+
+
 def list_used_models_without_price(config: dict) -> list[dict]:
     """Modelos con runs registrados en `runs.db` que no tienen entrada en la tabla efectiva."""
     from orchestrator.db import _conn

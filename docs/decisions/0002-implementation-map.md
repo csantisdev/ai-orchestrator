@@ -167,7 +167,9 @@ Reglas:
 - [x] Migrar `get_pricing_table(config)`.
 - [x] Migrar `watcher.py` y `codex_watcher.py`.
 - [x] Agregar tests de precedencia y fallback.
-- [ ] Agregar `pricing validate`.
-- [ ] Agregar `GET /pricing`.
-- [ ] Planificar discovery de modelos.
-- [ ] Planificar integracion del router con `purpose`.
+- [x] Agregar `pricing validate`.
+- [x] Agregar `GET /pricing`.
+- [x] Planificar discovery de modelos.
+- [x] Planificar integracion del router con `purpose`.
+- [ ] Agregar validaciones post-LLM en el router (API key, modelo en catalogo, modelo deprecated).
+- [ ] Agregar `validate_model_for_provider` en `orchestrator/catalog.py`.
