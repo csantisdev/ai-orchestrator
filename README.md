@@ -99,7 +99,8 @@ ai-orchestrator serve                  # abre http://127.0.0.1:8080
 | Capacidad | Descripción |
 |---|---|
 | **Ruteo inteligente** | DeepSeek Flash analiza la tarea y el `context.yaml` del proyecto para decidir qué modelo usar — sin hardcodear |
-| **Control de costos** | Tokens de entrada, salida y cache por run. Costo en USD calculado con tabla de precios configurable |
+| **Control de costos** | Tokens de entrada, salida y cache por run. Costo en USD calculado con un catálogo de precios versionado (`ai-orchestrator pricing show/refresh/validate`), con override en `config.yaml` |
+| **Discovery de modelos** | Consulta el API de cada proveedor configurado (`ai-orchestrator models list/refresh`) y compara contra el catálogo de precios — best-effort, un proveedor caído no rompe a los demás |
 | **Memoria RAG** | ChromaDB indexa docs y respuestas previas por proyecto. Cada tarea recupera contexto semántico relevante (threshold L2=0.9 ≈ cosine_sim≥0.60) antes de llamar al modelo. Re-indexación idempotente: upsert por ID determinístico |
 | **Dashboard en vivo** | Panel web con SSE — las filas aparecen en tiempo real sin recargar. Gauge de presupuesto, filtros y panel de detalle |
 | **Inspector DB** | Vista interna de ChromaDB (colecciones + breakdown por proyecto) y SQLite (counts + últimos registros) |
@@ -382,6 +383,23 @@ ai-orchestrator sync-codex --quiet
 
 ---
 
+### Catálogo de precios y modelos
+
+Los precios efectivos se resuelven con esta precedencia: override en `config.yaml` → cache local (`~/.ai-orchestrator/pricing-cache.json`, con TTL) → catálogo remoto (solo si se pide refresh explícito y `catalog.allow_remote: true`) → catálogo estático bundleado (`docs/pricing/models.json`) → `DEFAULT_PRICING` como último fallback. Ver [`docs/pricing/README.md`](docs/pricing/README.md) para el detalle.
+
+```powershell
+ai-orchestrator pricing show        # tabla efectiva, fuente y fecha
+ai-orchestrator pricing refresh     # fuerza refresh remoto si allow_remote está activo
+ai-orchestrator pricing validate    # modelos usados en runs.db sin precio
+
+ai-orchestrator models refresh      # consulta el API de cada proveedor configurado (best-effort)
+ai-orchestrator models list         # modelos disponibles vs. con precio en el catálogo
+```
+
+`GET /pricing`, `POST /pricing/refresh`, `GET /models` y `POST /models/refresh` exponen lo mismo vía HTTP local.
+
+---
+
 ## Configuración
 
 ### `~/.ai-orchestrator/config.yaml`
@@ -465,20 +483,13 @@ Ver esquema completo en [`docs/context-schema.md`](docs/context-schema.md).
 
 ## Modelos disponibles
 
-| Proveedor | Modelo | Input/1M | Output/1M | Uso recomendado |
-|---|---|---|---|---|
-| `claude` | `claude-sonnet-4-6` | $3,00 | $15,00 | Tareas generales — modelo por defecto |
-| `claude` | `claude-opus-4-8` | $15,00 | $75,00 | Investigación profunda (`--research`) |
-| `claude` | `claude-haiku-4-5-20251001` | $0,80 | $4,00 | Tareas simples y económicas |
-| `openai` | `gpt-4o` | $5,00 | $15,00 | Alternativa a Claude |
-| `openai` | `gpt-4o-mini` | $0,15 | $0,60 | Tareas económicas con OpenAI |
-| `deepseek` | `deepseek-chat` | $0,14 | $0,28 | Router / borradores / tareas masivas |
-| `deepseek` | `deepseek-v4-flash` | $0,14 | $0,28 | Modelo default del router |
-| `gemini` | `gemini-2.5-flash` | $0,30 | $2,50 | Contexto largo, tareas generales |
-| `gemini` | `gemini-2.5-pro` | $1,25 | $10,00 | Análisis complejo (requiere billing) |
-| `gemini` | `gemini-2.5-flash-lite` | $0,10 | $0,40 | Tareas muy económicas |
+La fuente de verdad es el catálogo versionado en [`docs/pricing/models.json`](docs/pricing/models.json) (validado contra [`docs/pricing/schema.json`](docs/pricing/schema.json)), no una tabla estática en este README — así no se desincroniza. Para ver los precios efectivos vigentes:
 
-> Precios en USD por millón de tokens. Los modelos Claude soportan cache write/read (ver `pricing` en `config.yaml`).
+```powershell
+ai-orchestrator pricing show
+```
+
+> Precios en USD por millón de tokens. Los modelos Claude soportan cache write/read.
 > `gemini-2.5-pro` requiere billing habilitado en Google Cloud — en el free tier la cuota es 0. Usar `gemini-2.5-flash` para cuentas sin billing.
 
 ---
