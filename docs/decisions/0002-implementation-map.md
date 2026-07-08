@@ -171,5 +171,5 @@ Reglas:
 - [x] Agregar `GET /pricing`.
 - [x] Planificar discovery de modelos.
 - [x] Planificar integracion del router con `purpose`.
-- [ ] Agregar validaciones post-LLM en el router (API key, modelo en catalogo, modelo deprecated).
-- [ ] Agregar `validate_model_for_provider` en `orchestrator/catalog.py`.
+- [x] Agregar validaciones post-LLM en el router (API key, modelo en catalogo, modelo deprecated).
+- [x] Agregar `validate_model_for_provider` en `orchestrator/catalog.py`.

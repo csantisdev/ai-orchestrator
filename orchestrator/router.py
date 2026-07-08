@@ -301,7 +301,7 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
         from orchestrator.config import ConfigError, get_provider_config
         try:
             prov_cfg = get_provider_config(config, provider)
-            if not prov_cfg.get("api_key", "").strip():
+            if not (prov_cfg.get("api_key") or "").strip():
                 raise ConfigError(f"Provider '{provider}' no tiene API key configurada.")
         except ConfigError as exc:
             return RoutingDecision(
