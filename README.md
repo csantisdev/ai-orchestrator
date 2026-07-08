@@ -27,7 +27,7 @@ con dashboard en vivo, tracking de costo y memoria RAG.
 
 Los agentes IA (Claude Code, Codex, DeepSeek) generan valor en tareas acotadas, pero el historial queda disperso en archivos de sesión separados, sin visibilidad de costos ni contexto acumulado entre conversaciones. Sin memoria estructurada, cada sesión empieza desde cero y el gasto es opaco.
 
-ai-orchestrator centraliza ese historial localmente: indexa respuestas previas en ChromaDB, rutea cada tarea al modelo más eficiente según el contexto del proyecto, y registra tokens y costo USD de cada run en SQLite. El dashboard SSE muestra el estado en tiempo real. El servidor MCP expone 11 herramientas para que cualquier agente pueda leer y escribir en el historial sin salir de su entorno de trabajo.
+ai-orchestrator centraliza ese historial localmente: indexa respuestas previas en ChromaDB, rutea cada tarea al modelo más eficiente según el contexto del proyecto, y registra tokens y costo USD de cada run en SQLite. El dashboard SSE muestra el estado en tiempo real. El servidor MCP expone 12 herramientas para que cualquier agente pueda leer y escribir en el historial sin salir de su entorno de trabajo.
 
 ---
 
@@ -101,6 +101,7 @@ ai-orchestrator serve                  # abre http://127.0.0.1:8080
 | **Ruteo inteligente** | DeepSeek Flash analiza la tarea y el `context.yaml` del proyecto para decidir qué modelo usar — sin hardcodear |
 | **Control de costos** | Tokens de entrada, salida y cache por run. Costo en USD calculado con un catálogo de precios versionado (`ai-orchestrator pricing show/refresh/validate`), con override en `config.yaml` |
 | **Discovery de modelos** | Consulta el API de cada proveedor configurado (`ai-orchestrator models list/refresh`) y compara contra el catálogo de precios — best-effort, un proveedor caído no rompe a los demás |
+| **Agentes (presets)** | Perfiles reutilizables de provider/model/system-prompt (`ai-orchestrator agents add/list/show/remove`), asignables a un paso de un contexto. Capa de conveniencia sobre el router — no ejecuta nada por sí sola |
 | **Memoria RAG** | ChromaDB indexa docs y respuestas previas por proyecto. Cada tarea recupera contexto semántico relevante (threshold L2=0.9 ≈ cosine_sim≥0.60) antes de llamar al modelo. Re-indexación idempotente: upsert por ID determinístico |
 | **Dashboard en vivo** | Panel web con SSE — las filas aparecen en tiempo real sin recargar. Gauge de presupuesto, filtros y panel de detalle |
 | **Inspector DB** | Vista interna de ChromaDB (colecciones + breakdown por proyecto) y SQLite (counts + últimos registros) |
@@ -117,7 +118,7 @@ ai-orchestrator serve                  # abre http://127.0.0.1:8080
 
 ## MCP Plugin
 
-El servidor MCP expone 11 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, Gemini Code Assist, etc.) puede invocar directamente sin usar la CLI:
+El servidor MCP expone 12 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, Gemini Code Assist, etc.) puede invocar directamente sin usar la CLI:
 
 | Tool | Propósito |
 |---|---|
@@ -130,8 +131,9 @@ El servidor MCP expone 11 herramientas que cualquier agente compatible (Claude C
 | `create_context` | Crea un nuevo contexto de trabajo con pasos opcionales |
 | `add_step` | Agrega un paso a un contexto existente durante la ejecución |
 | `update_context` | Edita título, descripción o estado de un contexto |
-| `update_step` | Edita título, descripción o notas de un paso |
+| `update_step` | Edita título, descripción, notas o agente de un paso |
 | `import_agent_context` | Importa trabajo de un agente externo al historial + ChromaDB |
+| `list_agents` | Lista los agentes (presets de provider/model/system-prompt) registrados |
 
 Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto, registra Codex en `.codex/config.toml` y registra Gemini en `~/.gemini/settings.json`. Para Claude global, usá `ai-orchestrator fix --global-mcp`.
 
@@ -307,6 +309,20 @@ ai-orchestrator history --project mi-proyecto --last 50
 ai-orchestrator create-context mi-proyecto "Implementar autenticación JWT"
 ai-orchestrator list-contexts mi-proyecto
 ```
+
+### Agentes (presets reutilizables)
+
+Un agente es un preset con nombre, **global** (no por proyecto): opcionalmente fija `provider`/`model` y agrega texto al system prompt de la tarea. Es una capa de conveniencia sobre el router — sigue haciendo falta disparar cada run manualmente (CLI, dashboard o MCP), no ejecuta nada de forma autónoma.
+
+```powershell
+ai-orchestrator agents add security-reviewer --provider claude --model claude-opus-4-8 `
+    --system-prompt-addition "Priorizá riesgos de seguridad y validación de inputs antes que estilo."
+ai-orchestrator agents list
+ai-orchestrator agents show security-reviewer
+ai-orchestrator agents remove security-reviewer
+```
+
+Se guardan en `~/.ai-orchestrator/agents.yaml` (editable a mano). Para asignar un agente a un paso, usá `agent_preset` en los tools MCP `add_step` / `update_step` / `create_context`, o el tool `list_agents` para ver los disponibles. `GET /agents` expone el registro vía HTTP local.
 
 ### Diagnóstico y correcciones automáticas
 

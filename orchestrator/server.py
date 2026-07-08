@@ -69,6 +69,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/rates":                    self._get_rates,
                 "/pricing":                  self._get_pricing,
                 "/models":                   self._get_models,
+                "/agents":                   self._get_agents,
                 "/export-csv":              self._get_export_csv,
             }.get(path, self._get_dashboard)
             handler(parsed)
@@ -487,6 +488,14 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             try:
                 from orchestrator.model_discovery import compare_available_vs_priced
                 self._json({"models": compare_available_vs_priced(config)})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+            return
+
+        def _get_agents(self, parsed):
+            try:
+                from orchestrator.agents import list_agents
+                self._json({"agents": [a.to_dict() for a in list_agents()]})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
             return

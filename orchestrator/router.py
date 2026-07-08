@@ -65,6 +65,7 @@ class RoutingDecision:
     model: str | None = None
     used_fallback: bool = False
     router_cost_usd: float | None = None
+    system_prompt_addition: str | None = None
 
 
 def _calculate_keyword_signals(task: str, ctx: ProjectContext) -> list[dict]:
@@ -215,6 +216,21 @@ Tarea a resolver:
 ¿Qué proveedor debería resolver esta tarea?"""
 
 
+def _safe_agent_model(agent_def, provider: str | None) -> str | None:
+    """Modelo del agente, pero solo si es compatible con el provider final.
+
+    Si el agente define su propio `provider` y este difiere del provider que
+    efectivamente se va a usar, el `model` del agente casi seguro pertenece a
+    OTRO proveedor (ej. un nombre de modelo Claude aplicado a un provider
+    OpenAI) — nunca lo devolvemos en ese caso.
+    """
+    if not agent_def or not agent_def.model:
+        return None
+    if agent_def.provider and agent_def.provider != provider:
+        return None
+    return agent_def.model
+
+
 def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDecision:
     """Determina el provider a usar para `task` en el contexto `ctx`."""
     router_cfg = get_router_config(config)
@@ -225,12 +241,34 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
     similar = _fetch_similar_runs(task, n=3)
     active_ctx = _fetch_active_context(ctx.name)
 
+    agent_def = None
     if active_ctx and active_ctx.get("active_step"):
         step = active_ctx["active_step"]
+
+        if step.get("agent_preset"):
+            try:
+                from orchestrator.agents import get_agent
+                agent_def = get_agent(step["agent_preset"])
+            except Exception:
+                agent_def = None
+
         if step.get("provider") and step["provider"] in PROVIDERS:
             return RoutingDecision(
                 provider=step["provider"],
                 reason=f"Paso activo [{step['order_idx']}]: {step['title']} → provider definido: {step['provider']}",
+                model=_safe_agent_model(agent_def, step["provider"]),
+                system_prompt_addition=agent_def.system_prompt_addition if agent_def else None,
+            )
+
+        if agent_def and agent_def.provider:
+            return RoutingDecision(
+                provider=agent_def.provider,
+                reason=(
+                    f"Paso activo [{step['order_idx']}]: {step['title']} → "
+                    f"agente '{agent_def.name}' define provider: {agent_def.provider}"
+                ),
+                model=_safe_agent_model(agent_def, agent_def.provider),
+                system_prompt_addition=agent_def.system_prompt_addition,
             )
 
     try:
@@ -263,7 +301,12 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
         from orchestrator.costs import calculate_cost
         router_cost = calculate_cost(result, get_pricing_table(config))
 
-        return RoutingDecision(provider=provider, model=model, reason=reason, used_fallback=False, router_cost_usd=router_cost)
+        return RoutingDecision(
+            provider=provider,
+            model=_safe_agent_model(agent_def, provider) or model,
+            reason=reason, used_fallback=False, router_cost_usd=router_cost,
+            system_prompt_addition=agent_def.system_prompt_addition if agent_def else None,
+        )
 
     except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier falla del router
         return RoutingDecision(

@@ -261,6 +261,51 @@ def test_models_endpoints(monkeypatch):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_agents_endpoint(monkeypatch):
+    """GET /agents refleja el registro de agentes (~/.ai-orchestrator/agents.yaml)."""
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+    import orchestrator.agents as agents_mod
+    from orchestrator.server import serve
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    orig_home = paths_mod.HOME_DIR
+    orig_db = paths_mod.DB_PATH
+    monkeypatch.setattr(agents_mod, "AGENTS_PATH", tmp_path / "agents.yaml")
+    agents_mod.upsert_agent(agents_mod.AgentDefinition(name="reviewer", provider="claude"))
+    port = 19980
+
+    def _run():
+        paths_mod.HOME_DIR = tmp_path
+        paths_mod.DB_PATH = tmp_path / "runs.db"
+        db_mod._local = threading.local()
+        db_mod.init_db()
+        serve(port, None, False, {})
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    try:
+        assert _wait_for_port(port), "server did not start in time"
+
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        conn.request("GET", "/agents")
+        resp = conn.getresponse()
+        data = json.loads(resp.read())
+        conn.close()
+        assert resp.status == 200
+        assert len(data["agents"]) == 1
+        assert data["agents"][0]["name"] == "reviewer"
+        assert data["agents"][0]["provider"] == "claude"
+
+    finally:
+        paths_mod.HOME_DIR = orig_home
+        paths_mod.DB_PATH = orig_db
+        db_mod._local = threading.local()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_router_cost_persisted():
     """router_cost_usd se persiste en el run cuando el router calcula su costo."""
     import orchestrator.paths as paths_mod
