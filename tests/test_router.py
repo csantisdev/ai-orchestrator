@@ -14,6 +14,9 @@ _CONFIG = {
     "defaults": {"default_provider": "claude"},
     "providers": {
         "deepseek": {"api_key": "sk-test", "model": "deepseek-v4-flash"},
+        "claude": {"api_key": "sk-ant-test", "model": "claude-sonnet-4-6"},
+        "openai": {"api_key": "sk-openai-test", "model": "gpt-4o"},
+        "gemini": {"api_key": "AIza-test", "model": "gemini-2.5-flash"},
     },
 }
 
@@ -302,3 +305,123 @@ def test_decide_provider_active_step_overrides_router():
     mock_build.assert_not_called()
     assert decision.provider == "deepseek"
     assert "Paso activo" in decision.reason
+
+
+# ---------------------------------------------------------------------------
+# Validaciones post-LLM: API key y modelo contra catalogo
+# ---------------------------------------------------------------------------
+
+def test_decide_provider_falls_back_when_chosen_provider_has_no_api_key():
+    """El router elige un provider, pero ese provider no tiene API key → fallback."""
+    mock_result = MagicMock()
+    mock_result.text = '{"provider": "openai", "model": null, "reason": "openai para esta tarea"}'
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = mock_result
+
+    # openai no está en providers → sin API key
+    config_no_openai_key = {
+        "router": {"provider": "deepseek", "fallback_provider": "claude"},
+        "defaults": {"default_provider": "claude"},
+        "providers": {
+            "deepseek": {"api_key": "sk-test", "model": "deepseek-v4-flash"},
+            "claude": {"api_key": "sk-ant-test", "model": "claude-sonnet-4-6"},
+        },
+    }
+
+    with patch("orchestrator.router.build_provider", return_value=mock_provider), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._fetch_similar_runs", return_value=[]):
+        decision = decide_provider("task", _ctx(), config_no_openai_key)
+
+    assert decision.used_fallback is True
+    assert decision.provider == "claude"
+
+
+def test_decide_provider_falls_back_when_chosen_provider_has_empty_api_key():
+    """El provider está en config pero sin api_key → fallback."""
+    mock_result = MagicMock()
+    mock_result.text = '{"provider": "openai", "model": null, "reason": "openai"}'
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = mock_result
+
+    config_empty_key = {
+        "router": {"provider": "deepseek", "fallback_provider": "claude"},
+        "defaults": {"default_provider": "claude"},
+        "providers": {
+            "deepseek": {"api_key": "sk-test", "model": "deepseek-v4-flash"},
+            "openai": {"api_key": "", "model": "gpt-4o"},
+            "claude": {"api_key": "sk-ant-test", "model": "claude-sonnet-4-6"},
+        },
+    }
+
+    with patch("orchestrator.router.build_provider", return_value=mock_provider), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._fetch_similar_runs", return_value=[]):
+        decision = decide_provider("task", _ctx(), config_empty_key)
+
+    assert decision.used_fallback is True
+    assert decision.provider == "claude"
+
+
+_CONFIG_FULL = {
+    "router": {"provider": "deepseek", "fallback_provider": "claude"},
+    "defaults": {"default_provider": "claude"},
+    "providers": {
+        "deepseek": {"api_key": "sk-test", "model": "deepseek-v4-flash"},
+        "openai": {"api_key": "sk-openai-test", "model": "gpt-4o"},
+        "claude": {"api_key": "sk-ant-test", "model": "claude-sonnet-4-6"},
+        "gemini": {"api_key": "AIza-test", "model": "gemini-2.5-flash"},
+    },
+}
+
+
+def test_decide_provider_strips_deprecated_model():
+    """Si el router sugiere un modelo deprecated, se descarta y model queda None."""
+    mock_result = MagicMock()
+    # deepseek-chat está marcado como deprecated en el catálogo estático
+    mock_result.text = '{"provider": "deepseek", "model": "deepseek-chat", "reason": "economico"}'
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = mock_result
+
+    with patch("orchestrator.router.build_provider", return_value=mock_provider), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._fetch_similar_runs", return_value=[]):
+        decision = decide_provider("tarea boilerplate", _ctx(), _CONFIG_FULL)
+
+    assert decision.provider == "deepseek"
+    assert decision.model is None
+    assert decision.used_fallback is False
+
+
+def test_decide_provider_strips_model_not_in_catalog():
+    """Si el router sugiere un modelo inexistente en el catálogo, se descarta."""
+    mock_result = MagicMock()
+    mock_result.text = '{"provider": "openai", "model": "gpt-999-fantasma", "reason": "test"}'
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = mock_result
+
+    with patch("orchestrator.router.build_provider", return_value=mock_provider), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._fetch_similar_runs", return_value=[]):
+        decision = decide_provider("tarea cualquiera", _ctx(), _CONFIG_FULL)
+
+    assert decision.provider == "openai"
+    assert decision.model is None
+    assert decision.used_fallback is False
+
+
+def test_decide_provider_keeps_valid_model_from_catalog():
+    """Si el router sugiere un modelo válido y activo, se conserva."""
+    mock_result = MagicMock()
+    mock_result.text = '{"provider": "openai", "model": "gpt-4o-mini", "reason": "tarea simple"}'
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = mock_result
+
+    with patch("orchestrator.router.build_provider", return_value=mock_provider), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._fetch_similar_runs", return_value=[]):
+        decision = decide_provider("tarea simple", _ctx(), _CONFIG_FULL)
+
+    assert decision.provider == "openai"
+    assert decision.model == "gpt-4o-mini"
+    assert decision.used_fallback is False
