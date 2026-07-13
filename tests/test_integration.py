@@ -463,7 +463,7 @@ def test_rag_index_and_retrieve():
         readme = project_dir / "README.md"
         readme.write_text(
             "Este proyecto gestiona tickets de soporte interno. "
-            "Permite buscar, filtrar y exportar bases de ticket.",
+            "Permite buscar, filtrar y exportar registros de tickets.",
             encoding="utf-8",
         )
 
@@ -476,7 +476,7 @@ def test_rag_index_and_retrieve():
         assert len(rows) == 1
         assert rows[0]["source_path"] == "README.md"
 
-        results = rag_mod.retrieve_docs("tickets de soporte interno", "myproject", n=2)
+        results = rag_mod.retrieve_docs("tickets de soporte", "myproject", n=2)
         assert len(results) >= 1
         assert "ticket" in results[0]["text"].lower() or "tickets" in results[0]["text"].lower()
 

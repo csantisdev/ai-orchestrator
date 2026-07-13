@@ -734,7 +734,7 @@ Prohibido:
 nombre del proyecto
 texto de tarea
 endpoints
-identificador personal
+identificadores fiscales/personales
 nombres de clientes
 fragmentos de código
 routing_notes

@@ -14,7 +14,7 @@ Todo ejemplo, PoC o fixture usa datos sintéticos desde el momento en que se esc
 | Segundo proyecto de comparación | `public-project-beta` |
 | Descripción operativa distintiva | genérica: "sistema interno con datos regulados de terceros" |
 | Endpoint real | `/resources/{id}/approve` |
-| Identificador fiscal/personal (identificador personal, SSN, etc.) | "identificador personal" |
+| Identificador fiscal/personal (número de identificación nacional, número de seguridad social, etc.) | "identificador personal" |
 | Cliente/organización | se omite directamente, no se reemplaza por un alias que la insinúe |
 
 Sí se puede conservar: niveles de sensibilidad (`public/internal/restricted/secret`), nombres de providers de IA (Claude, DeepSeek, etc.), resultados (`allowed/blocked`), `reason_code` de lista cerrada, y SHAs/links de CI cuyo contenido ya esté sanitizado. Ver `evidence/RFC-007/README.md` para el ejemplo de una fila de evidencia segura.

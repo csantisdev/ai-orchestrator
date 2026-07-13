@@ -62,7 +62,7 @@ keyword_hints:
   - match: "permisos"
     provider: claude
     weight: 3
-  - match: "ticket"
+  - match: "facturacion"
     provider: claude
     weight: 2
   - match: "test"
