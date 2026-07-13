@@ -34,7 +34,7 @@ El usuario agregó al repo `RFC-egress-gate.md` (ronda 0) y `RFC-002` a `RFC-006
 | Secretos | No contemplado | Reutilizar `_contains_secrets()`, que **ya existe** en `rag.py:166` (confirmado) — no escribir un detector nuevo |
 | Ledger | Diseño propio de `decision_events` en Fase 3 | `egress_decisions` (tabla lean, solo decisión — RFC-006 §6.2: "el log registra la DECISIÓN, nunca el PAYLOAD") ya en Fase 1; el ledger rico de RFC-005 (`decision_events`/`context_lineage`/`outcome_events`) queda **explícitamente fuera de alcance hasta 500 runs gobernados reales** (RFC-006 §8) — RFC-005 fue criticado en la propia serie por "scope creep con 0 runs" |
 | Invariantes I1-I14 | 8 de 14 sin enunciado, marcadas `[FALTA RFC-006]`, bloqueante parcial declarado | **Las 14 tienen enunciado completo y verificado** (RFC-006 §4.3, reproducida en Apéndice A) — el bloqueo de la rev. 1 queda resuelto |
-| Orden de commits | PRs agrupados por fase de alto nivel | **Mapeado contra el orden de commits de RFC-006 §10**: Fase 0 (3 commits, incluye el commit #7/I8 adelantado por ser independiente) + Fase 1 (10 commits, mapeados 1:1 contra los commits #2-#12 de RFC-006 §10, sin duplicar el #1 que es documental), ya probado localmente en ese orden exacto (`git apply egress-gate.patch` → `126 passed, 1 failed` pre-existente de RAG) |
+| Orden de commits | PRs agrupados por fase de alto nivel | **Mapeado contra el orden de commits de RFC-006 §10**: Fase 0 (3 commits, incluye el commit #7/I8 adelantado por ser independiente) + Fase 1 (10 commits, mapeados 1:1 contra los commits #2-#6 y #8-#12 de RFC-006 §10 -- sin duplicar el #1 (documental) ni el #7 (I8, adelantado a Fase 0)), ya probado localmente en ese orden exacto (`git apply egress-gate.patch` → `126 passed, 1 failed` pre-existente de RAG) |
 
 **Lección para este documento y para cualquier sesión futura:** antes de diseñar una implementación "definitiva", preguntar explícitamente si existe una ronda de diseño previa no commiteada. La serie RFC-001…006 vivía en el disco del usuario, fuera de este repo hasta este momento, y el documento anterior (rev. 1) hizo trabajo redundante — y en algunos puntos (el choque de diseño del punto de sellado) peor — por no saberlo.
 
@@ -216,7 +216,7 @@ test que deba tratarse como fallo conocido/aceptado. El "126 passed, 1
 failed" de RFC-006 §4.1 NO es comparable con este número -- son mediciones
 de dos cosas distintas: RFC-006 midió 111 passed + 1 failed ANTES de su
 patch efímero, y 126 passed + 1 failed DESPUÉS de agregarle 15 tests nuevos
-(tests/test_egress.py, que todavía no existe en este repo -- lo crea un PR
+(tests/test_egress.py, que todavía no existe en este repo -- lo crea un commit
 posterior). El baseline pre-gate real de RFC-006 (111+1=112) coincide en
 cantidad exacta con los 112 tests de hoy; la única diferencia es que el test
 de RAG ahora pasa (probablemente porque este entorno sí tiene chromadb
@@ -270,11 +270,15 @@ Tarea:
    de los que existirían con un filtro nativo -- ver RFC-007 §11.1 Commit 0.2
    para el razonamiento completo.
 3. Actualiza el call site en decide_provider() (línea ~241): pasa ctx.name.
-4. Agrega en tests/test_router.py: un test que indexe runs de dos proyectos
-   distintos y confirme que _fetch_similar_runs solo devuelve los del
-   proyecto pedido; otro que confirme que el prompt final de decide_provider
-   nunca contiene contenido de otro proyecto; otro que confirme que se pide
-   n_results=20 al backend (mock de query, assert del argumento) y no 3.
+4. Agrega en tests/test_router.py, con estos nombres exactos (los usa la
+   tabla de trazabilidad de evidence/RFC-007/README.md, no los cambies):
+   test_fetch_similar_runs_filters_by_project (indexa runs de dos proyectos
+   distintos, confirma que _fetch_similar_runs solo devuelve los del
+   proyecto pedido), test_router_prompt_excludes_other_projects (confirma
+   que el prompt final de decide_provider nunca contiene contenido de otro
+   proyecto), test_fetch_similar_runs_overqueries_before_filtering (confirma
+   que se pide n_results=20 al backend -- mock de query, assert del
+   argumento -- y no 3).
 5. pytest tests/test_router.py -v verde.
 No implementes el gate todavía.
 ```
@@ -283,7 +287,7 @@ No implementes el gate todavía.
 
 RFC-006/RFC-004 confirman que `router-eval --offline` (Commit 1.10) **no necesita telemetría nueva** — usa `runs.provider`, `runs.routing_reason`, `runs.rating`, `RoutingDecision.router_cost_usd`, todos existentes. `routing_source` no es requisito de RFC-006; es una mejora de precisión propia de este documento (RFC-007 v0.3 §5): sin ella, la elegibilidad de runs para el offline replay se decide parseando `routing_reason` como texto libre en vez de un valor filtrable, contaminando el N si se mezclan runs con provider forzado por step/agente.
 
-*Archivos:* `orchestrator/migrate.py` (nueva migración, mismo patrón que `add_rating_to_runs`), `orchestrator/router.py` (`RoutingDecision`).
+*Archivos:* `orchestrator/migrate.py` (nueva migración, mismo patrón que `add_rating_to_runs`), `orchestrator/router.py` (`RoutingDecision`), `orchestrator/history.py`, `orchestrator/db.py`, `orchestrator/cli.py`, `orchestrator/background.py` (propagar el campo hasta la persistencia), `tests/test_router.py`.
 
 *Enum verificado contra el código real (`decide_provider()`/`force_provider()`, `router.py:234-343`) — no son "al menos 4 caminos", son 6 distintos:*
 
@@ -328,7 +332,7 @@ Tarea:
    tanto el éxito como cada tipo de fallo). pytest tests/ -v verde.
 ```
 
-### 11.2 Fase 1 — Gate mínimo fail-closed (commits #2-#12 de RFC-006 §10)
+### 11.2 Fase 1 — Gate mínimo fail-closed (commits #2-#6 y #8-#12 de RFC-006 §10; el #7 se ejecutó antes, como Commit 0.2)
 
 Cada commit de esta fase corresponde exactamente a un commit ya validado. Cita el texto de RFC-006 directamente: no hay diseño que inventar, hay que **reconstruirlo contra el checkout actual**, que difiere del patch efímero solo en que ahora hay líneas reales verificables.
 
@@ -436,7 +440,14 @@ Tarea:
    test_allowed_providers_restricts_even_with_clearance,
    test_unknown_project_sensitivity_fails_closed (set_policy con
    sensitivity="confidencial" -> EgressBlocked),
-   test_unknown_provider_clearance_fails_closed.
+   test_unknown_provider_clearance_fails_closed,
+   test_policy_reset_restores_previous_policy (I15: set_policy(A), guardar
+   token, set_policy(B), _POLICY.reset(token), confirmar que current_policy()
+   vuelve a ser A, no queda en B ni en "sin política"),
+   test_policy_does_not_leak_between_operations (I15: simula dos "operaciones"
+   secuenciales en el mismo thread -- set_policy+reset de la primera, después
+   current_policy() de la segunda sin haber seteado nada -- debe levantar
+   EgressBlocked, no heredar la política de la operación anterior).
 3. Busca si ya existe un conftest.py en tests/; si no, créalo. Agrega un
    fixture autouse que:
    - Si el test NO tiene el marker no_default_policy (registralo en
@@ -453,7 +464,7 @@ Tarea:
    regresiones (el fixture autouse cubre los tests existentes).
 
 No toques orchestrator/providers/ ni orchestrator/router.py todavía -- eso
-es el commit siguiente. Este PR es solo el módulo de política y sus tests,
+es el commit siguiente. Este commit es solo el módulo de política y sus tests,
 aislado del resto del sistema.
 ```
 
@@ -546,7 +557,7 @@ Tarea:
       uno: envuelve _complete(), yieldea result.text, y en el return usa
       el nuevo result.to_stream_result() del punto e (NO uses
       result.to_stream_result() antes de haberlo creado -- ese método no
-      existe todavía en el código actual, es parte de este mismo PR).
+      existe todavía en el código actual, es parte de este mismo commit).
 2. En cada uno de los 4 providers (claude.py, deepseek.py, gemini.py,
    openai.py): renombra el método complete() existente a _complete(), y
    el método complete_stream() existente a _complete_stream(). NO cambies
@@ -586,7 +597,7 @@ No toques orchestrator/router.py ni orchestrator/background.py todavía.
 
 #### Commit 1.3 — Sensibilidad de proyecto y clearance de provider (commit #4)
 
-*Archivos:* `orchestrator/context.py` (`ProjectContext`), `orchestrator/config.py`, `config.example.yaml`, `tests/test_egress.py`.
+*Archivos:* `orchestrator/context.py` (`ProjectContext`), `orchestrator/config.py`, `orchestrator/egress.py` (`policy_for_project()`), `config.example.yaml`, `tests/test_egress.py`.
 
 *Diseño (RFC-006 Apéndice C):*
 ```yaml
@@ -742,7 +753,7 @@ que sí depende de que este ya exista y esté probado.
 
 Este es el commit que cierra el bug original de §1. **I14 es el hallazgo más importante de toda la serie (RFC-006 §3.8)**: en una iteración anterior, el sistema abortaba con `EgressBlocked` cuando el `fallback_provider` configurado estaba bloqueado, *aunque existiera otro provider permitido* — y un test de seguridad (`I6` en RFC-002/003/004) afirmaba que ese aborto era correcto. Es la clase de bug que mata productos de seguridad: bloquear de más hasta que el usuario desactiva el gate.
 
-*Archivos:* `orchestrator/router.py` (`decide_provider`, líneas 234-336, específicamente la llamada al router LLM en 288-290 y el manejo de excepción en 331-336).
+*Archivos:* `orchestrator/router.py` (`decide_provider`, líneas 234-336, específicamente la llamada al router LLM en 288-290 y el manejo de excepción en 331-336), `tests/test_router.py`.
 
 *Diseño (RFC-006 §3.6, §3.8; pseudocódigo más explícito en RFC-003 §6.2):*
 ```python
@@ -790,10 +801,10 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
 
 *Prompt Codex:*
 ```
-Contexto: este es el PR que cierra el bug original documentado en RFC-006 §1
+Contexto: este es el commit que cierra el bug original documentado en RFC-006 §1
 y §3 (pre-routing egress: el router LLM recibe el contexto completo de la
 tarea antes de que exista ninguna política). orchestrator/egress.py,
-BaseProvider sellado y decide_with_local_router() ya existen de los PRs
+BaseProvider sellado y decide_with_local_router() ya existen de los commits
 anteriores. Falta conectar todo en decide_provider() (orchestrator/router.py,
 líneas 234-336).
 
@@ -833,7 +844,7 @@ Tarea:
    esté bloqueado. decide_with_local_router() ya se encarga de elegir entre
    TODOS los providers permitidos, no solo el fallback_provider preconfigurado.
    Solo debe levantarse EgressBlocked cuando decide_with_local_router() en sí
-   mismo determina que NINGÚN provider está permitido (eso ya lo hace el PR
+   mismo determina que NINGÚN provider está permitido (eso ya lo hace el commit
    anterior).
 5. Tests en tests/test_router.py:
    test_external_router_allowed_when_clearance_sufficient,
@@ -853,12 +864,12 @@ Tarea:
    no lo borres sin entender por qué fallaba.
 
 No toques orchestrator/background.py todavía -- el fix de threads es el
-PR siguiente.
+Commit siguiente.
 ```
 
 #### Commit 1.6 — Escalación por secreto en el payload (commit #8 — I10)
 
-*Archivos:* `orchestrator/egress.py` (extender `check`), `orchestrator/rag.py` (reutilizar `_contains_secrets`, ya existe en línea 166 — confirmado, no reescribir).
+*Archivos:* `orchestrator/egress.py` (extender `check`), `orchestrator/rag.py` (reutilizar `_contains_secrets`, ya existe en línea 166 — confirmado, no reescribir), `orchestrator/providers/base.py` (pasar `prompt`/`system` al check desde `complete()`/`complete_stream()`), `tests/test_egress.py`.
 
 *Alcance real, verificado contra `rag.py:60-68` (`_SECRET_PATTERN`):* NO es detección universal de secretos. El regex solo reconoce formatos específicos y conocidos: claves Anthropic (`sk-ant-*`), OpenAI (`sk-*`), MercadoPago (`APP_USR-*`), `token=<hex>`, bloques de llave privada (`-----BEGIN ... PRIVATE KEY`), AWS access key ID (`AKIA*`) y `aws_secret_access_key=...`. Un `API_KEY=lo-que-sea` genérico **no matchea nada de esto** — no lo uses como ejemplo de prueba, es un falso ejemplo. Ver la corrección de la Invariante I10 en el Apéndice A: "patrón reconocido", no "cualquier secreto".
 
@@ -968,7 +979,12 @@ Tarea:
    test_missing_context_yaml_uses_internal_default_and_does_not_block
    (proyecto sin context.yaml -- ContextNotFoundError -- el run continúa),
    test_corrupted_context_yaml_fails_closed (context.yaml con YAML inválido
-   -- el run falla, NO usa silenciosamente el provider default).
+   -- el run falla, NO usa silenciosamente el provider default),
+   test_worker_resets_policy_in_finally (I15: confirma que el Token de
+   set_policy() se resetea en un finally al terminar el worker, incluso si
+   el run falla con una excepción -- corré dos runs seguidos en el mismo
+   proceso con policies distintas y confirmá que el segundo no hereda nada
+   del primero).
 5. pytest tests/ -v verde.
 ```
 
@@ -1091,7 +1107,7 @@ Tarea:
 
 #### Commit 1.10 — `router-eval --offline` (commit #12)
 
-*Archivos:* nuevo comando CLI, nuevo `orchestrator/eval.py` (o extender `router.py`).
+*Archivos:* nuevo `orchestrator/eval.py` (o extender `router.py`), `orchestrator/cli.py` (comando `router-eval --offline`), nuevo `tests/test_eval.py`.
 
 *Diseño (RFC-006 §7.3, RFC-004 §5.3 — coincide en ambas rondas: no hace falta telemetría nueva):*
 
@@ -1144,7 +1160,7 @@ Tarea:
 5. pytest tests/ -v verde.
 ```
 
-**Salida de Fase 1:** los 10 commits mapeados contra los commits #2-#12 de RFC-006 reconstruidos contra `production@4ae9497` real, con invariantes I1-I15 completas y verificadas en CI (§10.1 de v0.3, ahora sin huecos). H1a/H1b con evidencia pública completa por primera vez en la serie. Antes de sacar el PR de Draft: completar la tabla de trazabilidad y correr la verificación adversarial de `docs/decisions/evidence/RFC-006/README.md` — un commit que compila y pasa su test no es lo mismo que un gate verificado end-to-end.
+**Salida de Fase 1:** los 10 commits mapeados contra los commits #2-#6 y #8-#12 de RFC-006 (el #7 se ejecutó antes, como Commit 0.2) reconstruidos contra `production@4ae9497` real, con invariantes I1-I15 completas y verificadas en CI (§10.1 de v0.3, ahora sin huecos). H1a/H1b con evidencia pública completa por primera vez en la serie. Antes de sacar el PR de Draft: completar la tabla de trazabilidad y correr la verificación adversarial de `docs/decisions/evidence/RFC-007/README.md` — un commit que compila y pasa su test no es lo mismo que un gate verificado end-to-end.
 
 ### 11.3 Fase 2 — Separación política/contexto (evolución de seguridad, no parte del gate validado)
 
@@ -1286,7 +1302,7 @@ RN-1 (threat model), RN-2 (ontología de agentes), RN-3 (estado del arte), EP-1 
 
 ## Conclusión
 
-La revisión 1 de este documento diseñó un gate propio sin saber que uno mejor ya existía, probado, en el disco del usuario. La revisión 2 no inventa nada: reconstruye contra el código real de `production@4ae9497` los commits #2-#12 que la serie RFC-001→006 ya validó localmente — **14 invariantes (I1-I14) mediante 15 tests** (`pytest tests/test_egress.py` → 15 passed, `pytest tests/` → 126 passed / 1 failed, resultado histórico de un patch efímero que nunca se mergeó, no un baseline comparable con este checkout hoy) — en el mismo orden, con las mismas invariantes, incluyendo el hallazgo más valioso de toda la serie: I14, el falso bloqueo que un test de seguridad anterior protegía por error.
+La revisión 1 de este documento diseñó un gate propio sin saber que uno mejor ya existía, probado, en el disco del usuario. La revisión 2 no inventa nada: reconstruye contra el código real de `production@4ae9497` los commits #2-#6, #8-#12 (y el #7 como Commit 0.2 de Fase 0) que la serie RFC-001→006 ya validó localmente — **14 invariantes (I1-I14) mediante 15 tests** (`pytest tests/test_egress.py` → 15 passed, `pytest tests/` → 126 passed / 1 failed, resultado histórico de un patch efímero que nunca se mergeó, no un baseline comparable con este checkout hoy) — en el mismo orden, con las mismas invariantes, incluyendo el hallazgo más valioso de toda la serie: I14, el falso bloqueo que un test de seguridad anterior protegía por error.
 
 Dos pasadas de verificación posteriores, ambas con Codex contra este mismo checkout, encontraron y cerraron: 5 desajustes materiales y 12 preguntas bloqueantes en el plan (tercera pasada), y una explicación aritmética incorrecta sobre por qué el baseline actual (`112 passed, 0 failed`, verificado empíricamente) difiere del `126/1` histórico de RFC-006 (cuarta pasada — la diferencia real son los 15 tests de `test_egress.py` del patch descartado, no evolución de la suite). Se agregó además una invariante nueva, **I15** (aislamiento de política entre operaciones/threads), que ni RFC-006 ni las revisiones anteriores de este documento habían formalizado — **I15 queda pendiente de implementación y validación en Fase 1**, a diferencia de I1-I14 que ya tienen evidencia histórica (aunque no pública) de haber pasado.
 
