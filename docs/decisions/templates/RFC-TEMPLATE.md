@@ -20,6 +20,8 @@ related: []              # IDs relacionados que no son ni ancestro ni sucesor, e
 
 *El front matter (`status`/`supersedes`/`superseded_by`) es la fuente de verdad para lectura automática (índices, agentes) y debe ir literalmente al principio del archivo, delimitado por `---`, antes del H1 — un bloque \`\`\`yaml\`\`\` dentro del cuerpo NO es front matter, ningún parser lo lee. `**Estado:**` en prosa es solo para lectura humana y debe usar el mismo vocabulario que `status:` (draft/in-review/accepted/...), nunca una palabra distinta para el mismo hecho. Si divergen, el front matter gana — actualizalo primero.*
 
+*Todo ejemplo, PoC o fixture en este documento usa datos sintéticos — nunca el nombre, dominio, descripción operativa o endpoint real de un proyecto o cliente del usuario, ni siquiera como "solo un ejemplo". Ver "Regla de anonimización" en `../README.md`.*
+
 ---
 
 ## Changelog

@@ -2,6 +2,25 @@
 
 Registro de decisiones técnicas de `ai-orchestrator`: qué se decidió, qué se propuso y no se cerró, y qué evidencia respalda cada cosa.
 
+## Regla de anonimización (obligatoria, sin excepción)
+
+**Ningún nombre, dominio, cliente, organización, endpoint real, identificador fiscal/personal, descripción operativa ni combinación de características que permita inferir un proyecto real (sector + país + stack + endpoint + tipo de dato + operación de negocio) puede aparecer en ningún documento, test, log o evidencia de este repo — sin excepción por "es solo un ejemplo histórico" o "el documento está archivado".** Un documento en `archive/` sigue publicado y buscable; anonimizar no es opcional para contenido vigente y no lo es tampoco para contenido histórico.
+
+Todo ejemplo, PoC o fixture usa datos sintéticos desde el momento en que se escribe:
+
+| Real | Sintético |
+|---|---|
+| Nombre/dominio de proyecto restringido | `restricted-project.example` (o `restricted-project` a secas) |
+| Segundo proyecto de comparación | `public-project-beta` |
+| Descripción operativa distintiva | genérica: "sistema interno con datos regulados de terceros" |
+| Endpoint real | `/resources/{id}/approve` |
+| Identificador fiscal/personal (identificador personal, SSN, etc.) | "identificador personal" |
+| Cliente/organización | se omite directamente, no se reemplaza por un alias que la insinúe |
+
+Sí se puede conservar: niveles de sensibilidad (`public/internal/restricted/secret`), nombres de providers de IA (Claude, DeepSeek, etc.), resultados (`allowed/blocked`), `reason_code` de lista cerrada, y SHAs/links de CI cuyo contenido ya esté sanitizado. Ver `evidence/RFC-007/README.md` para el ejemplo de una fila de evidencia segura.
+
+Incidente que originó esta regla (2026-07-13): la serie RFC-001…006, escrita fuera de este repo y luego incorporada, usaba el dominio y la descripción operativa reales de un cliente del usuario en sus PoC — publicado sin querer en `origin/production` antes de que se detectara. Sanitizado retroactivamente en el árbol de trabajo; la reescritura de historial de git queda como decisión aparte, pendiente de autorización explícita.
+
 ## Regla de identidad
 
 **Un ID resuelve a exactamente un documento canónico.** `ADR-002` es la decisión, punto — nunca un mapa de implementación, un análisis o una nota. Material subordinado que no es en sí mismo normativo (mapas de implementación, notas de apoyo) vive en `support/<DOC-ID>/`, nunca comparte el nombre de archivo del documento que aterriza. Es el mismo patrón que `evidence/<DOC-ID>/` para artefactos crudos — ambas carpetas indexan por el ID del documento que respaldan, no inventan su propia numeración.
