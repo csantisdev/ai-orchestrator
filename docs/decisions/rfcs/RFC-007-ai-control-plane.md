@@ -3,9 +3,9 @@
 **Estado:** Draft para ejecución (Codex)
 **Versión:** 0.9 (revisión 3)
 **Fecha:** 2026-07-13
-**Baseline de código auditado:** `4ae94970516d26a69e934cdd480e1634384ff5f1` — todas las citas de archivo:línea de la Parte II están verificadas contra este commit, y el código de `orchestrator/` no cambió desde entonces.
-**HEAD documental al iniciar la ejecución:** `53adfc7947c84930d82c385249b33bc18552ba22` en `production` local — dos commits posteriores al baseline, ambos solo documentación (`87bc4b1` reorg de `docs/decisions/`, `53adfc7` estas correcciones). **Sin publicar todavía**: `origin/production` sigue en `4ae9497`.
-**Rama de implementación:** `feat/egress-gate`, creada desde el HEAD documental de arriba. Todo el código de Fase 0 en adelante va acá, nunca directo a `production` (RFC-006 §0).
+**Baseline de código auditado:** `4ae94970516d26a69e934cdd480e1634384ff5f1` — todas las citas de archivo:línea de la Parte II están verificadas contra este commit, y el código de `orchestrator/`, `tests/`, `pyproject.toml` y `.github/` no cambió desde entonces (verificado: cero diffs en esos paths entre `4ae9497` y el HEAD actual).
+**HEAD documental:** `5960d3690...` en `production`, **publicado** (`origin/production` = `production` local = este commit). Tres commits posteriores al baseline, los tres solo documentación (`87bc4b1` reorg de `docs/decisions/`, `53adfc7` correcciones de Fase 0/1, `5960d36` baseline de CI verificado empíricamente).
+**Rama de implementación:** `feat/egress-gate`, sincronizada con el HEAD documental de arriba. Sin commits propios ni upstream remoto todavía — se publica al abrir el primer PR real de Fase 0. Todo el código va acá, nunca directo a `production` (RFC-006 §0).
 **Relación con la serie:** sucede a RFC-007 v0.3. No cubre MCP — eso es RFC-008 v0.1. **Incorpora el hallazgo de la serie RFC-001…006** (`archive/RFC-001-egress-gate.md`, `archive/RFC-002…005-*.md`, `rfcs/RFC-006-provider-safe-routing.md`), aportada por el usuario después de la primera redacción de este documento — ver Changelog. **Incorpora además una pasada de verificación de Codex** (solo lectura, contra este mismo checkout) que encontró 5 desajustes materiales y 12 preguntas bloqueantes, todas resueltas en esta revisión — ver Changelog.
 **Destinatario de ejecución:** extensión Codex de VS Code, PR por PR, en el orden de la Parte II.
 
@@ -49,7 +49,9 @@ Codex ejecutó una pasada de verificación de solo lectura (sin escribir código
 
 Nada de esto cambia el diseño de fondo de RFC-006 — son correcciones de precisión sobre cómo ese diseño se reconstruye contra el código real, encontradas por tener a alguien más leyendo el mismo código con otros ojos antes de ejecutar.
 
-**Corrección posterior (segunda pasada de Codex, sobre PR 0.1 y el estado de git):** el prompt de PR 0.1 seguía dejando una decisión sin resolver ("preguntá antes de decidir un mecanismo") — un prompt "ya resuelto" no puede delegar una decisión al ejecutor. Corregido en §11.1 PR 0.1: no asumir que el fallo de RAG persiste con `.[all]` instalado (puede ser que chromadb lo resuelva), verificar primero, y solo si se reproduce, aislarlo con `--deselect` + step separado `continue-on-error: true` — nunca postprocesar el output de pytest. Además, la referencia de commit del header no distinguía "código auditado" (no cambió) de "HEAD documental" (sí cambió, la reorganización y las correcciones de este mismo documento ya están commiteadas localmente) — corregido abajo.
+**Segunda pasada de Codex (sobre PR 0.1 y el estado de git):** el prompt de PR 0.1 seguía dejando una decisión sin resolver ("preguntá antes de decidir un mecanismo") — un prompt "ya resuelto" no puede delegar una decisión al ejecutor. Se verificó empíricamente (`.venv` de este checkout, `pytest tests/ -v`) en vez de asumir: **`112 passed, 0 failed`**, sin ningún fallo que aislar. PR 0.1 quedó corregido a exigir 100% verde sin excepciones — no hizo falta ningún mecanismo de `--deselect`/`continue-on-error`, la pregunta desapareció al verificar el hecho en vez de discutir el mecanismo.
+
+**Tercera pasada de Codex (aritmética `112` vs `126`):** la primera explicación que este documento daba de la diferencia (revisión 3 original: "la suite evolucionó, ADR-002 agregó tests") **era falsa** — verificado con `git merge-base --is-ancestor`: `tests/test_validate_pricing_catalog.py` ya existía en el commit `42f02cc`, que es ancestro de `4ae9497`, el mismo baseline que audita RFC-006. No hubo ningún test agregado entre RFC-006 y hoy. La explicación correcta, con la aritmética exacta de RFC-006 §4.1 (`111 passed, 1 failed` antes del patch efímero; `126 passed, 1 failed` después de agregar los 15 tests de `test_egress.py` del patch): **`112` = `111+1` = exactamente la misma cuenta total que el baseline pre-patch de RFC-006, con la única diferencia de que el test de RAG ahora pasa en vez de fallar** (chromadb disponible). El `126/1` de RFC-006 no es un baseline comparable con el checkout actual — es evidencia histórica de un patch efímero que incluía 15 tests (`test_egress.py`) que **todavía no existen** en este repo. Se corrigió la redacción en §11.1 PR 0.1, Apéndice D y la Conclusión para no mezclar ambos números como si fueran la misma medición.
 
 ---
 
@@ -133,6 +135,8 @@ No afirmación:                runtime autónomo multiagente
 
 Fase 0 tiene 3 PRs (incluye el commit #7/I8 de RFC-006 adelantado por ser independiente del resto del gate) y Fase 1 tiene 10 PRs, cada uno mapeado **1:1** contra uno de los commits #2-#12 ya validados localmente en RFC-006 §10 (el #1 es documental, no genera PR — reproducidos aquí con archivos y líneas reales de `production@4ae9497`, que RFC-006 no tenía porque trabajaba sobre un patch efímero, no sobre este checkout). Ejecutar en orden — cada uno asume que los anteriores están mergeados. El orden importa por una razón concreta y ya verificada: el commit que corrige el router (Fase 1, PR 1.5) invoca al router local (PR 1.4); si se invierte, no compila.
 
+**Modelo de ramas (decisión explícita, no asumir):** "PR N.M" en este documento significa **un commit dentro de `feat/egress-gate`**, no un Pull Request de GitHub independiente. Los 13 PRs de Fase 0+1 se implementan secuencialmente en la misma rama — mismo patrón que usó RFC-006 con su patch efímero (un solo `git apply`, no 13 ramas). Se abre **un único PR de GitHub** al final de Fase 1, cuando `feat/egress-gate` esté lista para revisión contra `production`. La revisión incremental durante el desarrollo se hace por commit (`git log`, `git diff <commit>~1..<commit>`), no por PR de GitHub aislado — evita la ceremonia y el riesgo de divergencia de sincronizar 13 ramas si el repo usa squash merge.
+
 Suite de tests: `pytest tests/`. Bajo el gate, sin política declarada, ~21 tests existentes van a fallar con `EgressBlocked: Sin política activa` — RFC-006 §4.1 documenta que **eso es el hallazgo, no el daño**: enumera cada ruta de egress no gobernada de la suite actual. Se agrega un `conftest.py` que fija una política permisiva por defecto para no bloquear la suite existente (PR 1.1).
 
 ### 11.1 Fase 0 — Publicar y detener el decaimiento (bloqueante)
@@ -148,22 +152,49 @@ Suite de tests: `pytest tests/`. Bajo el gate, sin política declarada, ~21 test
 112 passed in 5.79s
 ```
 
-**El "126 passed, 1 failed" que RFC-006 §4.1 documentaba está obsoleto.** Ese baseline se estableció en un entorno sin `chromadb`; este `.venv` ya lo tiene instalado (`chromadb==1.5.9`) y `test_rag_index_and_retrieve` **pasa**. La diferencia de conteo total (112 acá vs 126 en RFC-006) también es real — la suite evolucionó desde el 2026-07-09 de RFC-006 hasta hoy (Decision 0002/ADR-002 agregó `test_validate_pricing_catalog.py`, entre otros). No hay ningún fallo pre-existente que aceptar: **criterio de éxito de CI es 100% verde, sin excepciones, sin `--deselect`, sin `continue-on-error`.** Si algún test falla en el entorno limpio de CI (que puede diferir de este `.venv` local), es una regresión real a investigar, no algo a tolerar en este PR.
+**Explicación correcta del `112` vs el `126/1` de RFC-006 §4.1 (dos dimensiones distintas, no confundir):**
+
+- El `126 passed, 1 failed` de RFC-006 **no es un baseline pre-gate comparable con este checkout** — es el resultado de aplicar el patch efímero completo, que agregaba `tests/test_egress.py` (15 tests nuevos, todos passing). RFC-006 §4.1 da la aritmética exacta: `111 passed, 1 failed` **antes** del patch, `126 passed, 1 failed` **después** de sumar los 15 tests del gate (`111 + 15 = 126`). Ese patch nunca se mergeó — `test_egress.py` no existe en este repo todavía (lo crea PR 1.1).
+- El baseline pre-gate comparable es el `111 passed, 1 failed` (112 tests totales) que RFC-006 mismo documenta. **Verificado: coincide exactamente en cantidad con los `112 passed, 0 failed` de este checkout** (confirmado además que ningún test se agregó entre `4ae9497` y hoy: `tests/test_validate_pricing_catalog.py`, el único candidato a "test nuevo" que se había mencionado en una versión anterior de este párrafo, ya existía en el commit `42f02cc`, ancestro de `4ae9497` — esa explicación previa era incorrecta y quedó corregida).
+- La única diferencia real entre ambas mediciones: el test de RAG, que fallaba en el baseline de RFC-006, pasa en este `.venv`. Es **consistente con que el entorno de RFC-006 no tenía `chromadb` instalado** — este `.venv` sí (`chromadb==1.5.9`) — pero esto es una inferencia razonable, no un hecho demostrado: no se conservó el traceback original, el `pip freeze`, ni el patch descartado para confirmar la causa exacta.
+
+No hay ningún fallo pre-existente que aceptar hoy: **criterio de éxito de CI es 100% verde, sin excepciones, sin `--deselect`, sin `continue-on-error`.** Si algún test falla en el entorno limpio de CI (que puede diferir de este `.venv` local — ver tabla más abajo), es una regresión real a investigar, no algo a tolerar en este PR.
+
+*Diferencias conocidas entre este `.venv` local y el CI propuesto (no bloquean el PR, pero explican por qué el resultado de CI podría diferir):*
+
+| Dimensión | Local verificado | CI propuesto |
+|---|---|---|
+| OS | Windows | Ubuntu (`actions/setup-python`) |
+| Python | 3.13.0 | 3.12 |
+| chromadb | 1.5.9 (rango abierto `>=0.4.0` en `pyproject.toml`) | versión que resuelva pip en ese momento |
+| pytest | 9.1.1 (rango abierto `>=8.0.0`) | versión que resuelva pip en ese momento |
+
+El job debe imprimir `python --version` y `pip freeze` antes de correr la suite — no hace falta guardarlo como artefacto separado, con que quede en el log del job alcanza para diagnosticar una futura discrepancia entre este `.venv` y CI.
 
 *Prompt Codex:*
 ```
 Crea .github/workflows/tests.yml: se dispara en push a production y en todo
 pull_request, instala Python 3.12 y el extra "all" del proyecto (pip install
 -e ".[all]" -- revisa pyproject.toml para confirmar el nombre exacto del
-extra; "all" incluye chromadb), corre `pytest tests/ -v`.
+extra; "all" incluye chromadb). Antes de correr los tests, agrega un step
+que imprima `python --version` y `pip freeze` en el log (sin guardarlo como
+artefacto aparte, alcanza con que quede en el log del job). Después corre
+`pytest tests/ -v`.
 
 Verificado el 2026-07-13 contra el .venv de este mismo checkout: la suite
 completa da 112 passed, 0 failed con chromadb instalado -- NO hay ningún
 test que deba tratarse como fallo conocido/aceptado. El "126 passed, 1
-failed" que aparece en RFC-006 §4.1 es un baseline viejo, de un entorno sin
-chromadb, y ya no aplica. Si en el entorno de CI (que puede diferir del
-.venv local en versión de Python, SO, etc.) algún test falla, es una
-regresión real que hay que investigar y resolver -- NO lo excluyas con
+failed" de RFC-006 §4.1 NO es comparable con este número -- son mediciones
+de dos cosas distintas: RFC-006 midió 111 passed + 1 failed ANTES de su
+patch efímero, y 126 passed + 1 failed DESPUÉS de agregarle 15 tests nuevos
+(tests/test_egress.py, que todavía no existe en este repo -- lo crea un PR
+posterior). El baseline pre-gate real de RFC-006 (111+1=112) coincide en
+cantidad exacta con los 112 tests de hoy; la única diferencia es que el test
+de RAG ahora pasa (probablemente porque este entorno sí tiene chromadb
+instalado, a diferencia del de RFC-006). Si en el entorno de CI (que puede
+diferir del .venv local en versión de Python, SO, etc. -- ver la tabla de
+diferencias conocidas más arriba en este documento) algún test falla, es
+una regresión real que hay que investigar y resolver -- NO lo excluyas con
 --deselect, NO lo marques xfail, NO seas tolerante con ningún fallo. El
 criterio de este job es 100% verde, sin excepciones.
 
@@ -1215,7 +1246,9 @@ RN-1 (threat model), RN-2 (ontología de agentes), RN-3 (estado del arte), EP-1 
 
 ## Conclusión
 
-La revisión 1 de este documento diseñó un gate propio sin saber que uno mejor ya existía, probado, en el disco del usuario. La revisión 2 no inventa nada: reconstruye contra el código real de `production@4ae9497` los commits #2-#12 que la serie RFC-001→006 ya validó localmente (15 invariantes, `pytest tests/test_egress.py` → 15 passed, `pytest tests/` → 126 passed / 1 failed pre-existente), en el mismo orden, con las mismas invariantes, incluyendo el hallazgo más valioso de toda la serie — I14, el falso bloqueo que un test de seguridad anterior protegía por error. Una tercera pasada, de verificación con Codex contra este mismo checkout, encontró 5 desajustes materiales y 12 preguntas bloqueantes que esta revisión 2 ya incorpora resueltas — incluida una invariante nueva, I15, que ni RFC-006 ni la revisión 2 original habían formalizado.
+La revisión 1 de este documento diseñó un gate propio sin saber que uno mejor ya existía, probado, en el disco del usuario. La revisión 2 no inventa nada: reconstruye contra el código real de `production@4ae9497` los commits #2-#12 que la serie RFC-001→006 ya validó localmente — **14 invariantes (I1-I14) mediante 15 tests** (`pytest tests/test_egress.py` → 15 passed, `pytest tests/` → 126 passed / 1 failed, resultado histórico de un patch efímero que nunca se mergeó, no un baseline comparable con este checkout hoy) — en el mismo orden, con las mismas invariantes, incluyendo el hallazgo más valioso de toda la serie: I14, el falso bloqueo que un test de seguridad anterior protegía por error.
+
+Dos pasadas de verificación posteriores, ambas con Codex contra este mismo checkout, encontraron y cerraron: 5 desajustes materiales y 12 preguntas bloqueantes en el plan (tercera pasada), y una explicación aritmética incorrecta sobre por qué el baseline actual (`112 passed, 0 failed`, verificado empíricamente) difiere del `126/1` histórico de RFC-006 (cuarta pasada — la diferencia real son los 15 tests de `test_egress.py` del patch descartado, no evolución de la suite). Se agregó además una invariante nueva, **I15** (aislamiento de política entre operaciones/threads), que ni RFC-006 ni las revisiones anteriores de este documento habían formalizado — **I15 queda pendiente de implementación y validación en Fase 1**, a diferencia de I1-I14 que ya tienen evidencia histórica (aunque no pública) de haber pasado.
 
 La siguiente acción sigue sin ser un documento: es pegar el prompt de PR 0.1 en Codex.
 
@@ -1268,7 +1301,7 @@ MCP remoto: ver RFC-008 §11.4.
 ## Apéndice D — Orden de ejecución para Codex
 
 ```text
-Fase 0   PR 0.1  CI corre pytest completo (.[all], baseline 126/1 pre-existente)
+Fase 0   PR 0.1  CI corre pytest completo (.[all], baseline actual verificado: 112/0, 100% verde)
          PR 0.2  Fix I8: sobre-consulta n=20 + post-filtro (adelanta commit #7, independiente)
          PR 0.3  Migración routing_source, enum de 6 valores (hygiene, no bloqueante contra RFC-006)
 Fase 1   PR 1.1  egress.py: ContextVar sin default, EgressBlocked, check()/can_send(),   [commit #2 — I1,I2,I7,I15]
