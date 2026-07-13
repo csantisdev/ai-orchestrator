@@ -121,16 +121,16 @@ def _fetch_active_context(project: str) -> dict | None:
         return None
 
 
-def _fetch_similar_runs(task: str, n: int = 3) -> list[dict]:
+def _fetch_similar_runs(task: str, project: str, n: int = 3) -> list[dict]:
     try:
         from orchestrator.db import get_run
         from orchestrator.similarity import get_backend
         backend = get_backend()
-        hits = backend.query(task, n_results=n)
+        hits = backend.query(task, n_results=20)
         results = []
         for hit in hits:
             row = get_run(hit["run_id"])
-            if row and row["status"] == "done":
+            if row and row["status"] == "done" and row["project"] == project:
                 results.append({
                     "project": row["project"],
                     "provider": row["provider"],
@@ -138,7 +138,8 @@ def _fetch_similar_runs(task: str, n: int = 3) -> list[dict]:
                     "task_preview": row["task_preview"],
                     "rating": row["rating"] if "rating" in row.keys() else None,
                 })
-        return results
+        # V1 post-filtro: puede devolver menos resultados que un filtro nativo por proyecto.
+        return results[:n]
     except Exception:
         return []
 
@@ -238,7 +239,7 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
     fallback = router_cfg.get("fallback_provider") or ctx.default_provider or get_default_provider(config)
 
     signals = _calculate_keyword_signals(task, ctx)
-    similar = _fetch_similar_runs(task, n=3)
+    similar = _fetch_similar_runs(task, ctx.name, n=3)
     active_ctx = _fetch_active_context(ctx.name)
 
     agent_def = None

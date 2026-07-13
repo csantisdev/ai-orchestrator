@@ -5,6 +5,7 @@ from orchestrator.context import ProjectContext
 from orchestrator.router import (
     RoutingDecision,
     _calculate_keyword_signals,
+    _fetch_similar_runs,
     _format_profiles_section,
     decide_provider,
 )
@@ -24,6 +25,76 @@ _CONFIG = {
 def _ctx(**kwargs) -> ProjectContext:
     defaults = {"name": "test-proj", "stack": "Python", "description": ""}
     return ProjectContext(**{**defaults, **kwargs})
+
+
+def _completed_run(project: str, routing_reason: str) -> dict:
+    return {
+        "project": project,
+        "provider": "claude",
+        "routing_reason": routing_reason,
+        "task_preview": "generic task",
+        "rating": None,
+        "status": "done",
+    }
+
+
+def test_fetch_similar_runs_filters_by_project():
+    backend = MagicMock()
+    backend.query.return_value = [
+        {"run_id": 1},
+        {"run_id": 2},
+        {"run_id": 3},
+        {"run_id": 4},
+    ]
+    runs = {
+        1: _completed_run("project-beta", "foreign result"),
+        2: _completed_run("project-alpha", "first local result"),
+        3: _completed_run("project-alpha", "second local result"),
+        4: _completed_run("project-alpha", "local result beyond limit"),
+    }
+
+    with patch("orchestrator.similarity.get_backend", return_value=backend), \
+         patch("orchestrator.db.get_run", side_effect=runs.get):
+        results = _fetch_similar_runs("generic task", "project-alpha", n=2)
+
+    assert [result["project"] for result in results] == ["project-alpha", "project-alpha"]
+    assert [result["routing_reason"] for result in results] == [
+        "first local result",
+        "second local result",
+    ]
+
+
+def test_router_prompt_excludes_other_projects():
+    backend = MagicMock()
+    backend.query.return_value = [{"run_id": 1}, {"run_id": 2}]
+    runs = {
+        1: _completed_run("project-beta", "FOREIGN_ONLY_ROUTING_NOTE"),
+        2: _completed_run("project-alpha", "LOCAL_ROUTING_NOTE"),
+    }
+    mock_result = MagicMock()
+    mock_result.text = '{"provider": "claude", "model": null, "reason": "generic reason"}'
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = mock_result
+
+    with patch("orchestrator.similarity.get_backend", return_value=backend), \
+         patch("orchestrator.db.get_run", side_effect=runs.get), \
+         patch("orchestrator.router.build_provider", return_value=mock_provider), \
+         patch("orchestrator.router._fetch_active_context", return_value=None):
+        decide_provider("generic task", _ctx(name="project-alpha"), _CONFIG)
+
+    sent_prompt = mock_provider.complete.call_args.kwargs["prompt"]
+    assert "LOCAL_ROUTING_NOTE" in sent_prompt
+    assert "FOREIGN_ONLY_ROUTING_NOTE" not in sent_prompt
+
+
+def test_fetch_similar_runs_overqueries_before_filtering():
+    backend = MagicMock()
+    backend.query.return_value = []
+
+    with patch("orchestrator.similarity.get_backend", return_value=backend):
+        assert _fetch_similar_runs("generic task", "project-alpha", n=3) == []
+
+    backend.query.assert_called_once_with("generic task", n_results=20)
 
 
 def test_keyword_signals_match_and_no_match():
