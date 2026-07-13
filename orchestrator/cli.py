@@ -256,6 +256,7 @@ def run(
         duration_ms=duration_ms,
         routing_reason=decision.reason,
         cost_usd=cost_usd,
+        routing_source=decision.routing_source,
     )
 
     if run_id and _rag_chunks:

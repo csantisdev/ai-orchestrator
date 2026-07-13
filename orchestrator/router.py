@@ -66,6 +66,7 @@ class RoutingDecision:
     used_fallback: bool = False
     router_cost_usd: float | None = None
     system_prompt_addition: str | None = None
+    routing_source: str = "unknown"
 
 
 def _calculate_keyword_signals(task: str, ctx: ProjectContext) -> list[dict]:
@@ -259,6 +260,7 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
                 reason=f"Paso activo [{step['order_idx']}]: {step['title']} → provider definido: {step['provider']}",
                 model=_safe_agent_model(agent_def, step["provider"]),
                 system_prompt_addition=agent_def.system_prompt_addition if agent_def else None,
+                routing_source="forced_step",
             )
 
         if agent_def and agent_def.provider:
@@ -270,6 +272,7 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
                 ),
                 model=_safe_agent_model(agent_def, agent_def.provider),
                 system_prompt_addition=agent_def.system_prompt_addition,
+                routing_source="agent_preset",
             )
 
     try:
@@ -309,6 +312,7 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
                 provider=fallback,
                 reason=f"Router eligió '{provider}' sin API key disponible; se usó fallback '{fallback}'. ({exc})",
                 used_fallback=True,
+                routing_source="fallback_no_api_key",
             )
 
         # Validar el modelo sugerido contra el catálogo (si el router propuso uno).
@@ -327,6 +331,7 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
             model=_safe_agent_model(agent_def, provider) or model,
             reason=reason, used_fallback=False, router_cost_usd=router_cost,
             system_prompt_addition=agent_def.system_prompt_addition if agent_def else None,
+            routing_source="llm_router",
         )
 
     except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier falla del router
@@ -334,6 +339,7 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
             provider=fallback,
             reason=f"Router no disponible ({exc}); se usó fallback '{fallback}'.",
             used_fallback=True,
+            routing_source="fallback_router_error",
         )
 
 
@@ -341,4 +347,9 @@ def force_provider(provider: str) -> RoutingDecision:
     """Para cuando el usuario pasa --model explícitamente, sin consultar al router."""
     if provider not in PROVIDERS:
         raise ValueError(f"Proveedor inválido: '{provider}'. Opciones: {', '.join(PROVIDERS)}")
-    return RoutingDecision(provider=provider, reason="Elegido manualmente con --model.", used_fallback=False)
+    return RoutingDecision(
+        provider=provider,
+        reason="Elegido manualmente con --model.",
+        used_fallback=False,
+        routing_source="forced_cli",
+    )

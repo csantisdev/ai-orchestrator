@@ -8,6 +8,7 @@ from orchestrator.router import (
     _fetch_similar_runs,
     _format_profiles_section,
     decide_provider,
+    force_provider,
 )
 
 _CONFIG = {
@@ -126,6 +127,7 @@ def test_decide_provider_uses_model_response():
     assert isinstance(decision, RoutingDecision)
     assert decision.provider == "claude"
     assert decision.used_fallback is False
+    assert decision.routing_source == "llm_router"
     assert "compleja" in decision.reason
 
 
@@ -140,6 +142,7 @@ def test_decide_provider_fallback_on_exception():
 
     assert decision.provider == "claude"
     assert decision.used_fallback is True
+    assert decision.routing_source == "fallback_router_error"
     assert "fallback" in decision.reason.lower() or "claude" in decision.reason
 
 
@@ -204,6 +207,7 @@ def test_decide_provider_step_agent_preset_sets_model_and_prompt_addition():
     assert decision.provider == "claude"
     assert decision.model == "claude-opus-4-8"
     assert decision.system_prompt_addition == "Sé exhaustivo."
+    assert decision.routing_source == "forced_step"
 
 
 def test_decide_provider_step_agent_preset_without_step_provider_sets_provider():
@@ -226,6 +230,7 @@ def test_decide_provider_step_agent_preset_without_step_provider_sets_provider()
 
     mock_build.assert_not_called()
     assert decision.provider == "deepseek"
+    assert decision.routing_source == "agent_preset"
 
 
 def test_decide_provider_agent_without_provider_still_applies_prompt_addition_via_llm_router():
@@ -406,6 +411,14 @@ def test_decide_provider_falls_back_when_chosen_provider_has_no_api_key():
 
     assert decision.used_fallback is True
     assert decision.provider == "claude"
+    assert decision.routing_source == "fallback_no_api_key"
+
+
+def test_force_provider_sets_forced_cli_routing_source():
+    decision = force_provider("claude")
+
+    assert decision.provider == "claude"
+    assert decision.routing_source == "forced_cli"
 
 
 def test_decide_provider_falls_back_when_chosen_provider_has_empty_api_key():

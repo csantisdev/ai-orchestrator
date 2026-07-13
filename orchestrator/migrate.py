@@ -331,3 +331,12 @@ def run_migrations() -> None:
                     pass
                 _mark_applied(conn, "add_agent_preset_to_steps")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_routing_source_to_runs"):
+                try:
+                    conn.execute("ALTER TABLE runs ADD COLUMN routing_source TEXT")
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_routing_source_to_runs")
+                conn.commit()

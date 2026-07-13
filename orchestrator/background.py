@@ -165,6 +165,7 @@ def _worker(
             routing_reason=decision.reason,
             cost_usd=cost_usd,
             router_cost_usd=decision.router_cost_usd,
+            routing_source=decision.routing_source,
         )
 
         if _rag_chunks:
