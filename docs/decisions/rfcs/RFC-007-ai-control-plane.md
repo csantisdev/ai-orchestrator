@@ -142,7 +142,9 @@ Fase 0 tiene 3 commits (incluye el commit #7/I8 de RFC-006 adelantado por ser in
 ```text
 Commit 0.1 (crea .github/workflows/tests.yml)
     ↓
-git push -u origin feat/egress-gate
+git push origin feat/egress-gate   (la rama ya tiene upstream configurado
+                                     desde el saneamiento de historial del
+                                     2026-07-13 -- no hace falta -u de nuevo)
     ↓
 gh pr create --draft --base production --head feat/egress-gate
     ↓                                    (dispara CI por primera vez, vía pull_request)
@@ -234,7 +236,7 @@ No toques .github/workflows/pricing-catalog.yml.
 ```bash
 git add .github/workflows/tests.yml
 git commit -m "feat(ci): agregar workflow de tests para feat/egress-gate"
-git push -u origin feat/egress-gate
+git push origin feat/egress-gate   # ya tiene upstream, no hace falta -u
 gh pr create --draft --base production --head feat/egress-gate \
   --title "Egress gate: reconstrucción de RFC-006 contra production" \
   --body "Draft — 13 commits (Fase 0 + Fase 1 de RFC-007 §11). Se abre temprano para que CI corra en cada push. Ver docs/decisions/rfcs/RFC-007-ai-control-plane.md."
