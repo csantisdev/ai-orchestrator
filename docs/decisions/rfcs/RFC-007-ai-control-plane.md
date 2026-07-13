@@ -1,10 +1,10 @@
 # RFC-007 — Local AI Control Plane: Plan de Implementación Definitivo
 
 **Estado:** Draft para ejecución (Codex)
-**Versión:** 0.9 (revisión 2)
-**Fecha:** 2026-07-12
-**Repo de referencia:** `csantisdev/ai-orchestrator@production` = `4ae94970516d26a69e934cdd480e1634384ff5f1` (verificado 2026-07-12)
-**Relación con la serie:** sucede a RFC-007 v0.3. No cubre MCP — eso es RFC-008 v0.1. **Incorpora el hallazgo de la serie RFC-001…006** (`RFC-egress-gate.md`, `RFC-002…006-*.md`), aportada por el usuario después de la primera redacción de este documento — ver Changelog.
+**Versión:** 0.9 (revisión 3)
+**Fecha:** 2026-07-13
+**Repo de referencia:** `csantisdev/ai-orchestrator@production` = `4ae94970516d26a69e934cdd480e1634384ff5f1` (re-verificado 2026-07-13, sin deriva respecto de la fecha de la revisión 2)
+**Relación con la serie:** sucede a RFC-007 v0.3. No cubre MCP — eso es RFC-008 v0.1. **Incorpora el hallazgo de la serie RFC-001…006** (`archive/RFC-001-egress-gate.md`, `archive/RFC-002…005-*.md`, `rfcs/RFC-006-provider-safe-routing.md`), aportada por el usuario después de la primera redacción de este documento — ver Changelog. **Incorpora además una pasada de verificación de Codex** (solo lectura, contra este mismo checkout) que encontró 5 desajustes materiales y 12 preguntas bloqueantes, todas resueltas en esta revisión — ver Changelog.
 **Destinatario de ejecución:** extensión Codex de VS Code, PR por PR, en el orden de la Parte II.
 
 ---
@@ -14,6 +14,17 @@
 ### v0.3 → v0.9 (revisión 1, primera redacción de este documento)
 
 Convirtió el roadmap de 6 fases de v0.3 en un plan ejecutable PR-por-PR, verificado contra código real. En ese momento **RFC-006 no era accesible**: la Parte II de la revisión 1 diseñaba un `EgressPolicy`/`gateway.governed_complete()` propio, sin saber que ya existía un diseño distinto, más maduro y validado localmente (15 tests, patch +512/−28) en la serie RFC-001…006.
+
+### v0.9 revisión 2 → v0.9 revisión 3 (esta versión)
+
+Codex ejecutó una pasada de verificación de solo lectura (sin escribir código) contra `production@4ae9497`, pidiéndole confirmar cada cita de archivo:línea de la Parte II y las 14 invariantes del Apéndice A. Encontró:
+
+- **5 desajustes materiales** en el texto: PR 1.2 usaba `CompletionResult.to_stream_result()`, que no existe (ahora el PR lo agrega explícitamente); PR 1.4 pedía precio numérico de `catalog.get_model_profiles()`, que no lo expone (corregido a `get_effective_pricing()`); PR 1.6 daba un ejemplo de secreto (`API_KEY=...`) que el regex real no reconoce (corregido); PR 0.3 subcontaba los caminos reales de `decide_provider()` (4 → 6, con enum explícito); la Invariante I10 sobreafirmaba detección universal de secretos (acotada a "patrón reconocido").
+- **12 preguntas bloqueantes**, todas resueltas en esta revisión: estrategia de rama (docs a `production`, código a `feat/egress-gate`), baseline de CI (`.[all]`, no-regresión en vez de 100% verde), diseño del filtro de PR 0.2 (sobre-consulta + post-filtro, no filtro nativo), ciclo de vida de la política en tests (`Token` + marker `no_default_policy`), función canónica `policy_for_project()` compartida entre PR 1.3 y PR 1.7, elección del provider más barato (API real de pricing), alcance real de I10, resolución fail-closed refinada para `ctx=None` en el worker (distingue proyecto nuevo de `context.yaml` corrupto), y alcance del log de `egress_decisions` (allowed+blocked, logueado solo desde `check()`).
+- **1 invariante nueva, I15** (política se limpia por operación, no se filtra entre threads/tests) — la fila que RFC-006 dejó vacía a propósito.
+- **7 mejoras no bloqueantes**, adoptadas: separar `except EgressBlocked` de `except Exception` explícitamente en PR 1.5 sin leakear `str(exc)`, cubrir ambos momentos de excepción en un generador (PR 1.8), no loguear desde `can_send()` (PR 1.9), entre otras.
+
+Nada de esto cambia el diseño de fondo de RFC-006 — son correcciones de precisión sobre cómo ese diseño se reconstruye contra el código real, encontradas por tener a alguien más leyendo el mismo código con otros ojos antes de ejecutar.
 
 ### v0.9 revisión 1 → v0.9 revisión 2 (esta versión)
 
@@ -32,7 +43,7 @@ El usuario agregó al repo `RFC-egress-gate.md` (ronda 0) y `RFC-002` a `RFC-006
 | Secretos | No contemplado | Reutilizar `_contains_secrets()`, que **ya existe** en `rag.py:166` (confirmado) — no escribir un detector nuevo |
 | Ledger | Diseño propio de `decision_events` en Fase 3 | `egress_decisions` (tabla lean, solo decisión — RFC-006 §6.2: "el log registra la DECISIÓN, nunca el PAYLOAD") ya en Fase 1; el ledger rico de RFC-005 (`decision_events`/`context_lineage`/`outcome_events`) queda **explícitamente fuera de alcance hasta 500 runs gobernados reales** (RFC-006 §8) — RFC-005 fue criticado en la propia serie por "scope creep con 0 runs" |
 | Invariantes I1-I14 | 8 de 14 sin enunciado, marcadas `[FALTA RFC-006]`, bloqueante parcial declarado | **Las 14 tienen enunciado completo y verificado** (RFC-006 §4.3, reproducida en Apéndice A) — el bloqueo de la rev. 1 queda resuelto |
-| Orden de commits | PRs agrupados por fase de alto nivel | **Mapeado 1:1 contra el orden de 12 commits de RFC-006 §10**, ya probado localmente en ese orden exacto (`git apply egress-gate.patch` → `126 passed, 1 failed` pre-existente de RAG) |
+| Orden de commits | PRs agrupados por fase de alto nivel | **Mapeado contra el orden de commits de RFC-006 §10**: Fase 0 (3 PRs, incluye el commit #7/I8 adelantado por ser independiente) + Fase 1 (10 PRs, mapeados 1:1 contra los commits #2-#12 de RFC-006 §10, sin duplicar el #1 que es documental), ya probado localmente en ese orden exacto (`git apply egress-gate.patch` → `126 passed, 1 failed` pre-existente de RAG) |
 
 **Lección para este documento y para cualquier sesión futura:** antes de diseñar una implementación "definitiva", preguntar explícitamente si existe una ronda de diseño previa no commiteada. La serie RFC-001…006 vivía en el disco del usuario, fuera de este repo hasta este momento, y el documento anterior (rev. 1) hizo trabajo redundante — y en algunos puntos (el choque de diseño del punto de sellado) peor — por no saberlo.
 
@@ -116,7 +127,7 @@ No afirmación:                runtime autónomo multiagente
 
 ### 11.0 Cómo usar esta parte con Codex
 
-Cada PR mapea **1:1** contra uno de los 12 commits ya validados localmente en RFC-006 §10 (reproducidos aquí con archivos y líneas reales de `production@4ae9497`, que RFC-006 no tenía porque trabajaba sobre un patch efímero, no sobre este checkout). Ejecutar en orden — cada uno asume que los anteriores están mergeados. El orden importa por una razón concreta y ya verificada: el commit que corrige el router (Fase 1, PR 1.5) invoca al router local (PR 1.4); si se invierte, no compila.
+Fase 0 tiene 3 PRs (incluye el commit #7/I8 de RFC-006 adelantado por ser independiente del resto del gate) y Fase 1 tiene 10 PRs, cada uno mapeado **1:1** contra uno de los commits #2-#12 ya validados localmente en RFC-006 §10 (el #1 es documental, no genera PR — reproducidos aquí con archivos y líneas reales de `production@4ae9497`, que RFC-006 no tenía porque trabajaba sobre un patch efímero, no sobre este checkout). Ejecutar en orden — cada uno asume que los anteriores están mergeados. El orden importa por una razón concreta y ya verificada: el commit que corrige el router (Fase 1, PR 1.5) invoca al router local (PR 1.4); si se invierte, no compila.
 
 Suite de tests: `pytest tests/`. Bajo el gate, sin política declarada, ~21 tests existentes van a fallar con `EgressBlocked: Sin política activa` — RFC-006 §4.1 documenta que **eso es el hallazgo, no el daño**: enumera cada ruta de egress no gobernada de la suite actual. Se agrega un `conftest.py` que fija una política permisiva por defecto para no bloquear la suite existente (PR 1.1).
 
@@ -126,11 +137,23 @@ Suite de tests: `pytest tests/`. Bajo el gate, sin política declarada, ~21 test
 
 *Archivos:* nuevo `.github/workflows/tests.yml`. (Hoy solo existe `pricing-catalog.yml`, acotado a paths de pricing — no hay CI genérico corriendo `pytest`.)
 
+*Decisión de baseline:* instalar el extra `.[all]` (incluye `chromadb`), no `.[dev]`. Criterio de éxito **no es "100% verde"**: es "sin fallos nuevos respecto del baseline conocido" — `126 passed, 1 failed` (`test_rag_index_and_retrieve`, documentado como pre-existente en RFC-006 §4.1). Cualquier otro fallo sí bloquea.
+
 *Prompt Codex:*
 ```
 Crea .github/workflows/tests.yml: se dispara en push a production y en todo
-pull_request, instala Python 3.12 y las dependencias de test (revisa
-pyproject.toml para el extra correcto), corre `pytest tests/ -v`.
+pull_request, instala Python 3.12 y el extra "all" del proyecto (pip install
+-e ".[all]" -- revisa pyproject.toml para confirmar el nombre exacto del
+extra; "all" incluye chromadb, necesario para que corran los tests de RAG),
+corre `pytest tests/ -v`.
+
+No falles el job solo porque test_rag_index_and_retrieve falle -- es un
+fallo pre-existente documentado (RFC-006 §4.1, "126 passed, 1 failed"),
+no algo que este PR deba resolver. Si no sabés cómo marcar un test como
+"known failure" sin ocultar fallos nuevos, preguntá antes de decidir un
+mecanismo (xfail en el test vs post-procesar el output de pytest) -- no
+elijas uno silenciosamente, ambos tienen trade-offs distintos.
+
 No toques .github/workflows/pricing-catalog.yml.
 ```
 
@@ -140,6 +163,8 @@ Corresponde al commit #7 de RFC-006 (`fix: restrict router similar-runs to curre
 
 *Archivos:* `orchestrator/router.py` (`_fetch_similar_runs`, línea 124; call site línea 241), `tests/test_router.py`.
 
+*Decisión de diseño verificada contra `orchestrator/similarity.py`:* `SimilarityBackend` es un `Protocol` (`ChromaBackend`/`FTS5Backend`) cuyo `query(text, n_results)` **no acepta ningún filtro de proyecto** — ni Chroma ni el fallback FTS5 lo soportan hoy, y `upsert(run_id, text)` tampoco guarda `project` como metadata. Filtrar nativo en el backend (V2: Chroma `where={"project": ...}`, FTS5 `WHERE runs.project=?`) exige cambiar también todos los call sites de `upsert()` para que empiecen a persistir `project`, más reindexar lo ya existente — alcance mayor al de un fix de Fase 0. **V1, la que va en este PR:** sobre-consultar (`n_results=20` en vez de 3) y post-filtrar en Python por `row["project"] == project`, devolviendo los primeros `n`. Limitación conocida y aceptada: si ninguno de los 20 resultados globales más similares pertenece al proyecto, el resultado es `[]` aunque existan runs similares del proyecto más abajo en el ranking global — mismo criterio que RFC-006 §8.3 ("V1 no bloquea merge; V2 queda como mejora").
+
 *Prompt Codex:*
 ```
 Contexto: en orchestrator/router.py, _fetch_similar_runs(task, n=3) (línea ~124)
@@ -147,16 +172,25 @@ consulta orchestrator.similarity.get_backend().query() sin acotar por proyecto.
 Sus resultados entran al prompt del router LLM externo de CUALQUIER proyecto,
 no solo el que originó la tarea. RFC-006 lo documenta como invariante I8.
 
+Verificado: ni ChromaBackend ni FTS5Backend (orchestrator/similarity.py)
+soportan un filtro de proyecto en query(), y upsert() tampoco guarda project
+como metadata. Un filtro nativo en el backend es un cambio más grande (tocar
+upsert() y reindexar) -- NO lo hagas en este PR.
+
 Tarea:
 1. Cambia la firma a _fetch_similar_runs(task, project, n=3).
-2. Filtra los resultados por row["project"] == project antes de agregarlos
-   (revisa primero si similarity.get_backend().query() soporta un filtro de
-   metadata nativo — si lo soporta, úsalo ahí; si no, filtra en Python).
+2. Llama a backend.query(task, n_results=20) (sobre-consulta, no 3), filtra
+   los resultados en Python por row["project"] == project, y devolvé como
+   máximo los primeros n ya filtrados. Documenta con un comentario de una
+   línea que esto es V1 (post-filtro) y que puede devolver menos resultados
+   de los que existirían con un filtro nativo -- ver RFC-007 §11.1 PR 0.2
+   para el razonamiento completo.
 3. Actualiza el call site en decide_provider() (línea ~241): pasa ctx.name.
 4. Agrega en tests/test_router.py: un test que indexe runs de dos proyectos
    distintos y confirme que _fetch_similar_runs solo devuelve los del
    proyecto pedido; otro que confirme que el prompt final de decide_provider
-   nunca contiene contenido de otro proyecto.
+   nunca contiene contenido de otro proyecto; otro que confirme que se pide
+   n_results=20 al backend (mock de query, assert del argumento) y no 3.
 5. pytest tests/test_router.py -v verde.
 No implementes el gate todavía.
 ```
@@ -167,27 +201,47 @@ RFC-006/RFC-004 confirman que `router-eval --offline` (PR 1.10) **no necesita te
 
 *Archivos:* `orchestrator/migrate.py` (nueva migración, mismo patrón que `add_rating_to_runs`), `orchestrator/router.py` (`RoutingDecision`).
 
+*Enum verificado contra el código real (`decide_provider()`/`force_provider()`, `router.py:234-343`) — no son "al menos 4 caminos", son 6 distintos:*
+
+| Valor | Camino real | Línea |
+|---|---|---|
+| `forced_step` | provider fijado en el step activo | `router.py:256-261` |
+| `agent_preset` | provider del agent preset del step | `router.py:264-272` |
+| `llm_router` | router LLM externo respondió OK | `router.py:324-329` |
+| `fallback_no_api_key` | router eligió un provider sin API key configurada | `router.py:307-311` |
+| `fallback_router_error` | excepción genérica del router (red, parsing) | `router.py:332-336` |
+| `forced_cli` | `--model` explícito, vía `force_provider()` | `router.py:339-343` |
+
+**Nota para Fase 1:** PR 1.5 reemplaza los dos caminos de fallback por `decide_with_local_router()`. `fallback_no_api_key`/`fallback_router_error` quedan reservados para cuando el fallo es de configuración/red (no de política); se agrega `local_router` para cuando la razón real es una decisión de egress (router externo bloqueado por política). No colapsar ambos casos en un solo valor — son causas distintas y useful para depurar el sistema después.
+
 *Prompt Codex:*
 ```
-Contexto: decide_provider() en orchestrator/router.py retorna por al menos
-4 caminos (step forzado, agent preset, router LLM, fallback) y hoy esa
-distinción solo vive como texto libre en routing_reason, no filtrable.
-Esto no es parte del gate de egress (RFC-006) -- es una mejora de precisión
-para que el futuro router-eval --offline (PR 1.10) pueda excluir runs cuyo
-provider no lo decidió el router LLM, en vez de parsear texto.
+Contexto: decide_provider() en orchestrator/router.py retorna por 6 caminos
+reales (no 4): step forzado (línea ~256), agent preset (línea ~264), router
+LLM exitoso (línea ~324), fallback por API key ausente (línea ~307), fallback
+por excepción genérica del router (línea ~332), y force_provider() para
+--model explícito (línea ~339). Hoy esa distinción solo vive como texto libre
+en routing_reason, no filtrable. Esto no es parte del gate de egress
+(RFC-006) -- es una mejora de precisión para que el futuro router-eval
+--offline (PR 1.10) pueda excluir runs cuyo provider no lo decidió el router
+LLM, en vez de parsear texto.
 
 Tarea:
 1. En orchestrator/migrate.py agrega una migración "add_routing_source_to_runs"
    (mismo patrón que add_rating_to_runs: ALTER TABLE en try/except, dentro de
    _write_lock, _mark_applied, commit). Columna: routing_source TEXT.
 2. Agrega routing_source: str = "unknown" a RoutingDecision (router.py).
-3. Setea el valor en cada return de decide_provider(): "forced_step",
-   "agent_preset", "llm_router", "fallback"; y "forced_cli" en force_provider().
+3. Setea el valor en cada uno de los 6 caminos reales listados arriba, usando
+   EXACTAMENTE estos valores: "forced_step", "agent_preset", "llm_router",
+   "fallback_no_api_key", "fallback_router_error", "forced_cli". No los
+   colapses en un único "fallback" -- son causas distintas (config/red vs
+   selección normal) y la Fase 1 va a necesitar distinguirlos.
 4. Propaga el campo hasta la función que persiste el run en SQLite (revisa
    orchestrator/history.py y orchestrator/db.py) y desde ahí a cli.py y
    background.py.
-5. Tests en tests/test_router.py verificando routing_source correcto por
-   camino. pytest tests/ -v verde.
+5. Tests en tests/test_router.py verificando routing_source correcto para
+   cada uno de los 6 caminos (mockea el provider del router LLM para forzar
+   tanto el éxito como cada tipo de fallo). pytest tests/ -v verde.
 ```
 
 ### 11.2 Fase 1 — Gate mínimo fail-closed (commits #2-#12 de RFC-006 §10)
@@ -225,10 +279,10 @@ def current_policy() -> EgressPolicy:
     except LookupError as exc:
         raise EgressBlocked("Sin política activa, no sale nada.") from exc
 
-def set_policy(policy: EgressPolicy) -> None:
+def set_policy(policy: EgressPolicy):   # -> contextvars.Token, para reset explícito (I15)
     if policy.sensitivity not in SENSITIVITY_RANK:
         raise EgressBlocked(f"Nivel de sensibilidad desconocido: {policy.sensitivity!r}")
-    _POLICY.set(policy)
+    return _POLICY.set(policy)
 
 def can_send(provider: str) -> bool:
     policy = current_policy()
@@ -249,7 +303,10 @@ def check(provider: str, phase: str = "provider") -> None:
 *Tests (`tests/test_egress.py`, nombrados como en RFC-006/003 §14.1):*
 `test_no_policy_blocks_provider_complete`, `test_restricted_project_blocks_public_provider`, `test_blocked_provider_overrides_clearance`, `test_allowed_providers_restricts_even_with_clearance`, `test_unknown_project_sensitivity_fails_closed`, `test_unknown_provider_clearance_fails_closed`.
 
-*`conftest.py`:* fixture `_default_egress_policy` (autouse) que llama `egress.set_policy(EgressPolicy(project="test", sensitivity="internal"))` antes de cada test — sin esto, ~21 tests existentes que llegan a un provider real empiezan a fallar con `EgressBlocked` en cuanto se conecte el borde en PR 1.2 (RFC-006 §4.1: es el hallazgo esperado, no una regresión).
+*`conftest.py` — ciclo de vida de la política (resuelve una contradicción real: un fixture autouse que siempre fija política chocaría con `test_no_policy_blocks_provider_complete`, que necesita probar la AUSENCIA de política):*
+- `set_policy()` devuelve el `Token` de `_POLICY.set(policy)` (ver diseño arriba).
+- Fixture `_default_egress_policy` (autouse) fija `EgressPolicy(project="test", sensitivity="internal")` **salvo que el test tenga el marker `@pytest.mark.no_default_policy`**, guarda el token, y en el teardown (después del `yield`) llama `_POLICY.reset(token)` — así ningún test deja política filtrada al siguiente (motiva la invariante I15, Apéndice A).
+- `test_no_policy_blocks_provider_complete` lleva `@pytest.mark.no_default_policy` para que el fixture no le fije nada.
 
 *Prompt Codex:*
 ```
@@ -273,7 +330,10 @@ Tarea:
    - current_policy(): lee _POLICY.get(), si LookupError levanta EgressBlocked.
    - set_policy(policy): valida que policy.sensitivity esté en
      SENSITIVITY_RANK (si no, EgressBlocked -- typo en política de seguridad
-     no debe degradar a permisivo), luego _POLICY.set(policy).
+     no debe degradar a permisivo), luego hace _POLICY.set(policy) y
+     RETORNA el Token que devuelve ContextVar.set() -- lo necesitan tests
+     y el worker de background.py (PR 1.7) para poder hacer
+     _POLICY.reset(token) y no dejar la política filtrada entre operaciones.
    - can_send(provider) -> bool: False si provider en blocked_providers;
      False si allowed_providers no está vacío y provider no está en la lista;
      resuelve clearance del provider desde provider_clearance (default
@@ -285,7 +345,8 @@ Tarea:
      el prompt ni contexto del proyecto (el mensaje de excepción es
      candidato a terminar en logs).
 2. Crea tests/test_egress.py con: test_no_policy_blocks_provider_complete
-   (llamar check() o can_send() sin haber llamado set_policy() -> EgressBlocked),
+   (marcado con @pytest.mark.no_default_policy -- ver punto 3 -- llama
+   check() o can_send() sin haber llamado set_policy() -> EgressBlocked),
    test_restricted_project_blocks_public_provider,
    test_blocked_provider_overrides_clearance,
    test_allowed_providers_restricts_even_with_clearance,
@@ -293,12 +354,17 @@ Tarea:
    sensitivity="confidencial" -> EgressBlocked),
    test_unknown_provider_clearance_fails_closed.
 3. Busca si ya existe un conftest.py en tests/; si no, créalo. Agrega un
-   fixture autouse que llame egress.set_policy(EgressPolicy(project="test",
-   sensitivity="internal")) antes de cada test, para no romper la suite
-   existente cuando el borde se selle en un PR posterior. Documenta con un
-   comentario de una línea por qué existe (referencia a RFC-006 §4.1: sin
-   esto, ~21 tests que llegan a un provider real fallarían con
-   "sin política activa" en cuanto el borde quede sellado).
+   fixture autouse que:
+   - Si el test NO tiene el marker no_default_policy (registralo en
+     pyproject.toml o pytest.ini para que no tire warning), llama
+     egress.set_policy(EgressPolicy(project="test", sensitivity="internal")),
+     guarda el token devuelto, hace yield, y después del yield llama
+     _POLICY.reset(token). Esto evita que la política de un test contamine
+     al siguiente en el mismo proceso (I15).
+   - Si el test SÍ tiene el marker, no fija nada -- solo hace yield.
+   Documenta con un comentario de una línea por qué existe (referencia a
+   RFC-006 §4.1: sin esto, ~21 tests que llegan a un provider real fallarían
+   con "sin política activa" en cuanto el borde quede sellado en PR 1.2).
 4. pytest tests/test_egress.py -v verde. pytest tests/ -v sigue sin
    regresiones (el fixture autouse cubre los tests existentes).
 
@@ -344,8 +410,10 @@ class BaseProvider(ABC):
     def _complete_stream(self, prompt: str, system: str = ""):
         result = self._complete(prompt, system)
         yield result.text
-        return result.to_stream_result()
+        return result.to_stream_result()   # nuevo método simétrico, ver nota abajo
 ```
+
+**Corrección verificada:** `CompletionResult.to_stream_result()` no existe hoy en `providers/base.py`. Solo existe la conversión inversa, `StreamResult.to_completion_result()` (línea 33). Este PR agrega el método simétrico en `CompletionResult` (mismos campos, mapeo directo) para que el `_complete_stream()` default de arriba no tenga que construir un `StreamResult` campo por campo inline.
 
 Cada provider renombra su `complete` → `_complete` y su `complete_stream` → `_complete_stream` (que sigue siendo generador, ahí sí corresponde).
 
@@ -386,9 +454,15 @@ Tarea:
    c. Convierte complete_stream() en concreto, NO generator function:
       hace el check con phase="stream" y luego `return self._complete_stream(prompt, system)`.
    d. Renombra el abstractmethod complete a _complete.
-   e. Agrega _complete_stream() con un default razonable si no existe ya
-      uno (puede envolver _complete() como hace hoy complete_stream(), pero
-      como generador real).
+   e. Agrega un método to_stream_result() a CompletionResult (dataclass en
+      el mismo archivo) simétrico al StreamResult.to_completion_result() que
+      ya existe (línea ~33) -- mismos campos, mapeo directo, construye y
+      retorna un StreamResult.
+   f. Agrega _complete_stream() con un default razonable si no existe ya
+      uno: envuelve _complete(), yieldea result.text, y en el return usa
+      el nuevo result.to_stream_result() del punto e (NO uses
+      result.to_stream_result() antes de haberlo creado -- ese método no
+      existe todavía en el código actual, es parte de este mismo PR).
 2. En cada uno de los 4 providers (claude.py, deepseek.py, gemini.py,
    openai.py): renombra el método complete() existente a _complete(), y
    el método complete_stream() existente a _complete_stream(). NO cambies
@@ -447,6 +521,8 @@ providers:
 
 *Nota de diseño explícita, no silenciar:* esto mezcla política de seguridad (`sensitivity`, `blocked_providers`) en el mismo archivo que contexto operativo (`stack`, `conventions`, `routing_notes`) que un agente con acceso de escritura al repo puede editar. RFC-007 v0.3 §8 señaló esto como riesgo de escalación de privilegios vía prompt injection. RFC-006 no lo resuelve — lo hereda de RFC-005 tal cual. **Se implementa así en esta fase porque es lo validado**, y la separación en `policy.yaml` queda como Fase 2 (§11.3), explícitamente, no como un supuesto ya resuelto.
 
+*Función canónica (resuelve una duplicación real: sin esto, PR 1.3 construye la `EgressPolicy` en sus tests y PR 1.7 la construye de nuevo dentro del worker, con riesgo de que ambas versiones diverjan):* este PR agrega `orchestrator.egress.policy_for_project(ctx: ProjectContext, config: dict) -> EgressPolicy`, la **única** función que combina `ctx.sensitivity`/`ctx.blocked_providers`/`ctx.allowed_providers` con el `clearance` de cada provider (leído de `config.get_provider_config(config, provider).get("clearance", "internal")` para cada provider en `orchestrator.paths.PROVIDERS`). Todo el resto del sistema (tests de este PR, el worker de PR 1.7) la reusa — nadie más construye una `EgressPolicy` a mano fuera de este punto.
+
 *Prompt Codex:*
 ```
 Contexto: orchestrator/egress.py y el borde sellado de BaseProvider ya
@@ -469,17 +545,28 @@ Tarea:
    providers, siguiendo exactamente esta tabla (documenta con un comentario
    de una línea que estos son los defaults recomendados, no obligatorios):
    deepseek: public, gemini: public, openai: internal, claude: restricted.
-4. NO agregues un archivo policy.yaml separado en este PR -- sensitivity
+4. En orchestrator/egress.py, agrega policy_for_project(ctx, config) ->
+   EgressPolicy: construye la EgressPolicy leyendo ctx.sensitivity,
+   ctx.blocked_providers, ctx.allowed_providers, y arma provider_clearance
+   iterando sobre orchestrator.paths.PROVIDERS y llamando
+   config.get_provider_config(config, provider).get("clearance", "internal")
+   para cada uno (envolvé en try/except ConfigError por si un provider de
+   PROVIDERS no está en config.yaml, y usá "internal" como default en ese
+   caso también). Esta es la ÚNICA función que debe construir una
+   EgressPolicy desde un ProjectContext -- ni los tests de este PR ni el
+   worker de background.py (PR 1.7, más adelante) deben repetir esta lógica
+   a mano.
+5. NO agregues un archivo policy.yaml separado en este PR -- sensitivity
    y blocked_providers/allowed_providers viven en el mismo context.yaml
    que ya existe. Esa separación es una mejora de seguridad de Fase 2,
    documentada pero fuera de alcance aquí.
-5. Agrega tests en tests/test_egress.py que construyan una EgressPolicy a
-   partir de un ProjectContext y una config con clearances reales (no
-   valores hardcodeados en el test) y verifiquen el resultado de can_send()
-   para el caso del PoC: proyecto sensitivity=restricted,
+6. Agrega tests en tests/test_egress.py que llamen policy_for_project()
+   con un ProjectContext y una config con clearances reales (no valores
+   hardcodeados aparte) y verifiquen el resultado de can_send() para el
+   caso del PoC: proyecto sensitivity=restricted,
    blocked_providers=[deepseek, gemini], provider deepseek -> bloqueado;
    provider claude (clearance restricted) -> permitido.
-6. pytest tests/ -v verde.
+7. pytest tests/ -v verde.
 
 No conectes esto todavía con decide_provider() -- eso es el PR siguiente,
 que primero necesita el router local (PR 1.4).
@@ -509,7 +596,7 @@ def decide_with_local_router(task: str, ctx: ProjectContext, config: dict) -> Ro
     # 4. el permitido más barato, por precio de input del catálogo (orchestrator.catalog)
 ```
 
-Para el paso 4, reutilizar `orchestrator.catalog.get_model_profiles()` (ya existe, Decision 0002) en vez de escribir un lector de precios nuevo.
+**Corrección verificada:** `catalog.get_model_profiles()` (Decision 0002 / ADR-002) **no expone precio numérico** — solo un flag `has_price: bool`, pensado para el prompt del router LLM, no para comparar costos programáticamente. La API correcta es `catalog.get_effective_pricing(config)`, que devuelve `{model_id: {input, output, ...}}` (la forma legacy que ya usa `calculate_cost`). Para el paso 4: por cada provider en `permitted`, resolver su `model` configurado vía `config.get_provider_config(config, provider)["model"]`, buscar ese `model` en `get_effective_pricing(config)`, y comparar `.get("input")`. Si un provider permitido no tiene precio en el catálogo, tratarlo como el más caro (no como gratis) para no sesgar la elección hacia modelos sin dato de precio.
 
 *Tests:* determinismo (misma tarea + mismo contexto → mismo resultado, sin red), respeta `permitted` en cada uno de los 4 pasos, `test_local_router_never_returns_blocked_provider`, `test_no_provider_available_raises_egress_blocked`.
 
@@ -537,9 +624,17 @@ Tarea:
       úsalo.
    e. Si no, usa el default global de config (revisa
       orchestrator.config.get_default_provider) si está en permitted.
-   f. Si no, elige el provider de permitted con el precio de input más bajo,
-      usando orchestrator.catalog.get_model_profiles(config) -- NO escribas
-      un lector de precios nuevo, ese catálogo ya existe (Decision 0002).
+   f. Si no, elige el provider de permitted con el precio de input más bajo.
+      NO uses catalog.get_model_profiles() para esto -- no expone precio
+      numérico, solo un flag has_price. Usa
+      orchestrator.catalog.get_effective_pricing(config), que devuelve
+      {model_id: {input, output, ...}}. Para cada provider en permitted,
+      resuelve su modelo configurado con
+      orchestrator.config.get_provider_config(config, provider)["model"],
+      buscá ese modelo en get_effective_pricing(config), y comparalo por
+      .get("input"). Si un provider permitido no tiene precio en el
+      catálogo, tratalo como el más caro de la comparación (no como gratis),
+      para no sesgar la elección hacia modelos sin dato de precio.
    g. Marca routing_source="local_router" en el RoutingDecision resultante,
       con used_fallback=True y una reason explicando qué regla lo eligió.
    h. Esta función NUNCA debe devolver un provider que no esté en permitted
@@ -587,12 +682,17 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
             #     construir el prompt si ya sabíamos que iba a fallar)
             decision = <llamada actual al router LLM>
         except EgressBlocked:
+            # excepción específica, va ANTES de la genérica -- una denegación
+            # de política nunca se confunde con una falla de red (ver I13, PR 1.8)
             decision = decide_with_local_router(task, ctx, config)
             decision.routing_source = "local_router"
-        except Exception as exc:
+        except Exception:
+            # error de red/parsing del router externo -- NO anexar str(exc)
+            # crudo a decision.reason, puede contener datos no previstos;
+            # usar un reason_code fijo
             decision = decide_with_local_router(task, ctx, config)
-            decision.routing_source = "local_router"
-            decision.reason += f" (router externo falló: {exc})"
+            decision.routing_source = "fallback_router_error"
+            decision.reason += " (router externo falló: error de red o parsing)"
 
     # I14: revalidar el resultado, pero el chequeo real es sobre 'decision.provider'
     # ya elegido por decide_with_local_router (que nunca devuelve uno bloqueado) o
@@ -632,10 +732,18 @@ Tarea:
    decision.routing_source = "local_router" en el resultado.
 3. Si can_send() es True: procede con la llamada al router LLM como hoy
    (ya pasa por BaseProvider.complete() sellado, PR 1.2). Envuelve esa
-   llamada en un try/except que capture tanto EgressBlocked como Exception
-   genérica (por ejemplo si el router LLM falla por red) y en AMBOS casos
-   caiga a decide_with_local_router(), NO a un fallback_provider fijo de
-   config.yaml.
+   llamada en DOS except separados, en este orden -- primero el específico,
+   después el genérico (I13 depende de este orden, no lo colapses en uno solo):
+   - except EgressBlocked: cae a decide_with_local_router(),
+     routing_source="local_router" (fue una decisión de política).
+   - except Exception (red, parsing, cualquier otra falla del router
+     externo): cae a decide_with_local_router() también, pero
+     routing_source="fallback_router_error" (NO fue una decisión de
+     política, fue un fallo técnico -- son causas distintas, no las
+     mezcles en el mismo valor). NO anexes str(exc) crudo a
+     decision.reason -- puede contener datos no previstos del error;
+     agregá un texto fijo tipo "router externo falló: error de red o parsing".
+   Ninguno de los dos casos cae a un fallback_provider fijo de config.yaml.
 4. CRÍTICO (esto es I14): en ningún punto de esta función debe levantarse
    EgressBlocked solo porque el fallback_provider configurado en config.yaml
    esté bloqueado. decide_with_local_router() ya se encarga de elegir entre
@@ -668,14 +776,24 @@ PR siguiente.
 
 *Archivos:* `orchestrator/egress.py` (extender `check`), `orchestrator/rag.py` (reutilizar `_contains_secrets`, ya existe en línea 166 — confirmado, no reescribir).
 
+*Alcance real, verificado contra `rag.py:60-68` (`_SECRET_PATTERN`):* NO es detección universal de secretos. El regex solo reconoce formatos específicos y conocidos: claves Anthropic (`sk-ant-*`), OpenAI (`sk-*`), MercadoPago (`APP_USR-*`), `token=<hex>`, bloques de llave privada (`-----BEGIN ... PRIVATE KEY`), AWS access key ID (`AKIA*`) y `aws_secret_access_key=...`. Un `API_KEY=lo-que-sea` genérico **no matchea nada de esto** — no lo uses como ejemplo de prueba, es un falso ejemplo. Ver la corrección de la Invariante I10 en el Apéndice A: "patrón reconocido", no "cualquier secreto".
+
 *Prompt Codex:*
 ```
 Contexto: orchestrator/rag.py ya tiene _contains_secrets(text) (línea 166),
 usado hoy solo al indexar contenido para RAG. RFC-006 §3.9 reutiliza esta
 misma función en el borde de egress: si el prompt o system prompt que se
-va a enviar a un provider contiene un patrón de secreto, la sensibilidad
-efectiva de ESE envío escala a "secret" -- nivel que ningún clearance
-configurado normalmente alcanza, así que el envío se bloquea.
+va a enviar a un provider contiene un patrón de secreto RECONOCIDO (no
+cualquier secreto -- ver la lista exacta abajo), la sensibilidad efectiva
+de ESE envío escala a "secret" -- nivel que ningún clearance configurado
+normalmente alcanza, así que el envío se bloquea.
+
+_SECRET_PATTERN (rag.py:60-68) reconoce: claves Anthropic "sk-ant-*", claves
+OpenAI "sk-*", claves MercadoPago "APP_USR-*", "token=<hex>", bloques
+"-----BEGIN ... PRIVATE KEY", AWS access key "AKIA*" (16 chars), y
+"aws_secret_access_key=...". NO reconoce un "API_KEY=valor" genérico -- no
+uses eso como ejemplo en los tests, usa un valor que sí matchee, por ejemplo
+un string "AKIA" + 16 caracteres alfanuméricos.
 
 Tarea:
 1. En orchestrator/egress.py, agrega una función check_payload(provider,
@@ -692,9 +810,13 @@ Tarea:
    incluir el prompt, el system, ni ningún fragmento del secreto detectado
    -- solo un reason_code fijo como "secret_pattern_detected".
 4. Tests en tests/test_egress.py: test_secret_in_prompt_escalates_to_secret_and_blocks
-   (payload con un patrón tipo API_KEY= o similar de los que ya detecta
-   _contains_secrets, sensitivity del proyecto "internal", provider con
-   clearance "internal" -- debería pasar SIN el secreto y bloquearse CON él),
+   (payload con un valor que matchee _SECRET_PATTERN de verdad -- por ejemplo
+   un "AKIA" + 16 caracteres alfanuméricos, NO un "API_KEY=..." genérico que
+   el regex actual no reconoce -- sensitivity del proyecto "internal",
+   provider con clearance "internal" -- debería pasar SIN el secreto y
+   bloquearse CON él), test_generic_unrecognized_secret_does_not_escalate
+   (un valor tipo "MY_PASSWORD=hunter2" que NO matchea ningún patrón conocido
+   -- confirma que NO escala, documentando el límite real de esta invariante),
    test_egress_error_message_never_contains_payload (verifica con un string
    secreto conocido que ese string nunca aparece en str(exc) de EgressBlocked).
 5. pytest tests/ -v verde.
@@ -705,6 +827,11 @@ Tarea:
 *Archivos:* `orchestrator/background.py` (`_worker`, líneas 52-90; `submit_run`, líneas 22-49).
 
 *Hallazgo confirmado contra el código real de este repo (no solo el patch efímero):* `submit_run()` (línea 43-48) crea `threading.Thread(target=_worker, ...)`. `ContextVar` no se copia automáticamente a un thread nuevo — si la política se fija en el thread que llama a `submit_run()` (por ejemplo en `server.py::_post_run`), `_worker()` corriendo en su propio thread jamás la ve, y **cualquier llamada a un provider dentro de `_worker()` levantaría `EgressBlocked` por "sin política activa"**, aunque el usuario sí tenga una política válida configurada. Sin el fix de este PR, todo run disparado desde el dashboard moriría en cuanto se conecte el gate.
+
+*Resolución para `ctx=None` (decisión de seguridad, no solo de threading):* `_worker()` (líneas 69-74) hoy captura `except Exception: ctx = None` de forma indiscriminada y sigue con el provider default. Con el gate activo esto no puede seguir así — hay que distinguir dos casos:
+
+- **Proyecto nunca configurado** (`context.ContextNotFoundError`, `context.py:13`, se levanta cuando no existe `.orchestrator/context.yaml`): tratarlo como proyecto nuevo, aplicar `EgressPolicy(project=project, sensitivity="internal")` (el mismo `DEFAULT_SENSITIVITY` que ya preserva el comportamiento actual). **No bloquea** — mantiene disponibilidad para proyectos recién creados.
+- **`context.yaml` existe pero falla al cargar/parsear** (cualquier otra excepción — YAML corrupto, error inesperado): **fail closed**, `EgressBlocked`. Un archivo de política que existe pero no se puede confiar en su contenido es el "nivel desconocido" que I7 ya exige bloquear — dejarlo pasar en silencio enmascararía una política corrupta o alterada.
 
 *Prompt Codex:*
 ```
@@ -718,30 +845,47 @@ esté conectado (PRs anteriores), TODO run lanzado desde el dashboard va a
 fallar con EgressBlocked("Sin política activa") -- sin importar que la
 configuración sea correcta.
 
+orchestrator.egress.policy_for_project(ctx, config) ya existe (PR 1.3) --
+úsala acá, no reconstruyas la EgressPolicy a mano.
+
 Tarea:
 1. En orchestrator/background.py::_worker() (línea ~52), como una de las
    PRIMERAS sentencias dentro del try (antes de cualquier llamada que
-   termine invocando un provider), construye y fija la EgressPolicy
-   correspondiente al proyecto de este run: necesitas resolver ctx
-   (ya se resuelve más abajo en el código actual si ctx es None, líneas
-   69-74 -- puede que tengas que mover esa resolución más arriba) y desde
-   ahí project.sensitivity, blocked_providers, allowed_providers, más el
-   provider_clearance desde config. Llama a egress.set_policy(...) con eso
-   ANTES de que decide_provider() o build_provider().complete() se invoquen
-   dentro de este mismo worker.
+   termine invocando un provider), resuelve ctx y fija la política:
+   - Si context_module.load_context(project_path) tiene éxito: llama
+     egress.set_policy(egress.policy_for_project(ctx, config)).
+   - Si levanta context.ContextNotFoundError específicamente (revisa
+     orchestrator/context.py:13): el proyecto nunca tuvo context.yaml.
+     Trátalo como proyecto nuevo -- fija
+     egress.set_policy(EgressPolicy(project=project, sensitivity="internal"))
+     y segui con ctx=None como hace el código actual. NO bloquea.
+   - Si levanta cualquier OTRA excepción (YAML corrupto, error inesperado):
+     esto es distinto de "proyecto nuevo" -- es un context.yaml que existe
+     pero no se puede confiar en su contenido. NO sigas con ctx=None como
+     hace el código actual -- deja que la excepción se propague (o relanzá
+     como EgressBlocked explícitamente) para que el run falle cerrado en
+     vez de silenciosamente usar el provider default.
+   Esto reemplaza el "except Exception: ctx = None" único que hay hoy en
+   líneas 69-74 -- tenés que separar ContextNotFoundError del resto, no
+   agregar un except más encima del genérico.
 2. Verifica que NO estás asumiendo que la política del thread padre (donde
    se llamó submit_run) se propaga -- no debe haber ningún código que
    dependa de eso.
-3. Tests en un nuevo tests/test_background.py (o extiende el existente si
-   ya hay uno para background.py): test_background_worker_sets_policy_inside_thread
-   (arranca un run real vía submit_run con una policy que el thread padre
-   fija en su propio ContextVar, y confirma que el worker de todos modos
-   puede completar sin EgressBlocked porque fija SU PROPIA política),
-   test_parent_thread_policy_does_not_silently_leak_to_worker (si el padre
-   fija una política MÁS restrictiva que la que corresponde al proyecto real,
-   confirma que el worker usa la política correcta del proyecto, no la
-   heredada por accidente si en algún punto SÍ hubiera propagación parcial).
-4. pytest tests/ -v verde.
+3. Usa el Token que devuelve set_policy() (PR 1.1) para hacer
+   _POLICY.reset(token) al final del worker (en un finally), consistente
+   con el ciclo de vida ya establecido en conftest.py.
+4. Tests en un nuevo tests/test_background.py (o extiende el existente si
+   ya hay uno para background.py):
+   test_background_worker_sets_policy_inside_thread (arranca un run real
+   vía submit_run con una policy que el thread padre fija en su propio
+   ContextVar, y confirma que el worker de todos modos puede completar sin
+   EgressBlocked porque fija SU PROPIA política),
+   test_parent_thread_policy_does_not_silently_leak_to_worker,
+   test_missing_context_yaml_uses_internal_default_and_does_not_block
+   (proyecto sin context.yaml -- ContextNotFoundError -- el run continúa),
+   test_corrupted_context_yaml_fails_closed (context.yaml con YAML inválido
+   -- el run falla, NO usa silenciosamente el provider default).
+5. pytest tests/ -v verde.
 ```
 
 #### PR 1.8 — Nunca reintentar una denegación de política (commit #10 — I13)
@@ -771,12 +915,23 @@ Tarea:
    intacto para todos los demás casos (timeouts reales, errores de red,
    etc.) -- este cambio es puramente agregar el caso específico antes del
    genérico, no tocar la lógica de retry existente para otros errores.
-3. Tests: test_egress_blocked_is_not_retried (mockea provider.complete_stream
-   para que levante EgressBlocked, confirma que se llama exactamente 1 vez,
-   no 3, y que no hay ningún time.sleep de por medio -- puedes mockear
-   time.sleep también y confirmar 0 llamadas), test_transient_error_is_still_retried
-   (confirma que un error genérico, por ejemplo ConnectionError, sigue
-   reintentándose hasta 3 veces como antes -- no rompas ese comportamiento).
+3. Tests -- cubrí los DOS momentos donde EgressBlocked puede originarse
+   dentro del try (son distintos en un generador: el check de PR 1.2 es
+   eager, así que hoy solo debería poder levantar en la línea que llama a
+   provider.complete_stream(...) misma, pero un test que cubra también
+   next(_gen) protege contra una futura regresión que vuelva el check
+   diferido sin que nadie lo note):
+   test_egress_blocked_at_call_is_not_retried (mockea provider.complete_stream
+   para que la LLAMADA misma levante EgressBlocked, confirma que se invoca
+   exactamente 1 vez, no 3, sin ningún time.sleep de por medio -- mockeá
+   time.sleep también y confirmá 0 llamadas);
+   test_egress_blocked_during_iteration_is_not_retried (mockea
+   provider.complete_stream para que devuelva un generador que levanta
+   EgressBlocked recién en el primer next(), confirma el mismo resultado:
+   1 invocación, sin retry, sin sleep);
+   test_transient_error_is_still_retried (confirma que un error genérico,
+   por ejemplo ConnectionError, sigue reintentándose hasta 3 veces como
+   antes -- no rompas ese comportamiento).
 4. pytest tests/ -v verde.
 ```
 
@@ -804,6 +959,11 @@ CREATE INDEX IF NOT EXISTS idx_egress_decision ON egress_decisions(decision, pha
 
 Campos **permitidos**: `project`, `provider`, `phase`, `decision`, `reason_code`, `sensitivity`, `clearance`, `ts`. Campos **prohibidos, nunca**: prompt, system prompt, chunks RAG, texto de la tarea (RFC-006 §6.2, regla dura).
 
+*Decisiones de diseño (resuelven ambigüedad del prompt original):*
+- **Se loguean ambas decisiones, `allowed` y `blocked`** — es lo único que permite calcular `policy_evaluation_coverage = 100%` (RFC-007 §10.1). La fila es liviana (sin payload), el volumen no es un problema real.
+- **La responsabilidad de loguear vive en `check()`, nunca en `can_send()`.** `can_send()` se queda como función de consulta pura, sin efectos secundarios — `decide_with_local_router()` (PR 1.4) la llama repetidamente para filtrar `permitted`, y si logueara en cada llamada duplicaría filas sin que haya ocurrido una decisión real de envío.
+- **`run_id` queda `NULL` en el momento del check.** No se hace threading de `run_id` a través de la firma de `BaseProvider.complete()/complete_stream()` — cambiaría una interfaz pública por poco beneficio. La correlación exacta con `runs.id` es mejora de Fase 3 (ledger rico, ya diferida hasta 500 runs reales).
+
 *Prompt Codex:*
 ```
 Contexto: RFC-006 §6 (con una advertencia con fecha real: incidente de
@@ -817,16 +977,19 @@ Tarea:
    (mismo patrón que create_context_hits_table) con esta forma exacta:
    id, ts, project, provider, phase (router|provider|stream), decision
    (allowed|blocked), reason_code, sensitivity, clearance, run_id (FK a runs,
-   nullable). Índices por (project, ts) y por (decision, phase).
+   nullable -- queda NULL en este PR, no hagas threading de run_id a través
+   de BaseProvider, es mejora de Fase 3). Índices por (project, ts) y por
+   (decision, phase).
 2. En orchestrator/egress.py, agrega una función log_decision(project,
    provider, phase, decision, reason_code, sensitivity=None, clearance=None,
-   run_id=None) que inserta una fila. Llámala desde check()/can_send() en
-   los puntos donde se determina allowed o blocked -- decide si check()
-   debe loguear siempre o solo cuando decision="blocked" (RFC-006 no lo
-   especifica con ese detalle; loguear ambos casos es más útil para medir
-   policy_evaluation_coverage, RFC-007 §10.1, así que preferí loguear ambos
-   salvo que eso genere volumen inmanejable en el hot path -- usa buen
-   juicio y documenta la decisión con un comentario de una línea).
+   run_id=None) que inserta una fila. Llámala EXCLUSIVAMENTE desde check()
+   -- can_send() se queda como función de consulta pura, sin efectos
+   secundarios, porque decide_with_local_router() (PR 1.4) la llama
+   repetidamente en un loop para filtrar providers permitidos, y si
+   logueara ahí duplicaría filas por cada consulta en vez de por cada
+   decisión real de envío. check() debe loguear TANTO "allowed" como
+   "blocked" (no solo blocked) -- es el único dato que permite calcular
+   policy_evaluation_coverage=100% más adelante.
 3. REGLA DURA, no negociable: reason_code es SIEMPRE un código corto de una
    lista cerrada (por ejemplo "no_active_policy", "provider_blocked",
    "clearance_insufficient", "unknown_sensitivity", "secret_pattern_detected",
@@ -836,8 +999,9 @@ Tarea:
    (pasa un prompt con contenido reconocible como argumento a check()/complete(),
    verifica que ninguna fila de egress_decisions ni ningún argumento de
    log_decision contiene ese contenido), test_blocked_decision_is_logged,
-   test_allowed_decision_is_logged (o solo blocked, según lo que decidas en
-   el punto 2 -- ajusta el test a lo que implementaste).
+   test_allowed_decision_is_logged, test_can_send_does_not_log
+   (llama can_send() varias veces seguidas, confirma 0 filas nuevas en
+   egress_decisions -- solo check() loguea).
 5. pytest tests/ -v verde.
 ```
 
@@ -896,7 +1060,7 @@ Tarea:
 5. pytest tests/ -v verde.
 ```
 
-**Salida de Fase 1:** los 12 commits de RFC-006 reconstruidos contra `production@4ae9497` real, con invariantes I1-I14 completas y verificadas en CI (§10.1 de v0.3, ahora sin huecos). H1a/H1b con evidencia pública completa por primera vez en la serie.
+**Salida de Fase 1:** los 10 PRs mapeados contra los commits #2-#12 de RFC-006 reconstruidos contra `production@4ae9497` real, con invariantes I1-I15 completas y verificadas en CI (§10.1 de v0.3, ahora sin huecos). H1a/H1b con evidencia pública completa por primera vez en la serie.
 
 ### 11.3 Fase 2 — Separación política/contexto (evolución de seguridad, no parte del gate validado)
 
@@ -1038,13 +1202,13 @@ RN-1 (threat model), RN-2 (ontología de agentes), RN-3 (estado del arte), EP-1 
 
 ## Conclusión
 
-La revisión 1 de este documento diseñó un gate propio sin saber que uno mejor ya existía, probado, en el disco del usuario. La revisión 2 no inventa nada: reconstruye contra el código real de `production@4ae9497` los 12 commits que la serie RFC-001→006 ya validó localmente (15 invariantes, `pytest tests/test_egress.py` → 15 passed, `pytest tests/` → 126 passed / 1 failed pre-existente), en el mismo orden, con las mismas invariantes, incluyendo el hallazgo más valioso de toda la serie — I14, el falso bloqueo que un test de seguridad anterior protegía por error.
+La revisión 1 de este documento diseñó un gate propio sin saber que uno mejor ya existía, probado, en el disco del usuario. La revisión 2 no inventa nada: reconstruye contra el código real de `production@4ae9497` los commits #2-#12 que la serie RFC-001→006 ya validó localmente (15 invariantes, `pytest tests/test_egress.py` → 15 passed, `pytest tests/` → 126 passed / 1 failed pre-existente), en el mismo orden, con las mismas invariantes, incluyendo el hallazgo más valioso de toda la serie — I14, el falso bloqueo que un test de seguridad anterior protegía por error. Una tercera pasada, de verificación con Codex contra este mismo checkout, encontró 5 desajustes materiales y 12 preguntas bloqueantes que esta revisión 2 ya incorpora resueltas — incluida una invariante nueva, I15, que ni RFC-006 ni la revisión 2 original habían formalizado.
 
 La siguiente acción sigue sin ser un documento: es pegar el prompt de PR 0.1 en Codex.
 
 ---
 
-## Apéndice A — Invariantes I1-I14 (RFC-006 §4.3, completas)
+## Apéndice A — Invariantes I1-I15 (I1-I14 de RFC-006 §4.3; I15 agregada en la verificación de este documento)
 
 | # | Invariante | Origen |
 |---|---|---|
@@ -1057,13 +1221,14 @@ La siguiente acción sigue sin ser un documento: es pegar el prompt de PR 0.1 en
 | I7 | Typo en política falla cerrado | RFC-001 |
 | I8 | `similar_runs` no cruza proyectos | RFC-001 |
 | I9 | El borde es sellado en definición de clase (`__init_subclass__`) | RFC-002 |
-| I10 | Secreto en el prompt escala a `secret` y bloquea | RFC-002 |
+| I10 | Un payload que coincide con un **patrón reconocido** por `_contains_secrets()` escala a `secret` y bloquea — no es detección universal de secretos, es una lista cerrada de patrones conocidos (Anthropic/OpenAI/MercadoPago/AWS/llaves privadas, ver `rag.py:60-68`) | RFC-002, **acotada** durante la verificación de este documento (2026-07-13): el enunciado original ("secreto en el prompt escala...") sobreafirmaba cobertura universal |
 | I11 | El check de streaming es eager, no diferido | RFC-003 |
 | I12 | La política no se filtra entre threads | RFC-003 |
 | I13 | Una denegación de política nunca se reintenta | RFC-004 |
 | **I14** | **Fallback bloqueado no aborta si existe otro proveedor seguro** | **RFC-006** |
+| **I15** | **La política activa se establece y se limpia por operación; una política de una operación anterior en el mismo thread no puede filtrarse a la siguiente** | **Verificación de RFC-007 con Codex (2026-07-13), no parte del RFC-006 original — motiva que `set_policy()` devuelva un `contextvars.Token` (PR 1.1) y que el worker haga `reset()` en un `finally` (PR 1.7)** |
 
-I4′: I9 reemplaza funcionalmente a I4; I4 se conserva como red redundante. I15 vacía a propósito.
+I4′: I9 reemplaza funcionalmente a I4; I4 se conserva como red redundante. RFC-006 dejó I15 vacía a propósito ("a formalizar cuando exista el código que las pruebe") — queda formalizada acá.
 
 ## Apéndice B — Vigencia documental
 
@@ -1090,18 +1255,21 @@ MCP remoto: ver RFC-008 §11.4.
 ## Apéndice D — Orden de ejecución para Codex
 
 ```text
-Fase 0   PR 0.1  CI corre pytest completo
-         PR 0.2  Fix I8 (adelanta commit #7 de RFC-006, independiente)
-         PR 0.3  Migración routing_source (hygiene, no bloqueante contra RFC-006)
-Fase 1   PR 1.1  egress.py: ContextVar sin default, EgressBlocked, check()/can_send()   [commit #2 — I1,I2,I7]
-         PR 1.2  Sellar BaseProvider vía __init_subclass__, 4 providers                  [commit #3 — I3,I4,I9,I11]
-         PR 1.3  Sensitivity de proyecto + clearance de provider                         [commit #4]
-         PR 1.4  decide_with_local_router()                                              [commit #5]
+Fase 0   PR 0.1  CI corre pytest completo (.[all], baseline 126/1 pre-existente)
+         PR 0.2  Fix I8: sobre-consulta n=20 + post-filtro (adelanta commit #7, independiente)
+         PR 0.3  Migración routing_source, enum de 6 valores (hygiene, no bloqueante contra RFC-006)
+Fase 1   PR 1.1  egress.py: ContextVar sin default, EgressBlocked, check()/can_send(),   [commit #2 — I1,I2,I7,I15]
+                 set_policy() devuelve Token
+         PR 1.2  Sellar BaseProvider vía __init_subclass__, 4 providers,                 [commit #3 — I3,I4,I9,I11]
+                 + CompletionResult.to_stream_result()
+         PR 1.3  Sensitivity de proyecto + clearance de provider + policy_for_project()   [commit #4]
+         PR 1.4  decide_with_local_router() (cheapest vía get_effective_pricing)          [commit #5]
          PR 1.5  Cerrar pre-routing egress + fix del falso bloqueo                       [commit #6 — I5,I6,I14]
-         PR 1.6  Escalación por secreto (_contains_secrets reutilizada)                  [commit #8 — I10]
-         PR 1.7  Política dentro del worker thread                                       [commit #9 — I12]
-         PR 1.8  Nunca reintentar EgressBlocked                                          [commit #10 — I13]
-         PR 1.9  Tabla egress_decisions (decisión, nunca payload)                        [commit #11]
+         PR 1.6  Escalación por secreto reconocido (_contains_secrets reutilizada)        [commit #8 — I10]
+         PR 1.7  Política dentro del worker thread + fail-closed en context.yaml         [commit #9 — I12]
+                 corrupto vs proyecto nuevo
+         PR 1.8  Nunca reintentar EgressBlocked (call y next())                          [commit #10 — I13]
+         PR 1.9  Tabla egress_decisions, allowed+blocked, logging solo en check()        [commit #11]
          PR 1.10 router-eval --offline                                                    [commit #12]
 WP-Net-1 PR N.1  Dashboard --host + token                                                [elegible en paralelo desde Fase 1]
 Fase 2   PR 2.1  policy.yaml separado de context.yaml, con precedencia
