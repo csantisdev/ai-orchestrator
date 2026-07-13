@@ -3,7 +3,9 @@
 **Estado:** Draft para ejecución (Codex)
 **Versión:** 0.9 (revisión 3)
 **Fecha:** 2026-07-13
-**Repo de referencia:** `csantisdev/ai-orchestrator@production` = `4ae94970516d26a69e934cdd480e1634384ff5f1` (re-verificado 2026-07-13, sin deriva respecto de la fecha de la revisión 2)
+**Baseline de código auditado:** `4ae94970516d26a69e934cdd480e1634384ff5f1` — todas las citas de archivo:línea de la Parte II están verificadas contra este commit, y el código de `orchestrator/` no cambió desde entonces.
+**HEAD documental al iniciar la ejecución:** `53adfc7947c84930d82c385249b33bc18552ba22` en `production` local — dos commits posteriores al baseline, ambos solo documentación (`87bc4b1` reorg de `docs/decisions/`, `53adfc7` estas correcciones). **Sin publicar todavía**: `origin/production` sigue en `4ae9497`.
+**Rama de implementación:** `feat/egress-gate`, creada desde el HEAD documental de arriba. Todo el código de Fase 0 en adelante va acá, nunca directo a `production` (RFC-006 §0).
 **Relación con la serie:** sucede a RFC-007 v0.3. No cubre MCP — eso es RFC-008 v0.1. **Incorpora el hallazgo de la serie RFC-001…006** (`archive/RFC-001-egress-gate.md`, `archive/RFC-002…005-*.md`, `rfcs/RFC-006-provider-safe-routing.md`), aportada por el usuario después de la primera redacción de este documento — ver Changelog. **Incorpora además una pasada de verificación de Codex** (solo lectura, contra este mismo checkout) que encontró 5 desajustes materiales y 12 preguntas bloqueantes, todas resueltas en esta revisión — ver Changelog.
 **Destinatario de ejecución:** extensión Codex de VS Code, PR por PR, en el orden de la Parte II.
 
@@ -15,18 +17,7 @@
 
 Convirtió el roadmap de 6 fases de v0.3 en un plan ejecutable PR-por-PR, verificado contra código real. En ese momento **RFC-006 no era accesible**: la Parte II de la revisión 1 diseñaba un `EgressPolicy`/`gateway.governed_complete()` propio, sin saber que ya existía un diseño distinto, más maduro y validado localmente (15 tests, patch +512/−28) en la serie RFC-001…006.
 
-### v0.9 revisión 2 → v0.9 revisión 3 (esta versión)
-
-Codex ejecutó una pasada de verificación de solo lectura (sin escribir código) contra `production@4ae9497`, pidiéndole confirmar cada cita de archivo:línea de la Parte II y las 14 invariantes del Apéndice A. Encontró:
-
-- **5 desajustes materiales** en el texto: PR 1.2 usaba `CompletionResult.to_stream_result()`, que no existe (ahora el PR lo agrega explícitamente); PR 1.4 pedía precio numérico de `catalog.get_model_profiles()`, que no lo expone (corregido a `get_effective_pricing()`); PR 1.6 daba un ejemplo de secreto (`API_KEY=...`) que el regex real no reconoce (corregido); PR 0.3 subcontaba los caminos reales de `decide_provider()` (4 → 6, con enum explícito); la Invariante I10 sobreafirmaba detección universal de secretos (acotada a "patrón reconocido").
-- **12 preguntas bloqueantes**, todas resueltas en esta revisión: estrategia de rama (docs a `production`, código a `feat/egress-gate`), baseline de CI (`.[all]`, no-regresión en vez de 100% verde), diseño del filtro de PR 0.2 (sobre-consulta + post-filtro, no filtro nativo), ciclo de vida de la política en tests (`Token` + marker `no_default_policy`), función canónica `policy_for_project()` compartida entre PR 1.3 y PR 1.7, elección del provider más barato (API real de pricing), alcance real de I10, resolución fail-closed refinada para `ctx=None` en el worker (distingue proyecto nuevo de `context.yaml` corrupto), y alcance del log de `egress_decisions` (allowed+blocked, logueado solo desde `check()`).
-- **1 invariante nueva, I15** (política se limpia por operación, no se filtra entre threads/tests) — la fila que RFC-006 dejó vacía a propósito.
-- **7 mejoras no bloqueantes**, adoptadas: separar `except EgressBlocked` de `except Exception` explícitamente en PR 1.5 sin leakear `str(exc)`, cubrir ambos momentos de excepción en un generador (PR 1.8), no loguear desde `can_send()` (PR 1.9), entre otras.
-
-Nada de esto cambia el diseño de fondo de RFC-006 — son correcciones de precisión sobre cómo ese diseño se reconstruye contra el código real, encontradas por tener a alguien más leyendo el mismo código con otros ojos antes de ejecutar.
-
-### v0.9 revisión 1 → v0.9 revisión 2 (esta versión)
+### v0.9 revisión 1 → v0.9 revisión 2
 
 El usuario agregó al repo `RFC-egress-gate.md` (ronda 0) y `RFC-002` a `RFC-006` — la serie completa de diseño y validación local del gate, nunca publicada (`git push -u origin feat/egress-gate` sigue sin ejecutarse). Esto cambia la Parte II de forma sustancial:
 
@@ -46,6 +37,19 @@ El usuario agregó al repo `RFC-egress-gate.md` (ronda 0) y `RFC-002` a `RFC-006
 | Orden de commits | PRs agrupados por fase de alto nivel | **Mapeado contra el orden de commits de RFC-006 §10**: Fase 0 (3 PRs, incluye el commit #7/I8 adelantado por ser independiente) + Fase 1 (10 PRs, mapeados 1:1 contra los commits #2-#12 de RFC-006 §10, sin duplicar el #1 que es documental), ya probado localmente en ese orden exacto (`git apply egress-gate.patch` → `126 passed, 1 failed` pre-existente de RAG) |
 
 **Lección para este documento y para cualquier sesión futura:** antes de diseñar una implementación "definitiva", preguntar explícitamente si existe una ronda de diseño previa no commiteada. La serie RFC-001…006 vivía en el disco del usuario, fuera de este repo hasta este momento, y el documento anterior (rev. 1) hizo trabajo redundante — y en algunos puntos (el choque de diseño del punto de sellado) peor — por no saberlo.
+
+### v0.9 revisión 2 → v0.9 revisión 3 (esta versión)
+
+Codex ejecutó una pasada de verificación de solo lectura (sin escribir código) contra `production@4ae9497`, pidiéndole confirmar cada cita de archivo:línea de la Parte II y las 14 invariantes del Apéndice A. Encontró:
+
+- **5 desajustes materiales** en el texto: PR 1.2 usaba `CompletionResult.to_stream_result()`, que no existe (ahora el PR lo agrega explícitamente); PR 1.4 pedía precio numérico de `catalog.get_model_profiles()`, que no lo expone (corregido a `get_effective_pricing()`); PR 1.6 daba un ejemplo de secreto (`API_KEY=...`) que el regex real no reconoce (corregido); PR 0.3 subcontaba los caminos reales de `decide_provider()` (4 → 6, con enum explícito); la Invariante I10 sobreafirmaba detección universal de secretos (acotada a "patrón reconocido").
+- **12 preguntas bloqueantes**, todas resueltas en esta revisión: estrategia de rama (docs a `production`, código a `feat/egress-gate`), extra de CI (`.[all]`), diseño del filtro de PR 0.2 (sobre-consulta + post-filtro, no filtro nativo), ciclo de vida de la política en tests (`Token` + marker `no_default_policy`), función canónica `policy_for_project()` compartida entre PR 1.3 y PR 1.7, elección del provider más barato (API real de pricing), alcance real de I10, resolución fail-closed refinada para `ctx=None` en el worker (distingue proyecto nuevo de `context.yaml` corrupto), y alcance del log de `egress_decisions` (allowed+blocked, logueado solo desde `check()`).
+- **1 invariante nueva, I15** (política se limpia por operación, no se filtra entre threads/tests) — la fila que RFC-006 dejó vacía a propósito.
+- **7 mejoras no bloqueantes**, adoptadas: separar `except EgressBlocked` de `except Exception` explícitamente en PR 1.5 sin leakear `str(exc)`, cubrir ambos momentos de excepción en un generador (PR 1.8), no loguear desde `can_send()` (PR 1.9), entre otras.
+
+Nada de esto cambia el diseño de fondo de RFC-006 — son correcciones de precisión sobre cómo ese diseño se reconstruye contra el código real, encontradas por tener a alguien más leyendo el mismo código con otros ojos antes de ejecutar.
+
+**Corrección posterior (segunda pasada de Codex, sobre PR 0.1 y el estado de git):** el prompt de PR 0.1 seguía dejando una decisión sin resolver ("preguntá antes de decidir un mecanismo") — un prompt "ya resuelto" no puede delegar una decisión al ejecutor. Corregido en §11.1 PR 0.1: no asumir que el fallo de RAG persiste con `.[all]` instalado (puede ser que chromadb lo resuelva), verificar primero, y solo si se reproduce, aislarlo con `--deselect` + step separado `continue-on-error: true` — nunca postprocesar el output de pytest. Además, la referencia de commit del header no distinguía "código auditado" (no cambió) de "HEAD documental" (sí cambió, la reorganización y las correcciones de este mismo documento ya están commiteadas localmente) — corregido abajo.
 
 ---
 
@@ -137,22 +141,31 @@ Suite de tests: `pytest tests/`. Bajo el gate, sin política declarada, ~21 test
 
 *Archivos:* nuevo `.github/workflows/tests.yml`. (Hoy solo existe `pricing-catalog.yml`, acotado a paths de pricing — no hay CI genérico corriendo `pytest`.)
 
-*Decisión de baseline:* instalar el extra `.[all]` (incluye `chromadb`), no `.[dev]`. Criterio de éxito **no es "100% verde"**: es "sin fallos nuevos respecto del baseline conocido" — `126 passed, 1 failed` (`test_rag_index_and_retrieve`, documentado como pre-existente en RFC-006 §4.1). Cualquier otro fallo sí bloquea.
+*Baseline real, verificado empíricamente (no asumido) el 2026-07-13 contra `.venv` de este mismo checkout:*
+
+```
+./.venv/Scripts/python.exe -m pytest tests/ -v
+112 passed in 5.79s
+```
+
+**El "126 passed, 1 failed" que RFC-006 §4.1 documentaba está obsoleto.** Ese baseline se estableció en un entorno sin `chromadb`; este `.venv` ya lo tiene instalado (`chromadb==1.5.9`) y `test_rag_index_and_retrieve` **pasa**. La diferencia de conteo total (112 acá vs 126 en RFC-006) también es real — la suite evolucionó desde el 2026-07-09 de RFC-006 hasta hoy (Decision 0002/ADR-002 agregó `test_validate_pricing_catalog.py`, entre otros). No hay ningún fallo pre-existente que aceptar: **criterio de éxito de CI es 100% verde, sin excepciones, sin `--deselect`, sin `continue-on-error`.** Si algún test falla en el entorno limpio de CI (que puede diferir de este `.venv` local), es una regresión real a investigar, no algo a tolerar en este PR.
 
 *Prompt Codex:*
 ```
 Crea .github/workflows/tests.yml: se dispara en push a production y en todo
 pull_request, instala Python 3.12 y el extra "all" del proyecto (pip install
 -e ".[all]" -- revisa pyproject.toml para confirmar el nombre exacto del
-extra; "all" incluye chromadb, necesario para que corran los tests de RAG),
-corre `pytest tests/ -v`.
+extra; "all" incluye chromadb), corre `pytest tests/ -v`.
 
-No falles el job solo porque test_rag_index_and_retrieve falle -- es un
-fallo pre-existente documentado (RFC-006 §4.1, "126 passed, 1 failed"),
-no algo que este PR deba resolver. Si no sabés cómo marcar un test como
-"known failure" sin ocultar fallos nuevos, preguntá antes de decidir un
-mecanismo (xfail en el test vs post-procesar el output de pytest) -- no
-elijas uno silenciosamente, ambos tienen trade-offs distintos.
+Verificado el 2026-07-13 contra el .venv de este mismo checkout: la suite
+completa da 112 passed, 0 failed con chromadb instalado -- NO hay ningún
+test que deba tratarse como fallo conocido/aceptado. El "126 passed, 1
+failed" que aparece en RFC-006 §4.1 es un baseline viejo, de un entorno sin
+chromadb, y ya no aplica. Si en el entorno de CI (que puede diferir del
+.venv local en versión de Python, SO, etc.) algún test falla, es una
+regresión real que hay que investigar y resolver -- NO lo excluyas con
+--deselect, NO lo marques xfail, NO seas tolerante con ningún fallo. El
+criterio de este job es 100% verde, sin excepciones.
 
 No toques .github/workflows/pricing-catalog.yml.
 ```
