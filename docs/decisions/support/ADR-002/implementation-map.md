@@ -122,12 +122,12 @@ Criterio de cierre:
 ## Etapa 6: automatizacion del catalogo publico
 
 *Renumerada de "Etapa 4" (numeración original de este mapa) a "Etapa 6" para coincidir
-con el commit real que la entregó: `42f02cc — feat: automatizacion y validacion GitHub
+con el commit real que la entregó: `8929138 — feat: automatizacion y validacion GitHub
 del catalogo de precios (Decision 0002 etapa 6)`. No se reescribió el commit — el
 historial de git es inmutable — se corrigió el mapa para que ambos coincidan. No existe
 ningún commit etiquetado "Decision 0002 etapa 4": la integración de runtime que en algún
 momento hubiera ocupado ese número quedó absorbida dentro del commit de Etapa 1
-(`de07b80`), y el número 4 nunca se usó. Ver la tabla de trazabilidad al final de este
+(`450e4a8`), y el número 4 nunca se usó. Ver la tabla de trazabilidad al final de este
 documento.*
 
 Entregable:
@@ -201,10 +201,10 @@ etiquetada "etapa 4" — ver la nota en la sección "Etapa 6" más arriba.
 
 | Entrega | Commit | Evidencia | Estado |
 |---|---|---|---|
-| Etapa 1 — catálogo estático y resolver local | `de07b80` | `tests/test_catalog.py` | implementada |
-| Etapa 2 — CLI y API local de pricing | `c4f13e0` | comandos `pricing show/refresh/validate`, `GET/POST /pricing` | implementada |
-| Etapa 3 — discovery de modelos por proveedor | `44d9dd7` | `orchestrator/discovery/*.py`, comandos `models list/refresh` | implementada |
-| Etapa 5 — perfiles del catálogo en el router | `b08983c` | `router.py::_format_profiles_section` | implementada |
-| Etapa 6 — automatización y validación GitHub | `42f02cc` | `scripts/validate_pricing_catalog.py`, `.github/workflows/pricing-catalog.yml` | implementada |
-| Hardening — validaciones post-LLM y `validate_model_for_provider` | `bb84960` | `router.py`, `catalog.py` | implementada |
-| Cierre — checklist final + `api_key` null tolerado | `4ae9497` | — | implementada |
+| Etapa 1 — catálogo estático y resolver local | `450e4a8` | `tests/test_catalog.py` | implementada |
+| Etapa 2 — CLI y API local de pricing | `8d9b8ce` | comandos `pricing show/refresh/validate`, `GET/POST /pricing` | implementada |
+| Etapa 3 — discovery de modelos por proveedor | `1017237` | `orchestrator/discovery/*.py`, comandos `models list/refresh` | implementada |
+| Etapa 5 — perfiles del catálogo en el router | `cb7ee24` | `router.py::_format_profiles_section` | implementada |
+| Etapa 6 — automatización y validación GitHub | `8929138` | `scripts/validate_pricing_catalog.py`, `.github/workflows/pricing-catalog.yml` | implementada |
+| Hardening — validaciones post-LLM y `validate_model_for_provider` | `deb8be9` | `router.py`, `catalog.py` | implementada |
+| Cierre — checklist final + `api_key` null tolerado | `e0189a3` | — | implementada |

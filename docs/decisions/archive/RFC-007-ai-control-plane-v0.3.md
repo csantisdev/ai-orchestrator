@@ -3,7 +3,7 @@
 **Estado:** Draft
 **Versión:** 0.3
 **Fecha:** 2026-07-10
-**Repo de referencia:** `csantisdev/ai-orchestrator@production` = `4ae9497` (verificado 2026-07-09; re-verificado parcialmente 2026-07-10 para §6)
+**Repo de referencia:** `csantisdev/ai-orchestrator@production` = `e0189a3` (verificado 2026-07-09; re-verificado parcialmente 2026-07-10 para §6)
 **Relación con la serie:** documento paraguas. No supersede a RFC-001…006. RFC-006 vigente en implementación del gate; RFC-005 vigente en posicionamiento y modelo de datos.
 
 ---

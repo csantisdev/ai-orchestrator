@@ -14,7 +14,7 @@ RFC-004 declaró "implementado y verificado" bajo el encabezado `csantisdev/ai-o
 Estado real, verificado el 2026-07-09:
 
 ```
-origin/production           = 4ae94970516d26a69e934cdd480e1634384ff5f1
+origin/production           = e0189a3827f82524942cecaa3929a9c0ddd24487
 orchestrator/egress.py      NO existe en el remoto público
 ramas remotas con "egress"  ninguna
 ```

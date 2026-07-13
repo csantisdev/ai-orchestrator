@@ -4,7 +4,7 @@
 **Versión:** 0.1  
 **Fecha:** 2026-07-11  
 **Repositorio de referencia:** `github.com/csantisdev/ai-orchestrator`  
-**Fuente de verdad de código:** rama `production`, commit `4ae94970516d26a69e934cdd480e1634384ff5f1`  
+**Fuente de verdad de código:** rama `production`, commit `e0189a3827f82524942cecaa3929a9c0ddd24487`  
 **Documento base:** RFC-007 v0.3  
 **Relación documental:** complementa RFC-005 y RFC-006; reemplaza y profundiza RFC-007 §6, y enmienda sus requisitos de red, roadmap y riesgos. No reemplaza el posicionamiento PGDP ni el diseño del Egress Gate.
 
@@ -87,7 +87,7 @@ Los términos **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** y **MAY** se us
 
 ## 3. Estado verificado de `production`
 
-Verificación realizada contra `production@4ae9497` el 2026-07-11.
+Verificación realizada contra `production@e0189a3` el 2026-07-11.
 
 ### 3.1 Servidor MCP
 
@@ -629,13 +629,13 @@ default_tools_approval_mode = "prompt"
 enabled_tools = ["get_context", "list_steps", "list_agents"]
 
 [mcp_servers.ai_orchestrator.env]
-# Metadata propuesta para Fases 2-3; production@4ae9497 aún no la consume.
+# Metadata propuesta para Fases 2-3; production@e0189a3 aún no la consume.
 ORCHESTRATOR_MCP_PROFILE = "readonly"
 ORCHESTRATOR_MCP_CLIENT_SURFACE = "chatgpt_desktop"
 ORCHESTRATOR_MCP_TRANSPORT = "stdio"
 ```
 
-**Control efectivo disponible hoy:** `enabled_tools` y la aprobación del cliente. Las variables `ORCHESTRATOR_MCP_*` son parte del contrato propuesto y no aplican autorización server-side en `production@4ae9497`.
+**Control efectivo disponible hoy:** `enabled_tools` y la aprobación del cliente. Las variables `ORCHESTRATOR_MCP_*` son parte del contrato propuesto y no aplican autorización server-side en `production@e0189a3`.
 
 Después de implementar annotations y policy server-side, el cliente MAY usar:
 
@@ -1104,7 +1104,7 @@ Debes realizar una validación adversarial y verificable del documento:
 FUENTES DE VERDAD
 1. Código público: https://github.com/csantisdev/ai-orchestrator
 2. Rama: production
-3. Commit esperado: 4ae94970516d26a69e934cdd480e1634384ff5f1
+3. Commit esperado: e0189a3827f82524942cecaa3929a9c0ddd24487
 4. Documento base: RFC-007 v0.3
 5. Documento a revisar: RFC-008 v0.1
 6. Especificación MCP 2025-06-18 y documentación oficial vigente de los clientes.
