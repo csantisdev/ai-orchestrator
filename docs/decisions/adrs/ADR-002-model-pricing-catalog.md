@@ -1,8 +1,8 @@
-# Decision 0002: catalogo versionado de modelos y precios
+# ADR-002: Catálogo versionado de modelos y precios
 
 Fecha: 2026-07-01
 
-Estado: propuesta
+Estado: aceptada. Implementación: `implemented`, cerrada 2026-07-07 — ver la [tabla de trazabilidad](../support/ADR-002/implementation-map.md#tabla-de-trazabilidad) para las entregas reales por commit (los commits usan las etiquetas `etapa 1, 2, 3, 5, 6`; no existe un commit `etapa 4` — ver la nota en el mapa).
 
 ## Contexto
 

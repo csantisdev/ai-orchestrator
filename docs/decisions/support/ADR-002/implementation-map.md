@@ -1,6 +1,13 @@
-# Mapa de implementacion: catalogo de modelos y precios
+---
+type: support
+supports: ADR-002
+status: completed
+updated: 2026-07-07
+---
 
-Este mapa aterriza la Decision 0002 en cambios concretos dentro de
+# Mapa de implementación de ADR-002
+
+Este mapa aterriza ADR-002 (catálogo versionado de modelos y precios) en cambios concretos dentro de
 `ai-orchestrator`. La regla de orden es mantener primero compatibilidad con el
 calculo actual de costos y despues abrir nuevas superficies: API local, CLI,
 discovery y router.
@@ -112,7 +119,16 @@ Criterio de cierre:
 - Se pueden comparar modelos disponibles contra modelos con precio.
 - Errores de un proveedor no rompen el refresh global.
 
-## Etapa 4: automatizacion del catalogo publico
+## Etapa 6: automatizacion del catalogo publico
+
+*Renumerada de "Etapa 4" (numeración original de este mapa) a "Etapa 6" para coincidir
+con el commit real que la entregó: `42f02cc — feat: automatizacion y validacion GitHub
+del catalogo de precios (Decision 0002 etapa 6)`. No se reescribió el commit — el
+historial de git es inmutable — se corrigió el mapa para que ambos coincidan. No existe
+ningún commit etiquetado "Decision 0002 etapa 4": la integración de runtime que en algún
+momento hubiera ocupado ese número quedó absorbida dentro del commit de Etapa 1
+(`de07b80`), y el número 4 nunca se usó. Ver la tabla de trazabilidad al final de este
+documento.*
 
 Entregable:
 
@@ -159,7 +175,10 @@ Reglas:
 - Alias resuelve a precio equivocado entre proveedores distintos.
 - `pricing_history` tiene solapamiento de vigencias.
 
-## Checklist inicial
+## Estado final de implementación
+
+Todos los items de esta lista quedaron cerrados; se conserva el detalle como registro,
+no como pendiente:
 
 - [x] Crear archivos publicos en `docs/pricing/`.
 - [x] Implementar `orchestrator/catalog.py`.
@@ -173,3 +192,19 @@ Reglas:
 - [x] Planificar integracion del router con `purpose`.
 - [x] Agregar validaciones post-LLM en el router (API key, modelo en catalogo, modelo deprecated).
 - [x] Agregar `validate_model_for_provider` en `orchestrator/catalog.py`.
+
+## Tabla de trazabilidad
+
+Entregas reales, verificadas contra `git log --oneline`. Los commits son fuente de
+verdad inmutable; esta tabla se ajusta a ellos, nunca al revés. No existe una entrega
+etiquetada "etapa 4" — ver la nota en la sección "Etapa 6" más arriba.
+
+| Entrega | Commit | Evidencia | Estado |
+|---|---|---|---|
+| Etapa 1 — catálogo estático y resolver local | `de07b80` | `tests/test_catalog.py` | implementada |
+| Etapa 2 — CLI y API local de pricing | `c4f13e0` | comandos `pricing show/refresh/validate`, `GET/POST /pricing` | implementada |
+| Etapa 3 — discovery de modelos por proveedor | `44d9dd7` | `orchestrator/discovery/*.py`, comandos `models list/refresh` | implementada |
+| Etapa 5 — perfiles del catálogo en el router | `b08983c` | `router.py::_format_profiles_section` | implementada |
+| Etapa 6 — automatización y validación GitHub | `42f02cc` | `scripts/validate_pricing_catalog.py`, `.github/workflows/pricing-catalog.yml` | implementada |
+| Hardening — validaciones post-LLM y `validate_model_for_provider` | `bb84960` | `router.py`, `catalog.py` | implementada |
+| Cierre — checklist final + `api_key` null tolerado | `4ae9497` | — | implementada |

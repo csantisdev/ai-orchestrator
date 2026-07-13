@@ -1,4 +1,4 @@
-# Decisión 0001: chunking RAG de 1500 caracteres
+# ADR-001: Chunking RAG de 1500 caracteres
 
 Fecha: 2026-06-22
 

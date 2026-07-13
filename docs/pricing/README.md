@@ -1,7 +1,7 @@
 # Catalogo de precios de modelos
 
 Fuente canonica y versionada de precios por modelo, referenciada en la
-[Decision 0002](../decisions/0002-model-pricing-catalog.md).
+[ADR-002](../decisions/adrs/ADR-002-model-pricing-catalog.md).
 
 ## Archivos
 
@@ -59,7 +59,7 @@ por cron, abriendo o actualizando un issue de GitHub si hay hallazgos.
 Discovery de modelos por API de proveedor (`orchestrator/model_discovery.py`),
 comandos `pricing`/`models` en el CLI, endpoints `/pricing` y `/models`, y uso
 del catalogo en el router ya estan implementados — ver el
-[mapa de implementacion](../decisions/0002-implementation-map.md) para el
+[mapa de implementacion](../decisions/support/ADR-002/implementation-map.md) para el
 detalle por etapa. Queda pendiente evaluar si conviene automatizar tambien
 el discovery de modelos (Etapa 3) desde el mismo workflow, usando secrets de
 API keys en CI — decision deliberadamente diferida por el riesgo de exponer
