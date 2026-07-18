@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 
 from orchestrator.context import ProjectContext
 from orchestrator.paths import PROVIDERS
@@ -14,6 +15,15 @@ SENSITIVITY_RANK = {
     "restricted": 2,
     "secret": 3,
 }
+
+_REASON_CODES = frozenset({
+    "provider_blocked",
+    "not_in_allowlist",
+    "unknown_clearance",
+    "clearance_insufficient",
+    "secret_pattern_detected",
+    "allowed",
+})
 
 
 class EgressBlocked(Exception):
@@ -71,24 +81,78 @@ def policy_for_project(ctx: ProjectContext, config: dict) -> EgressPolicy:
     )
 
 
-def _can_send(policy: EgressPolicy, provider: str) -> bool:
+def _evaluate(policy: EgressPolicy, provider: str) -> tuple[bool, str]:
     if provider in policy.blocked_providers:
-        return False
+        return False, "provider_blocked"
     if policy.allowed_providers and provider not in policy.allowed_providers:
-        return False
+        return False, "not_in_allowlist"
 
     clearance = policy.provider_clearance.get(provider, "internal")
     if clearance not in SENSITIVITY_RANK:
-        return False
-    return SENSITIVITY_RANK[clearance] >= SENSITIVITY_RANK[policy.sensitivity]
+        return False, "unknown_clearance"
+    if SENSITIVITY_RANK[clearance] < SENSITIVITY_RANK[policy.sensitivity]:
+        return False, "clearance_insufficient"
+    return True, "allowed"
+
+
+def _can_send(policy: EgressPolicy, provider: str) -> bool:
+    return _evaluate(policy, provider)[0]
 
 
 def can_send(provider: str) -> bool:
     return _can_send(current_policy(), provider)
 
 
+def log_decision(
+    project: str,
+    provider: str,
+    phase: str,
+    decision: str,
+    reason_code: str,
+    sensitivity: str | None = None,
+    clearance: str | None = None,
+    run_id: int | None = None,
+) -> None:
+    if reason_code not in _REASON_CODES:
+        raise ValueError(f"reason_code inválido: {reason_code!r}")
+
+    from orchestrator.db import _conn, _write_lock
+
+    conn = _conn()
+    with _write_lock:
+        conn.execute(
+            """INSERT INTO egress_decisions
+               (ts, project, provider, phase, decision, reason_code,
+                sensitivity, clearance, run_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                datetime.now(timezone.utc).isoformat(),
+                project,
+                provider,
+                phase,
+                decision,
+                reason_code,
+                sensitivity,
+                clearance,
+                run_id,
+            ),
+        )
+        conn.commit()
+
+
 def check(provider: str, phase: str = "provider") -> None:
-    if not can_send(provider):
+    policy = current_policy()
+    allowed, reason_code = _evaluate(policy, provider)
+    log_decision(
+        project=policy.project,
+        provider=provider,
+        phase=phase,
+        decision="allowed" if allowed else "blocked",
+        reason_code=reason_code,
+        sensitivity=policy.sensitivity,
+        clearance=policy.provider_clearance.get(provider),
+    )
+    if not allowed:
         raise EgressBlocked(
             f"Provider {provider!r} bloqueado en phase={phase!r} por política de egress."
         )
@@ -103,8 +167,21 @@ def check_payload(provider: str, prompt: str, system: str, phase: str) -> None:
     effective_policy = (
         replace(policy, sensitivity="secret") if secret_detected else policy
     )
+    allowed, reason_code = _evaluate(effective_policy, provider)
+    if secret_detected and not allowed:
+        reason_code = "secret_pattern_detected"
 
-    if not _can_send(effective_policy, provider):
+    log_decision(
+        project=policy.project,
+        provider=provider,
+        phase=phase,
+        decision="allowed" if allowed else "blocked",
+        reason_code=reason_code,
+        sensitivity=effective_policy.sensitivity,
+        clearance=policy.provider_clearance.get(provider),
+    )
+
+    if not allowed:
         if secret_detected:
             raise EgressBlocked("reason_code=secret_pattern_detected")
         raise EgressBlocked(

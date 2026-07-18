@@ -276,6 +276,27 @@ def run_migrations() -> None:
                 conn.commit()
 
         with _write_lock:
+            if not _already_applied(conn, "create_egress_decisions_table"):
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS egress_decisions (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ts          TEXT NOT NULL,
+                        project     TEXT NOT NULL,
+                        provider    TEXT NOT NULL,
+                        phase       TEXT NOT NULL,
+                        decision    TEXT NOT NULL,
+                        reason_code TEXT NOT NULL,
+                        sensitivity TEXT,
+                        clearance   TEXT,
+                        run_id      INTEGER REFERENCES runs(id)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_egress_project_ts ON egress_decisions(project, ts DESC);
+                    CREATE INDEX IF NOT EXISTS idx_egress_decision ON egress_decisions(decision, phase);
+                """)
+                _mark_applied(conn, "create_egress_decisions_table")
+                conn.commit()
+
+        with _write_lock:
             if not _already_applied(conn, "add_rating_to_runs"):
                 try:
                     conn.execute("ALTER TABLE runs ADD COLUMN rating TEXT")
