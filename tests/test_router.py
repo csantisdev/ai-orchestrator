@@ -95,6 +95,27 @@ def test_local_router_falls_back_to_cheapest_permitted():
     assert "precio de input" in decision.reason
 
 
+def test_local_router_reports_missing_prices_without_claiming_known_minimum():
+    ctx = _ctx(default_provider="ghost")
+    config = {
+        **_CONFIG,
+        "defaults": {"default_provider": "ghost"},
+        "pricing": {
+            "claude-v4": {"input": None},
+            "gpt-4o": {"input": None},
+            "deepseek-v4-flash": {"input": None},
+            "gemini-2.5-flash": {"input": None},
+        },
+    }
+
+    with _active_project_policy(ctx, config):
+        decision = decide_with_local_router("documentar el módulo", ctx, config)
+
+    assert decision.provider in PROVIDERS
+    assert "sin precio de input disponible" in decision.reason
+    assert "menor precio de input" not in decision.reason
+
+
 def test_local_router_never_returns_blocked_provider():
     ctx = _ctx(
         blocked_providers=["claude"],
