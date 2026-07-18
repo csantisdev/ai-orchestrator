@@ -172,3 +172,89 @@ def test_policy_for_restricted_project_uses_provider_clearances():
         assert can_send("claude") is True
     finally:
         egress._POLICY.reset(token)
+
+
+def test_secret_in_prompt_escalates_to_secret_and_blocks():
+    secret = "AKIAIOSFODNN7EXAMPLE"
+    provider = StubProvider(api_key="test", model="test-model")
+    provider._complete = MagicMock()
+    token = set_policy(EgressPolicy(
+        project="test",
+        sensitivity="internal",
+        provider_clearance={"stub": "restricted"},
+    ))
+    try:
+        with pytest.raises(EgressBlocked, match="secret_pattern_detected"):
+            provider.complete(f"Usa esta credencial: {secret}")
+        provider._complete.assert_not_called()
+    finally:
+        egress._POLICY.reset(token)
+
+
+def test_secret_in_system_escalates_before_streaming():
+    secret = "ghp_" + "A" * 36
+    provider = StubProvider(api_key="test", model="test-model")
+    provider._complete_stream = MagicMock()
+    token = set_policy(EgressPolicy(
+        project="test",
+        sensitivity="internal",
+        provider_clearance={"stub": "restricted"},
+    ))
+    try:
+        with pytest.raises(EgressBlocked, match="secret_pattern_detected"):
+            provider.complete_stream("prompt", system=f"Token: {secret}")
+        provider._complete_stream.assert_not_called()
+    finally:
+        egress._POLICY.reset(token)
+
+
+def test_unrecognized_generic_api_key_does_not_escalate():
+    provider = StubProvider(api_key="test", model="test-model")
+    expected = CompletionResult(text="ok", provider="stub", model="test-model")
+    provider._complete = MagicMock(return_value=expected)
+    token = set_policy(EgressPolicy(
+        project="test",
+        sensitivity="internal",
+        provider_clearance={"stub": "internal"},
+    ))
+    try:
+        result = provider.complete("API_KEY=ordinary-placeholder-value")
+        assert result is expected
+        provider._complete.assert_called_once()
+    finally:
+        egress._POLICY.reset(token)
+
+
+def test_egress_error_message_never_contains_payload():
+    secret = "sk-ant-" + "A" * 24
+    provider = StubProvider(api_key="test", model="test-model")
+    token = set_policy(EgressPolicy(
+        project="test",
+        sensitivity="internal",
+        provider_clearance={"stub": "restricted"},
+    ))
+    try:
+        with pytest.raises(EgressBlocked) as exc_info:
+            provider.complete(f"credential={secret}")
+        message = str(exc_info.value)
+        assert "secret_pattern_detected" in message
+        assert secret not in message
+    finally:
+        egress._POLICY.reset(token)
+
+
+def test_secret_escalation_does_not_mutate_active_policy():
+    policy = EgressPolicy(
+        project="test",
+        sensitivity="internal",
+        provider_clearance={"stub": "restricted"},
+    )
+    provider = StubProvider(api_key="test", model="test-model")
+    token = set_policy(policy)
+    try:
+        with pytest.raises(EgressBlocked):
+            provider.complete("AKIAIOSFODNN7EXAMPLE")
+        assert current_policy() is policy
+        assert current_policy().sensitivity == "internal"
+    finally:
+        egress._POLICY.reset(token)

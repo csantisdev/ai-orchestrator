@@ -76,7 +76,9 @@ class BaseProvider(ABC):
         """Envía el prompt si la política de egress autoriza al proveedor."""
         from orchestrator import egress
 
-        egress.check(self.name, phase="provider")
+        egress.check_payload(
+            self.name, prompt=prompt, system=system, phase="provider"
+        )
         return self._complete(prompt, system)
 
     @abstractmethod
@@ -90,7 +92,9 @@ class BaseProvider(ABC):
         """Inicia streaming si la política de egress autoriza al proveedor."""
         from orchestrator import egress
 
-        egress.check(self.name, phase="stream")
+        egress.check_payload(
+            self.name, prompt=prompt, system=system, phase="stream"
+        )
         return self._complete_stream(prompt, system)
 
     def _complete_stream(

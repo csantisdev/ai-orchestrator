@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar, Token
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from orchestrator.context import ProjectContext
 from orchestrator.paths import PROVIDERS
@@ -71,8 +71,7 @@ def policy_for_project(ctx: ProjectContext, config: dict) -> EgressPolicy:
     )
 
 
-def can_send(provider: str) -> bool:
-    policy = current_policy()
+def _can_send(policy: EgressPolicy, provider: str) -> bool:
     if provider in policy.blocked_providers:
         return False
     if policy.allowed_providers and provider not in policy.allowed_providers:
@@ -84,8 +83,30 @@ def can_send(provider: str) -> bool:
     return SENSITIVITY_RANK[clearance] >= SENSITIVITY_RANK[policy.sensitivity]
 
 
+def can_send(provider: str) -> bool:
+    return _can_send(current_policy(), provider)
+
+
 def check(provider: str, phase: str = "provider") -> None:
     if not can_send(provider):
+        raise EgressBlocked(
+            f"Provider {provider!r} bloqueado en phase={phase!r} por política de egress."
+        )
+
+
+def check_payload(provider: str, prompt: str, system: str, phase: str) -> None:
+    """Evalúa el payload, escalando patrones de secreto sin mutar la policy activa."""
+    from orchestrator.rag import _contains_secrets
+
+    policy = current_policy()
+    secret_detected = _contains_secrets(prompt) or _contains_secrets(system)
+    effective_policy = (
+        replace(policy, sensitivity="secret") if secret_detected else policy
+    )
+
+    if not _can_send(effective_policy, provider):
+        if secret_detected:
+            raise EgressBlocked("reason_code=secret_pattern_detected")
         raise EgressBlocked(
             f"Provider {provider!r} bloqueado en phase={phase!r} por política de egress."
         )
