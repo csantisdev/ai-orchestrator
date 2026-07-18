@@ -24,6 +24,9 @@ class ProjectContext:
     routing_notes: str = ""
     keyword_hints: list[dict] = field(default_factory=list)
     daily_budget_usd: float | None = None
+    sensitivity: str = "internal"
+    blocked_providers: list[str] = field(default_factory=list)
+    allowed_providers: list[str] = field(default_factory=list)
     skip_dirs: list[str] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
 
@@ -62,6 +65,9 @@ def load_context(project_path: Path) -> ProjectContext:
         routing_notes=preferred.get("notes", ""),
         keyword_hints=raw.get("keyword_hints", []) or [],
         daily_budget_usd=raw.get("daily_budget_usd"),
+        sensitivity=raw.get("sensitivity", "internal"),
+        blocked_providers=raw.get("blocked_providers", []) or [],
+        allowed_providers=raw.get("allowed_providers", []) or [],
         skip_dirs=raw.get("skip_dirs", []) or [],
         raw={**raw, "_context_path": ctx_path},
     )

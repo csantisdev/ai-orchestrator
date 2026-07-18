@@ -4,12 +4,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from orchestrator import egress
+from orchestrator.context import ProjectContext
 from orchestrator.egress import (
     EgressBlocked,
     EgressPolicy,
     can_send,
     check,
     current_policy,
+    policy_for_project,
     set_policy,
 )
 from orchestrator.providers.base import BaseProvider, CompletionResult
@@ -144,5 +146,29 @@ def test_streaming_http_not_reached_when_blocked():
             with pytest.raises(EgressBlocked):
                 provider.complete_stream("prompt")
             mock_stream.assert_not_called()
+    finally:
+        egress._POLICY.reset(token)
+
+
+def test_policy_for_restricted_project_uses_provider_clearances():
+    ctx = ProjectContext(
+        name="restricted-project",
+        sensitivity="restricted",
+        blocked_providers=["deepseek", "gemini"],
+    )
+    config = {
+        "providers": {
+            "deepseek": {"clearance": "public"},
+            "gemini": {"clearance": "public"},
+            "openai": {"clearance": "internal"},
+            "claude": {"clearance": "restricted"},
+        }
+    }
+
+    policy = policy_for_project(ctx, config)
+    token = set_policy(policy)
+    try:
+        assert can_send("deepseek") is False
+        assert can_send("claude") is True
     finally:
         egress._POLICY.reset(token)

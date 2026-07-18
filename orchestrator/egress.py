@@ -5,6 +5,9 @@ from __future__ import annotations
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 
+from orchestrator.context import ProjectContext
+from orchestrator.paths import PROVIDERS
+
 SENSITIVITY_RANK = {
     "public": 0,
     "internal": 1,
@@ -42,6 +45,30 @@ def set_policy(policy: EgressPolicy) -> Token[EgressPolicy]:
             f"Nivel de sensibilidad desconocido: {policy.sensitivity!r}"
         )
     return _POLICY.set(policy)
+
+
+def policy_for_project(ctx: ProjectContext, config: dict) -> EgressPolicy:
+    """Construye la política de egress de un proyecto y sus providers."""
+    from orchestrator import config as config_module
+    from orchestrator.config import ConfigError
+
+    provider_clearance = {}
+    for provider in PROVIDERS:
+        try:
+            provider_config = config_module.get_provider_config(config, provider)
+        except ConfigError:
+            clearance = "internal"
+        else:
+            clearance = provider_config.get("clearance", "internal")
+        provider_clearance[provider] = clearance
+
+    return EgressPolicy(
+        project=ctx.name,
+        sensitivity=ctx.sensitivity,
+        allowed_providers=ctx.allowed_providers,
+        blocked_providers=ctx.blocked_providers,
+        provider_clearance=provider_clearance,
+    )
 
 
 def can_send(provider: str) -> bool:
