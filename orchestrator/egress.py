@@ -150,7 +150,7 @@ def check(provider: str, phase: str = "provider") -> None:
         decision="allowed" if allowed else "blocked",
         reason_code=reason_code,
         sensitivity=policy.sensitivity,
-        clearance=policy.provider_clearance.get(provider),
+        clearance=policy.provider_clearance.get(provider, "internal"),
     )
     if not allowed:
         raise EgressBlocked(
