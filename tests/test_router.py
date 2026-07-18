@@ -1,13 +1,20 @@
 """Tests unitarios del router: keyword signals, decide_provider, fallback y step override."""
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from orchestrator import egress
 from orchestrator.context import ProjectContext
+from orchestrator.egress import EgressBlocked, policy_for_project, set_policy
+from orchestrator.paths import PROVIDERS
 from orchestrator.router import (
     RoutingDecision,
     _calculate_keyword_signals,
     _fetch_similar_runs,
     _format_profiles_section,
     decide_provider,
+    decide_with_local_router,
     force_provider,
 )
 
@@ -26,6 +33,95 @@ _CONFIG = {
 def _ctx(**kwargs) -> ProjectContext:
     defaults = {"name": "test-proj", "stack": "Python", "description": ""}
     return ProjectContext(**{**defaults, **kwargs})
+
+
+@contextmanager
+def _active_project_policy(ctx: ProjectContext, config: dict = _CONFIG):
+    token = set_policy(policy_for_project(ctx, config))
+    try:
+        yield
+    finally:
+        egress._POLICY.reset(token)
+
+
+def test_local_router_is_deterministic():
+    ctx = _ctx()
+
+    with _active_project_policy(ctx):
+        first = decide_with_local_router("documentar el módulo", ctx, _CONFIG)
+        second = decide_with_local_router("documentar el módulo", ctx, _CONFIG)
+
+    assert first == second
+    assert first.routing_source == "local_router"
+    assert first.used_fallback is True
+
+
+def test_local_router_respects_keyword_signals():
+    ctx = _ctx(keyword_hints=[
+        {"match": "tests", "provider": "deepseek", "weight": 2},
+        {"match": "tests unitarios", "provider": "openai", "weight": 5},
+    ])
+
+    with _active_project_policy(ctx):
+        decision = decide_with_local_router("crear tests unitarios", ctx, _CONFIG)
+
+    assert decision.provider == "openai"
+    assert "keyword" in decision.reason
+
+
+def test_local_router_falls_back_to_project_default():
+    ctx = _ctx(default_provider="openai")
+
+    with _active_project_policy(ctx):
+        decision = decide_with_local_router("documentar el módulo", ctx, _CONFIG)
+
+    assert decision.provider == "openai"
+    assert "default del proyecto" in decision.reason
+
+
+def test_local_router_falls_back_to_cheapest_permitted():
+    ctx = _ctx(blocked_providers=["claude", "openai"])
+    config = {
+        **_CONFIG,
+        "pricing": {
+            "deepseek-v4-flash": {"input": 0.14, "output": 0.28},
+        },
+    }
+
+    with _active_project_policy(ctx, config):
+        decision = decide_with_local_router("documentar el módulo", ctx, config)
+
+    assert decision.provider == "deepseek"
+    assert "precio de input" in decision.reason
+
+
+def test_local_router_never_returns_blocked_provider():
+    ctx = _ctx(
+        blocked_providers=["claude"],
+        keyword_hints=[
+            {"match": "seguridad", "provider": "claude", "weight": 10},
+            {"match": "seguridad", "provider": "openai", "weight": 1},
+        ],
+    )
+
+    with _active_project_policy(ctx):
+        decision = decide_with_local_router("revisar seguridad", ctx, _CONFIG)
+
+    assert decision.provider == "openai"
+    assert decision.provider not in ctx.blocked_providers
+
+
+def test_no_provider_available_raises_egress_blocked():
+    task = "TASK_TEXT_MUST_NOT_LEAK"
+    ctx = _ctx(blocked_providers=list(PROVIDERS))
+
+    with _active_project_policy(ctx):
+        with pytest.raises(EgressBlocked) as exc_info:
+            decide_with_local_router(task, ctx, _CONFIG)
+
+    message = str(exc_info.value)
+    assert ctx.name in message
+    assert task not in message
 
 
 def _completed_run(project: str, routing_reason: str) -> dict:

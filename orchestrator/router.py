@@ -14,10 +14,18 @@ config.yaml, o al default_provider del context.yaml del proyecto.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, replace as dc_replace
 
-from orchestrator.config import get_default_provider, get_router_config
+from orchestrator.catalog import get_effective_pricing
+from orchestrator.config import (
+    ConfigError,
+    get_default_provider,
+    get_provider_config,
+    get_router_config,
+)
 from orchestrator.context import ProjectContext
+from orchestrator.egress import EgressBlocked, can_send
 from orchestrator.paths import PROVIDERS
 from orchestrator.providers.factory import build_provider
 
@@ -84,6 +92,78 @@ def _calculate_keyword_signals(task: str, ctx: ProjectContext) -> list[dict]:
                 }
             )
     return signals
+
+
+def decide_with_local_router(
+    task: str, ctx: ProjectContext, config: dict
+) -> RoutingDecision:
+    """Decide localmente sin LLM ni red, limitado por la política de egress."""
+    permitted = [provider for provider in PROVIDERS if can_send(provider)]
+    if not permitted:
+        raise EgressBlocked(
+            f"No hay providers permitidos para el proyecto {ctx.name!r}."
+        )
+
+    chosen_provider = None
+    reason = ""
+
+    signals = sorted(
+        _calculate_keyword_signals(task, ctx),
+        key=lambda signal: signal.get("weight", 1),
+        reverse=True,
+    )
+    for signal in signals:
+        if signal.get("provider") in permitted:
+            chosen_provider = signal["provider"]
+            reason = (
+                f"Router local: señal de keyword {signal['match']!r} "
+                f"(peso {signal['weight']}) eligió {chosen_provider!r}."
+            )
+            break
+
+    if chosen_provider is None and ctx.default_provider in permitted:
+        chosen_provider = ctx.default_provider
+        reason = (
+            f"Router local: el default del proyecto eligió {chosen_provider!r}."
+        )
+
+    global_default = get_default_provider(config)
+    if chosen_provider is None and global_default in permitted:
+        chosen_provider = global_default
+        reason = f"Router local: el default global eligió {chosen_provider!r}."
+
+    if chosen_provider is None:
+        pricing = get_effective_pricing(config)
+
+        def input_price(provider: str) -> float:
+            try:
+                model = get_provider_config(config, provider)["model"]
+            except (ConfigError, KeyError):
+                return math.inf
+            raw_price = pricing.get(model, {}).get("input")
+            try:
+                price = float(raw_price)
+            except (TypeError, ValueError):
+                return math.inf
+            return price if math.isfinite(price) else math.inf
+
+        chosen_provider = min(permitted, key=input_price)
+        reason = (
+            f"Router local: el menor precio de input eligió {chosen_provider!r}."
+        )
+
+    if chosen_provider not in permitted:
+        raise EgressBlocked(
+            f"El router local produjo un provider no permitido para el proyecto "
+            f"{ctx.name!r}."
+        )
+
+    return RoutingDecision(
+        provider=chosen_provider,
+        reason=reason,
+        used_fallback=True,
+        routing_source="local_router",
+    )
 
 
 def _compress_context(ctx: ProjectContext, task: str, threshold_chars: int = 3200) -> ProjectContext:
@@ -302,7 +382,6 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
             raise ValueError(f"Provider inválido devuelto por el router: {provider}")
 
         # Validar que el provider elegido tenga API key configurada.
-        from orchestrator.config import ConfigError, get_provider_config
         try:
             prov_cfg = get_provider_config(config, provider)
             if not (prov_cfg.get("api_key") or "").strip():
