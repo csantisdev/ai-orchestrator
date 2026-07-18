@@ -8,7 +8,9 @@ import threading
 import time
 from typing import Optional
 
+from orchestrator import egress
 from orchestrator.db import fail_run, insert_run, update_run
+from orchestrator.egress import EgressPolicy
 from orchestrator.sse import BUS
 
 _log = logging.getLogger(__name__)
@@ -58,6 +60,7 @@ def _worker(
     ctx,
     step_id: Optional[int] = None,
 ) -> None:
+    policy_token = None
     try:
         from orchestrator import context as context_module
         from orchestrator import index as index_module
@@ -67,11 +70,18 @@ def _worker(
         from orchestrator.providers.factory import build_provider
 
         if ctx is None:
+            project_path = index_module.get_project_path(project)
             try:
-                project_path = index_module.get_project_path(project)
                 ctx = context_module.load_context(project_path)
-            except Exception:
+            except context_module.ContextNotFoundError:
                 ctx = None
+                policy = EgressPolicy(project=project, sensitivity="internal")
+            else:
+                policy = egress.policy_for_project(ctx, config)
+        else:
+            policy = egress.policy_for_project(ctx, config)
+
+        policy_token = egress.set_policy(policy)
 
         from orchestrator.tracer import span as _span
 
@@ -210,3 +220,6 @@ def _worker(
     except Exception as exc:
         fail_run(run_id, str(exc))
         BUS.publish("run_failed", json.dumps({"run_id": run_id, "error": str(exc)}))
+    finally:
+        if policy_token is not None:
+            egress._POLICY.reset(policy_token)
