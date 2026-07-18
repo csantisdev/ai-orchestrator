@@ -69,3 +69,28 @@ def test_cli_run_resets_project_policy_when_execution_fails():
     assert result.exit_code != 0
     with pytest.raises(EgressBlocked):
         current_policy()
+
+
+def test_router_eval_offline_warns_below_two_hundred_runs():
+    runner = CliRunner()
+    report = {
+        "evaluated_runs": 199,
+        "skipped_runs": 1,
+        "agreement_rate": 0.5,
+        "rating_coverage": 0.5,
+        "external_router_spend_usd": None,
+        "router_cost_observed_runs": 0,
+        "router_cost_missing_runs": 199,
+    }
+
+    with patch("orchestrator.cli._ensure_db"), \
+         patch("orchestrator.cli.load_config", return_value=_CLI_CONFIG), \
+         patch("orchestrator.cli.eval_module.offline_router_eval", return_value=report):
+        result = runner.invoke(
+            app,
+            ["router-eval", "--offline", "--project", "demo", "--limit", "199"],
+        )
+
+    assert result.exit_code == 0, result.output
+    normalized_output = " ".join(result.output.split())
+    assert "se requieren al menos 200 runs evaluados" in normalized_output
