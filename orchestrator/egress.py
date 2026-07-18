@@ -178,7 +178,7 @@ def check_payload(provider: str, prompt: str, system: str, phase: str) -> None:
         decision="allowed" if allowed else "blocked",
         reason_code=reason_code,
         sensitivity=effective_policy.sensitivity,
-        clearance=policy.provider_clearance.get(provider),
+        clearance=effective_policy.provider_clearance.get(provider, "internal"),
     )
 
     if not allowed:
