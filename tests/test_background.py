@@ -66,6 +66,18 @@ def _worker_runtime(provider: BaseProvider, loaded_ctx=None, load_error=None):
         stack.enter_context(
             patch("orchestrator.providers.factory.build_provider", return_value=provider)
         )
+        # router.py importa build_provider a nivel de módulo (binding propio,
+        # independiente del de providers.factory) y decide_provider() llama a
+        # _fetch_similar_runs(), que golpea el backend real de ChromaDB si no
+        # se mockea -- sin esto, el único test que no fuerza `model=` dispara
+        # una llamada de red real y una descarga de modelo ONNX en runners
+        # sin cache, superando el join(timeout=3) del test.
+        stack.enter_context(
+            patch("orchestrator.router.build_provider", return_value=provider)
+        )
+        stack.enter_context(
+            patch("orchestrator.router._fetch_similar_runs", return_value=[])
+        )
         stack.enter_context(
             patch("orchestrator.tracer.span", side_effect=lambda *a, **k: nullcontext())
         )
