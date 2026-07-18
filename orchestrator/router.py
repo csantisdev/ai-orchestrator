@@ -14,10 +14,18 @@ config.yaml, o al default_provider del context.yaml del proyecto.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, replace as dc_replace
 
-from orchestrator.config import get_default_provider, get_router_config
+from orchestrator.catalog import get_effective_pricing
+from orchestrator.config import (
+    ConfigError,
+    get_default_provider,
+    get_provider_config,
+    get_router_config,
+)
 from orchestrator.context import ProjectContext
+from orchestrator.egress import EgressBlocked, can_send
 from orchestrator.paths import PROVIDERS
 from orchestrator.providers.factory import build_provider
 
@@ -66,6 +74,7 @@ class RoutingDecision:
     used_fallback: bool = False
     router_cost_usd: float | None = None
     system_prompt_addition: str | None = None
+    routing_source: str = "unknown"
 
 
 def _calculate_keyword_signals(task: str, ctx: ProjectContext) -> list[dict]:
@@ -83,6 +92,83 @@ def _calculate_keyword_signals(task: str, ctx: ProjectContext) -> list[dict]:
                 }
             )
     return signals
+
+
+def decide_with_local_router(
+    task: str, ctx: ProjectContext, config: dict
+) -> RoutingDecision:
+    """Decide localmente sin LLM ni red, limitado por la política de egress."""
+    permitted = [provider for provider in PROVIDERS if can_send(provider)]
+    if not permitted:
+        raise EgressBlocked(
+            f"No hay providers permitidos para el proyecto {ctx.name!r}."
+        )
+
+    chosen_provider = None
+    reason = ""
+
+    signals = sorted(
+        _calculate_keyword_signals(task, ctx),
+        key=lambda signal: signal.get("weight", 1),
+        reverse=True,
+    )
+    for signal in signals:
+        if signal.get("provider") in permitted:
+            chosen_provider = signal["provider"]
+            reason = (
+                f"Router local: señal de keyword {signal['match']!r} "
+                f"(peso {signal['weight']}) eligió {chosen_provider!r}."
+            )
+            break
+
+    if chosen_provider is None and ctx.default_provider in permitted:
+        chosen_provider = ctx.default_provider
+        reason = (
+            f"Router local: el default del proyecto eligió {chosen_provider!r}."
+        )
+
+    global_default = get_default_provider(config)
+    if chosen_provider is None and global_default in permitted:
+        chosen_provider = global_default
+        reason = f"Router local: el default global eligió {chosen_provider!r}."
+
+    if chosen_provider is None:
+        pricing = get_effective_pricing(config)
+
+        def input_price(provider: str) -> float:
+            try:
+                model = get_provider_config(config, provider)["model"]
+            except (ConfigError, KeyError):
+                return math.inf
+            raw_price = pricing.get(model, {}).get("input")
+            try:
+                price = float(raw_price)
+            except (TypeError, ValueError):
+                return math.inf
+            return price if math.isfinite(price) else math.inf
+
+        chosen_provider = min(permitted, key=input_price)
+        if math.isfinite(input_price(chosen_provider)):
+            reason = (
+                f"Router local: el menor precio de input eligió {chosen_provider!r}."
+            )
+        else:
+            reason = (
+                f"Router local: sin precio de input disponible; se eligió {chosen_provider!r}."
+            )
+
+    if chosen_provider not in permitted:
+        raise EgressBlocked(
+            f"El router local produjo un provider no permitido para el proyecto "
+            f"{ctx.name!r}."
+        )
+
+    return RoutingDecision(
+        provider=chosen_provider,
+        reason=reason,
+        used_fallback=True,
+        routing_source="local_router",
+    )
 
 
 def _compress_context(ctx: ProjectContext, task: str, threshold_chars: int = 3200) -> ProjectContext:
@@ -121,16 +207,16 @@ def _fetch_active_context(project: str) -> dict | None:
         return None
 
 
-def _fetch_similar_runs(task: str, n: int = 3) -> list[dict]:
+def _fetch_similar_runs(task: str, project: str, n: int = 3) -> list[dict]:
     try:
         from orchestrator.db import get_run
         from orchestrator.similarity import get_backend
         backend = get_backend()
-        hits = backend.query(task, n_results=n)
+        hits = backend.query(task, n_results=20)
         results = []
         for hit in hits:
             row = get_run(hit["run_id"])
-            if row and row["status"] == "done":
+            if row and row["status"] == "done" and row["project"] == project:
                 results.append({
                     "project": row["project"],
                     "provider": row["provider"],
@@ -138,7 +224,8 @@ def _fetch_similar_runs(task: str, n: int = 3) -> list[dict]:
                     "task_preview": row["task_preview"],
                     "rating": row["rating"] if "rating" in row.keys() else None,
                 })
-        return results
+        # V1 post-filtro: puede devolver menos resultados que un filtro nativo por proyecto.
+        return results[:n]
     except Exception:
         return []
 
@@ -237,8 +324,6 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
     router_provider_name = router_cfg.get("provider", "deepseek")
     fallback = router_cfg.get("fallback_provider") or ctx.default_provider or get_default_provider(config)
 
-    signals = _calculate_keyword_signals(task, ctx)
-    similar = _fetch_similar_runs(task, n=3)
     active_ctx = _fetch_active_context(ctx.name)
 
     agent_def = None
@@ -258,6 +343,7 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
                 reason=f"Paso activo [{step['order_idx']}]: {step['title']} → provider definido: {step['provider']}",
                 model=_safe_agent_model(agent_def, step["provider"]),
                 system_prompt_addition=agent_def.system_prompt_addition if agent_def else None,
+                routing_source="forced_step",
             )
 
         if agent_def and agent_def.provider:
@@ -269,7 +355,24 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
                 ),
                 model=_safe_agent_model(agent_def, agent_def.provider),
                 system_prompt_addition=agent_def.system_prompt_addition,
+                routing_source="agent_preset",
             )
+
+    def local_decision(routing_source: str, failure_reason: str = "") -> RoutingDecision:
+        decision = decide_with_local_router(task, ctx, config)
+        decision.routing_source = routing_source
+        decision.model = _safe_agent_model(agent_def, decision.provider) or decision.model
+        if agent_def:
+            decision.system_prompt_addition = agent_def.system_prompt_addition
+        if failure_reason:
+            decision.reason = f"{failure_reason} {decision.reason}"
+        return decision
+
+    if not can_send(router_provider_name):
+        return local_decision("local_router")
+
+    signals = _calculate_keyword_signals(task, ctx)
+    similar = _fetch_similar_runs(task, ctx.name, n=3)
 
     try:
         from orchestrator.catalog import get_model_profiles
@@ -298,7 +401,6 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
             raise ValueError(f"Provider inválido devuelto por el router: {provider}")
 
         # Validar que el provider elegido tenga API key configurada.
-        from orchestrator.config import ConfigError, get_provider_config
         try:
             prov_cfg = get_provider_config(config, provider)
             if not (prov_cfg.get("api_key") or "").strip():
@@ -308,6 +410,7 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
                 provider=fallback,
                 reason=f"Router eligió '{provider}' sin API key disponible; se usó fallback '{fallback}'. ({exc})",
                 used_fallback=True,
+                routing_source="fallback_no_api_key",
             )
 
         # Validar el modelo sugerido contra el catálogo (si el router propuso uno).
@@ -326,13 +429,15 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
             model=_safe_agent_model(agent_def, provider) or model,
             reason=reason, used_fallback=False, router_cost_usd=router_cost,
             system_prompt_addition=agent_def.system_prompt_addition if agent_def else None,
+            routing_source="llm_router",
         )
 
-    except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier falla del router
-        return RoutingDecision(
-            provider=fallback,
-            reason=f"Router no disponible ({exc}); se usó fallback '{fallback}'.",
-            used_fallback=True,
+    except EgressBlocked:
+        return local_decision("local_router")
+    except Exception:  # noqa: BLE001 - cualquier falla técnica degrada al router local
+        return local_decision(
+            "fallback_router_error",
+            "El router externo falló: error de red o parsing.",
         )
 
 
@@ -340,4 +445,9 @@ def force_provider(provider: str) -> RoutingDecision:
     """Para cuando el usuario pasa --model explícitamente, sin consultar al router."""
     if provider not in PROVIDERS:
         raise ValueError(f"Proveedor inválido: '{provider}'. Opciones: {', '.join(PROVIDERS)}")
-    return RoutingDecision(provider=provider, reason="Elegido manualmente con --model.", used_fallback=False)
+    return RoutingDecision(
+        provider=provider,
+        reason="Elegido manualmente con --model.",
+        used_fallback=False,
+        routing_source="forced_cli",
+    )

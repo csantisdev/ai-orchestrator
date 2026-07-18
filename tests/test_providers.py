@@ -1,6 +1,24 @@
 """Tests de providers con mock HTTP y secret filter expandido."""
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from orchestrator.providers.base import BaseProvider, CompletionResult
+
+
+def test_provider_cannot_override_complete():
+    with pytest.raises(TypeError, match=r"implement _complete\(\) instead"):
+        class InvalidProvider(BaseProvider):
+            def complete(self, prompt: str, system: str = "") -> CompletionResult:
+                raise NotImplementedError
+
+
+def test_provider_cannot_override_complete_stream():
+    with pytest.raises(TypeError, match=r"implement _complete_stream\(\) instead"):
+        class InvalidProvider(BaseProvider):
+            def complete_stream(self, prompt: str, system: str = ""):
+                raise NotImplementedError
+
 
 # ── Provider mock tests ─────────────────────────────────────────────────────
 

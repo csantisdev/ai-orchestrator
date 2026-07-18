@@ -15,7 +15,7 @@ API_URL = "https://api.openai.com/v1/chat/completions"
 class OpenAIProvider(BaseProvider):
     name = "openai"
 
-    def complete(self, prompt: str, system: str = "") -> CompletionResult:
+    def _complete(self, prompt: str, system: str = "") -> CompletionResult:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -46,7 +46,7 @@ class OpenAIProvider(BaseProvider):
             output_tokens=usage.get("completion_tokens", 0),
         )
 
-    def complete_stream(
+    def _complete_stream(
         self, prompt: str, system: str = ""
     ) -> Generator[str, None, StreamResult]:
         headers = {

@@ -4,21 +4,26 @@
 # config.yaml está en .gitignore — nunca se versiona.
 
 providers:
+  # Estos clearances son defaults recomendados, no obligatorios.
   claude:
     api_key: "sk-ant-..."
     model: "claude-sonnet-4-6"
+    clearance: "restricted"
 
   openai:
     api_key: "sk-..."
     model: "gpt-4o"
+    clearance: "internal"
 
   deepseek:
     api_key: "sk-..."
     model: "deepseek-v4-flash"
+    clearance: "public"
 
   gemini:
     api_key: "AIza..."
     model: "gemini-2.5-flash"
+    clearance: "public"
 
 router:
   # Modelo liviano/barato usado SOLO para decidir el ruteo, no para resolver

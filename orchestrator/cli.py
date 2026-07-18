@@ -16,14 +16,17 @@ from rich.console import Console
 from rich.table import Table
 
 from orchestrator import context as context_module
+from orchestrator import egress
+from orchestrator import eval as eval_module
 from orchestrator import history as history_module
 from orchestrator import index as index_module
 from orchestrator import router as router_module
 from orchestrator.config import ConfigError, get_pricing_table, load_config
-from orchestrator.context import ContextNotFoundError
+from orchestrator.context import ContextNotFoundError, ProjectContext
 from orchestrator.costs import calculate_cost, check_budget
 from orchestrator.dashboard import build_html
 from orchestrator.db import get_run, init_db, projects_list
+from orchestrator.egress import policy_for_project
 from orchestrator.index import ProjectNotFoundError
 from orchestrator.paths import HOME_DIR, PROVIDERS
 from orchestrator.providers.factory import build_provider
@@ -184,6 +187,30 @@ def run(
         console.print(f"[red]✗[/red] {exc}")
         raise typer.Exit(code=1)
 
+    token = egress.set_policy(policy_for_project(ctx, config))
+    try:
+        return _execute_run(
+            task=task,
+            project=project,
+            config=config,
+            ctx=ctx,
+            model=model,
+            research=research,
+            show_reason=show_reason,
+        )
+    finally:
+        egress._POLICY.reset(token)
+
+
+def _execute_run(
+    task: str,
+    project: str,
+    config: dict,
+    ctx: ProjectContext,
+    model: Optional[str],
+    research: bool,
+    show_reason: bool,
+) -> None:
     if research:
         try:
             decision = router_module.force_provider("claude")
@@ -256,6 +283,7 @@ def run(
         duration_ms=duration_ms,
         routing_reason=decision.reason,
         cost_usd=cost_usd,
+        routing_source=decision.routing_source,
     )
 
     if run_id and _rag_chunks:
@@ -618,6 +646,50 @@ def history_command(
 
     console.print(table)
     console.print(f"[dim]DB en: {history_module.RUNS_PATH}[/dim]")
+
+
+@app.command(name="router-eval")
+def router_eval_command(
+    offline: bool = typer.Option(False, "--offline", help="Reproducir runs históricos sin usar la red."),
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Filtrar por proyecto."),
+    limit: int = typer.Option(500, "--limit", min=1, help="Máximo de runs recientes a evaluar."),
+):
+    """Compara el router local con decisiones históricas del router LLM."""
+    if not offline:
+        console.print("[red]✗[/red] Este comando requiere --offline.")
+        raise typer.Exit(code=1)
+
+    _ensure_db()
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    report = eval_module.offline_router_eval(config, project=project, limit=limit)
+    table = Table(title="Router eval offline")
+    table.add_column("Métrica")
+    table.add_column("Valor", justify="right")
+    table.add_row("Runs evaluados", str(report["evaluated_runs"]))
+    table.add_row("Runs salteados", str(report["skipped_runs"]))
+    table.add_row("Acuerdo", f"{report['agreement_rate']:.1%}")
+    table.add_row("Cobertura de rating", f"{report['rating_coverage']:.1%}")
+    spend = report["external_router_spend_usd"]
+    table.add_row(
+        "Gasto router externo",
+        f"USD {spend:.6f}" if spend is not None else "sin datos",
+    )
+    table.add_row(
+        "Runs con/sin costo router",
+        f"{report['router_cost_observed_runs']}/{report['router_cost_missing_runs']}",
+    )
+    console.print(table)
+
+    if report["evaluated_runs"] < 200:
+        console.print(
+            "[yellow]⚠ Resultado direccional, no concluyente: "
+            "se requieren al menos 200 runs evaluados.[/yellow]"
+        )
 
 
 

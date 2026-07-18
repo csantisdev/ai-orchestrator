@@ -15,7 +15,7 @@ API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 class GeminiProvider(BaseProvider):
     name = "gemini"
 
-    def complete(self, prompt: str, system: str = "") -> CompletionResult:
+    def _complete(self, prompt: str, system: str = "") -> CompletionResult:
         url = f"{API_BASE}/{self.model}:generateContent?key={self.api_key}"
 
         body: dict = {
@@ -53,7 +53,7 @@ class GeminiProvider(BaseProvider):
             output_tokens=usage.get("candidatesTokenCount", 0),
         )
 
-    def complete_stream(
+    def _complete_stream(
         self, prompt: str, system: str = ""
     ) -> Generator[str, None, StreamResult]:
         url = f"{API_BASE}/{self.model}:streamGenerateContent?key={self.api_key}&alt=sse"

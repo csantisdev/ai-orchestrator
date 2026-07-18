@@ -31,7 +31,11 @@ def get_provider_config(config: dict, provider: str) -> dict:
     providers = config.get("providers", {})
     if provider not in providers:
         raise ConfigError(f"El proveedor '{provider}' no está definido en config.yaml.")
-    return providers[provider]
+    provider_config = providers[provider]
+    return {
+        **provider_config,
+        "clearance": provider_config.get("clearance", "internal"),
+    }
 
 
 def get_router_config(config: dict) -> dict:

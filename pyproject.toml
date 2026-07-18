@@ -28,3 +28,8 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["orchestrator*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "no_default_policy: run without the autouse egress policy fixture",
+]

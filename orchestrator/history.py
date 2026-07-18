@@ -23,6 +23,7 @@ def log_run(
     routing_reason: str = "",
     cost_usd: Optional[float] = None,
     step_id: Optional[int] = None,
+    routing_source: str = "unknown",
 ) -> int:
     from orchestrator.db import insert_run, update_run
     run_id = insert_run(
@@ -39,6 +40,7 @@ def log_run(
         duration_ms=duration_ms,
         routing_reason=routing_reason,
         cost_usd=cost_usd,
+        routing_source=routing_source,
     )
     return run_id
 
