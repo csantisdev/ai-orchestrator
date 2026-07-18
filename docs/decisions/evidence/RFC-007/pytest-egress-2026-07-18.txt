@@ -1,0 +1,32 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.0, pytest-9.1.1, pluggy-1.6.0 -- C:\Fuentes\ai-orchestrator\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Fuentes\ai-orchestrator
+configfile: pyproject.toml
+plugins: anyio-4.14.0
+collecting ... collected 22 items
+
+tests/test_egress.py::test_no_policy_blocks_provider_complete PASSED     [  4%]
+tests/test_egress.py::test_restricted_project_blocks_public_provider PASSED [  9%]
+tests/test_egress.py::test_blocked_provider_overrides_clearance PASSED   [ 13%]
+tests/test_egress.py::test_allowed_providers_restricts_even_with_clearance PASSED [ 18%]
+tests/test_egress.py::test_unknown_project_sensitivity_fails_closed PASSED [ 22%]
+tests/test_egress.py::test_unknown_provider_clearance_fails_closed PASSED [ 27%]
+tests/test_egress.py::test_policy_reset_restores_previous_policy PASSED  [ 31%]
+tests/test_egress.py::test_policy_does_not_leak_between_operations PASSED [ 36%]
+tests/test_egress.py::test_complete_invokes_check_before__complete PASSED [ 40%]
+tests/test_egress.py::test_complete_stream_check_is_eager_not_deferred PASSED [ 45%]
+tests/test_egress.py::test_streaming_http_not_reached_when_blocked PASSED [ 50%]
+tests/test_egress.py::test_policy_for_restricted_project_uses_provider_clearances PASSED [ 54%]
+tests/test_egress.py::test_secret_in_prompt_escalates_to_secret_and_blocks PASSED [ 59%]
+tests/test_egress.py::test_secret_in_system_escalates_before_streaming PASSED [ 63%]
+tests/test_egress.py::test_unrecognized_generic_api_key_does_not_escalate PASSED [ 68%]
+tests/test_egress.py::test_egress_error_message_never_contains_payload PASSED [ 72%]
+tests/test_egress.py::test_secret_escalation_does_not_mutate_active_policy PASSED [ 77%]
+tests/test_egress.py::test_egress_log_does_not_store_payload PASSED      [ 81%]
+tests/test_egress.py::test_blocked_decision_is_logged PASSED             [ 86%]
+tests/test_egress.py::test_allowed_decision_is_logged PASSED             [ 90%]
+tests/test_egress.py::test_can_send_does_not_log PASSED                  [ 95%]
+tests/test_egress.py::test_secret_detection_logs_secret_pattern_reason_code PASSED [100%]
+
+============================= 22 passed in 1.61s ==============================
