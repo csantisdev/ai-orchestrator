@@ -1,3 +1,6 @@
+import inspect
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from orchestrator import egress
@@ -9,6 +12,14 @@ from orchestrator.egress import (
     current_policy,
     set_policy,
 )
+from orchestrator.providers.base import BaseProvider, CompletionResult
+
+
+class StubProvider(BaseProvider):
+    name = "stub"
+
+    def _complete(self, prompt: str, system: str = "") -> CompletionResult:
+        return CompletionResult(text="unused", provider=self.name, model=self.model)
 
 
 @pytest.mark.no_default_policy
@@ -105,3 +116,33 @@ def test_policy_does_not_leak_between_operations():
 
     with pytest.raises(EgressBlocked, match="Sin política activa"):
         current_policy()
+
+
+def test_complete_invokes_check_before__complete():
+    provider = StubProvider(api_key="test", model="test-model")
+    provider._complete = MagicMock()
+    token = set_policy(EgressPolicy(project="test", blocked_providers=["stub"]))
+    try:
+        with pytest.raises(EgressBlocked):
+            provider.complete("prompt")
+        provider._complete.assert_not_called()
+    finally:
+        egress._POLICY.reset(token)
+
+
+def test_complete_stream_check_is_eager_not_deferred():
+    assert inspect.isgeneratorfunction(BaseProvider.complete_stream) is False
+
+
+def test_streaming_http_not_reached_when_blocked():
+    from orchestrator.providers.claude import ClaudeProvider
+
+    provider = ClaudeProvider(api_key="test", model="test-model")
+    token = set_policy(EgressPolicy(project="test", blocked_providers=["claude"]))
+    try:
+        with patch("orchestrator.providers.claude.httpx.stream") as mock_stream:
+            with pytest.raises(EgressBlocked):
+                provider.complete_stream("prompt")
+            mock_stream.assert_not_called()
+    finally:
+        egress._POLICY.reset(token)

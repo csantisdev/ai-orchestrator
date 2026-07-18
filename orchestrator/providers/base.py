@@ -18,6 +18,18 @@ class CompletionResult:
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
 
+    def to_stream_result(self) -> StreamResult:
+        return StreamResult(
+            text=self.text,
+            provider=self.provider,
+            model=self.model,
+            raw_response=self.raw_response,
+            cache_creation_tokens=self.cache_creation_tokens,
+            cache_read_tokens=self.cache_read_tokens,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+        )
+
 
 @dataclass
 class StreamResult:
@@ -46,28 +58,45 @@ class StreamResult:
 class BaseProvider(ABC):
     name: str = "base"
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for method_name in ("complete", "complete_stream"):
+            if method_name in cls.__dict__:
+                extension_name = f"_{method_name}"
+                raise TypeError(
+                    f"{cls.__name__} cannot override {method_name}(); "
+                    f"implement {extension_name}() instead"
+                )
+
     def __init__(self, api_key: str, model: str):
         self.api_key = api_key
         self.model = model
 
-    @abstractmethod
     def complete(self, prompt: str, system: str = "") -> CompletionResult:
-        """Envía el prompt al proveedor y devuelve el resultado completo."""
+        """Envía el prompt si la política de egress autoriza al proveedor."""
+        from orchestrator import egress
+
+        egress.check(self.name, phase="provider")
+        return self._complete(prompt, system)
+
+    @abstractmethod
+    def _complete(self, prompt: str, system: str = "") -> CompletionResult:
+        """Implementa la llamada no streaming del proveedor."""
         raise NotImplementedError
 
     def complete_stream(
         self, prompt: str, system: str = ""
     ) -> Generator[str, None, StreamResult]:
-        """Streaming por defecto: envuelve complete() y emite el texto en un solo chunk."""
-        result = self.complete(prompt, system)
+        """Inicia streaming si la política de egress autoriza al proveedor."""
+        from orchestrator import egress
+
+        egress.check(self.name, phase="stream")
+        return self._complete_stream(prompt, system)
+
+    def _complete_stream(
+        self, prompt: str, system: str = ""
+    ) -> Generator[str, None, StreamResult]:
+        """Streaming por defecto: envuelve _complete() y emite un solo chunk."""
+        result = self._complete(prompt, system)
         yield result.text
-        return StreamResult(
-            text=result.text,
-            provider=result.provider,
-            model=result.model,
-            raw_response=result.raw_response,
-            cache_creation_tokens=result.cache_creation_tokens,
-            cache_read_tokens=result.cache_read_tokens,
-            input_tokens=result.input_tokens or 0,
-            output_tokens=result.output_tokens or 0,
-        )
+        return result.to_stream_result()

@@ -16,7 +16,7 @@ ANTHROPIC_VERSION = "2023-06-01"
 class ClaudeProvider(BaseProvider):
     name = "claude"
 
-    def complete(self, prompt: str, system: str = "") -> CompletionResult:
+    def _complete(self, prompt: str, system: str = "") -> CompletionResult:
         headers = {
             "x-api-key": self.api_key,
             "anthropic-version": ANTHROPIC_VERSION,
@@ -50,7 +50,7 @@ class ClaudeProvider(BaseProvider):
             output_tokens=usage.get("output_tokens", 0),
         )
 
-    def complete_stream(
+    def _complete_stream(
         self, prompt: str, system: str = ""
     ) -> Generator[str, None, StreamResult]:
         headers = {
