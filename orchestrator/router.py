@@ -148,9 +148,14 @@ def decide_with_local_router(
             return price if math.isfinite(price) else math.inf
 
         chosen_provider = min(permitted, key=input_price)
-        reason = (
-            f"Router local: el menor precio de input eligió {chosen_provider!r}."
-        )
+        if math.isfinite(input_price(chosen_provider)):
+            reason = (
+                f"Router local: el menor precio de input eligió {chosen_provider!r}."
+            )
+        else:
+            reason = (
+                f"Router local: sin precio de input disponible; se eligió {chosen_provider!r}."
+            )
 
     if chosen_provider not in permitted:
         raise EgressBlocked(
