@@ -10,7 +10,7 @@ from typing import Optional
 
 from orchestrator import egress
 from orchestrator.db import fail_run, insert_run, update_run
-from orchestrator.egress import EgressPolicy
+from orchestrator.egress import EgressBlocked, EgressPolicy
 from orchestrator.sse import BUS
 
 _log = logging.getLogger(__name__)
@@ -152,6 +152,8 @@ def _worker(
                         result = _sr.to_completion_result() if _sr is not None else provider.complete(prompt=task, system=system_prompt)
                     _last_exc = None
                     break
+                except EgressBlocked:
+                    raise
                 except Exception as exc:
                     _last_exc = exc
                     if _attempt < _MAX_RETRIES - 1:

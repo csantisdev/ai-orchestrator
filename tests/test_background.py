@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from orchestrator import background, egress
 from orchestrator.context import ContextNotFoundError, ProjectContext
-from orchestrator.egress import EgressPolicy, current_policy, set_policy
+from orchestrator.egress import EgressBlocked, EgressPolicy, current_policy, set_policy
 from orchestrator.providers.base import BaseProvider, CompletionResult
 
 
@@ -228,3 +228,60 @@ def test_corrupt_context_fails_closed_instead_of_using_default():
     assert not runtime.done.is_set()
     assert observed == []
     assert "invalid yaml" in runtime.fail_run.call_args.args[1]
+
+
+def test_egress_blocked_at_call_is_not_retried():
+    provider = MagicMock()
+    provider.complete_stream.side_effect = EgressBlocked("policy denied")
+    ctx = ProjectContext(name="blocked-at-call")
+
+    with _worker_runtime(provider) as runtime, \
+         patch("orchestrator.background.time.sleep") as mock_sleep:
+        background._worker(
+            108, "blocked-at-call", "tarea", _config(), "claude", ctx
+        )
+
+    assert runtime.failed.is_set()
+    assert provider.complete_stream.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+def test_egress_blocked_during_iteration_is_not_retried():
+    def blocked_generator():
+        raise EgressBlocked("policy denied during iteration")
+        yield
+
+    provider = MagicMock()
+    provider.complete_stream.return_value = blocked_generator()
+    ctx = ProjectContext(name="blocked-during-iteration")
+
+    with _worker_runtime(provider) as runtime, \
+         patch("orchestrator.background.time.sleep") as mock_sleep:
+        background._worker(
+            109,
+            "blocked-during-iteration",
+            "tarea",
+            _config(),
+            "claude",
+            ctx,
+        )
+
+    assert runtime.failed.is_set()
+    assert provider.complete_stream.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+def test_transient_error_is_still_retried():
+    provider = MagicMock()
+    provider.complete_stream.side_effect = ConnectionError("temporary outage")
+    ctx = ProjectContext(name="transient-error")
+
+    with _worker_runtime(provider) as runtime, \
+         patch("orchestrator.background.time.sleep") as mock_sleep:
+        background._worker(
+            110, "transient-error", "tarea", _config(), "claude", ctx
+        )
+
+    assert runtime.failed.is_set()
+    assert provider.complete_stream.call_count == background._MAX_RETRIES
+    assert mock_sleep.call_count == background._MAX_RETRIES - 1
