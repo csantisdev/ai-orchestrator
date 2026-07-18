@@ -124,6 +124,169 @@ def test_no_provider_available_raises_egress_blocked():
     assert task not in message
 
 
+def _restricted_router_config(fallback_provider: str = "gemini") -> dict:
+    return {
+        **_CONFIG,
+        "router": {
+            "provider": "deepseek",
+            "fallback_provider": fallback_provider,
+        },
+        "providers": {
+            "deepseek": {
+                **_CONFIG["providers"]["deepseek"],
+                "clearance": "public",
+            },
+            "claude": {
+                **_CONFIG["providers"]["claude"],
+                "clearance": "restricted",
+            },
+            "openai": {
+                **_CONFIG["providers"]["openai"],
+                "clearance": "internal",
+            },
+            "gemini": {
+                **_CONFIG["providers"]["gemini"],
+                "clearance": "public",
+            },
+        },
+    }
+
+
+def test_external_router_allowed_when_clearance_sufficient():
+    config = _restricted_router_config()
+    config["providers"]["deepseek"]["clearance"] = "restricted"
+    ctx = _ctx(sensitivity="restricted")
+    mock_result = MagicMock()
+    mock_result.text = '{"provider": "claude", "model": null, "reason": "seguro"}'
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = mock_result
+
+    with _active_project_policy(ctx, config), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._fetch_similar_runs", return_value=[]), \
+         patch("orchestrator.router.build_provider", return_value=mock_provider):
+        decision = decide_provider("revisar seguridad", ctx, config)
+
+    mock_provider.complete.assert_called_once()
+    assert decision.provider == "claude"
+    assert decision.routing_source == "llm_router"
+
+
+def test_external_router_blocked_uses_local_router_not_fixed_fallback():
+    config = _restricted_router_config(fallback_provider="gemini")
+    ctx = _ctx(sensitivity="restricted", default_provider="claude")
+
+    with _active_project_policy(ctx, config), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router.build_provider") as mock_build:
+        decision = decide_provider("revisar seguridad", ctx, config)
+
+    mock_build.assert_not_called()
+    assert decision.provider == "claude"
+    assert decision.routing_source == "local_router"
+
+
+def test_external_router_blocked_does_not_build_full_context_prompt():
+    config = _restricted_router_config()
+    ctx = _ctx(sensitivity="restricted", default_provider="claude")
+
+    with _active_project_policy(ctx, config), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._build_router_prompt") as mock_prompt, \
+         patch("orchestrator.router.build_provider") as mock_build:
+        decide_provider("TASK_TEXT_MUST_NOT_LEAK", ctx, config)
+
+    mock_prompt.assert_not_called()
+    mock_build.assert_not_called()
+
+
+def test_external_router_blocked_does_not_fetch_similar_runs():
+    config = _restricted_router_config()
+    ctx = _ctx(sensitivity="restricted", default_provider="claude")
+
+    with _active_project_policy(ctx, config), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._fetch_similar_runs") as mock_similar:
+        decide_provider("TASK_TEXT_MUST_NOT_LEAK", ctx, config)
+
+    mock_similar.assert_not_called()
+
+
+def test_no_fixed_claude_fallback_when_router_blocked():
+    config = _restricted_router_config(fallback_provider="claude")
+    config["providers"]["openai"]["clearance"] = "restricted"
+    ctx = _ctx(
+        sensitivity="restricted",
+        default_provider="openai",
+        blocked_providers=["claude"],
+    )
+
+    with _active_project_policy(ctx, config), \
+         patch("orchestrator.router._fetch_active_context", return_value=None):
+        decision = decide_provider("tarea", ctx, config)
+
+    assert decision.provider == "openai"
+    assert decision.routing_source == "local_router"
+
+
+def test_blocked_fallback_provider_does_not_abort_when_other_provider_permitted():
+    config = _restricted_router_config(fallback_provider="gemini")
+    ctx = _ctx(
+        sensitivity="restricted",
+        blocked_providers=["deepseek", "gemini"],
+    )
+
+    with _active_project_policy(ctx, config), \
+         patch("orchestrator.router._fetch_active_context", return_value=None):
+        decision = decide_provider("tarea", ctx, config)
+
+    assert decision.provider == "claude"
+    assert decision.routing_source == "local_router"
+
+
+def test_local_router_preserves_agent_metadata():
+    from orchestrator.agents import AgentDefinition
+
+    config = _restricted_router_config()
+    config["providers"]["openai"]["clearance"] = "restricted"
+    ctx = _ctx(sensitivity="restricted", default_provider="openai")
+    active_ctx = {
+        "active_step": {
+            "agent_preset": "reviewer",
+            "provider": None,
+        }
+    }
+    agent = AgentDefinition(
+        name="reviewer",
+        model="gpt-4o-mini",
+        system_prompt_addition="Revisa cada hallazgo.",
+    )
+
+    with _active_project_policy(ctx, config), \
+         patch("orchestrator.router._fetch_active_context", return_value=active_ctx), \
+         patch("orchestrator.agents.get_agent", return_value=agent):
+        decision = decide_provider("revisar", ctx, config)
+
+    assert decision.provider == "openai"
+    assert decision.model == "gpt-4o-mini"
+    assert decision.system_prompt_addition == "Revisa cada hallazgo."
+
+
+def test_external_router_egress_blocked_uses_local_router():
+    ctx = _ctx(default_provider="openai")
+    mock_provider = MagicMock()
+    mock_provider.complete.side_effect = EgressBlocked("policy changed")
+
+    with _active_project_policy(ctx), \
+         patch("orchestrator.router._fetch_active_context", return_value=None), \
+         patch("orchestrator.router._fetch_similar_runs", return_value=[]), \
+         patch("orchestrator.router.build_provider", return_value=mock_provider):
+        decision = decide_provider("tarea", ctx, _CONFIG)
+
+    assert decision.provider == "openai"
+    assert decision.routing_source == "local_router"
+
+
 def _completed_run(project: str, routing_reason: str) -> dict:
     return {
         "project": project,
@@ -229,7 +392,7 @@ def test_decide_provider_uses_model_response():
 
 def test_decide_provider_fallback_on_exception():
     mock_provider = MagicMock()
-    mock_provider.complete.side_effect = Exception("connection timeout")
+    mock_provider.complete.side_effect = Exception("SENSITIVE_ERROR_DETAIL")
 
     with patch("orchestrator.router.build_provider", return_value=mock_provider), \
          patch("orchestrator.router._fetch_active_context", return_value=None), \
@@ -239,7 +402,8 @@ def test_decide_provider_fallback_on_exception():
     assert decision.provider == "claude"
     assert decision.used_fallback is True
     assert decision.routing_source == "fallback_router_error"
-    assert "fallback" in decision.reason.lower() or "claude" in decision.reason
+    assert "router externo falló: error de red o parsing" in decision.reason.lower()
+    assert "SENSITIVE_ERROR_DETAIL" not in decision.reason
 
 
 def test_format_profiles_section_empty():

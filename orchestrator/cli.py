@@ -16,14 +16,16 @@ from rich.console import Console
 from rich.table import Table
 
 from orchestrator import context as context_module
+from orchestrator import egress
 from orchestrator import history as history_module
 from orchestrator import index as index_module
 from orchestrator import router as router_module
 from orchestrator.config import ConfigError, get_pricing_table, load_config
-from orchestrator.context import ContextNotFoundError
+from orchestrator.context import ContextNotFoundError, ProjectContext
 from orchestrator.costs import calculate_cost, check_budget
 from orchestrator.dashboard import build_html
 from orchestrator.db import get_run, init_db, projects_list
+from orchestrator.egress import policy_for_project
 from orchestrator.index import ProjectNotFoundError
 from orchestrator.paths import HOME_DIR, PROVIDERS
 from orchestrator.providers.factory import build_provider
@@ -184,6 +186,30 @@ def run(
         console.print(f"[red]✗[/red] {exc}")
         raise typer.Exit(code=1)
 
+    token = egress.set_policy(policy_for_project(ctx, config))
+    try:
+        return _execute_run(
+            task=task,
+            project=project,
+            config=config,
+            ctx=ctx,
+            model=model,
+            research=research,
+            show_reason=show_reason,
+        )
+    finally:
+        egress._POLICY.reset(token)
+
+
+def _execute_run(
+    task: str,
+    project: str,
+    config: dict,
+    ctx: ProjectContext,
+    model: Optional[str],
+    research: bool,
+    show_reason: bool,
+) -> None:
     if research:
         try:
             decision = router_module.force_provider("claude")

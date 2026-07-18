@@ -319,8 +319,6 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
     router_provider_name = router_cfg.get("provider", "deepseek")
     fallback = router_cfg.get("fallback_provider") or ctx.default_provider or get_default_provider(config)
 
-    signals = _calculate_keyword_signals(task, ctx)
-    similar = _fetch_similar_runs(task, ctx.name, n=3)
     active_ctx = _fetch_active_context(ctx.name)
 
     agent_def = None
@@ -354,6 +352,22 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
                 system_prompt_addition=agent_def.system_prompt_addition,
                 routing_source="agent_preset",
             )
+
+    def local_decision(routing_source: str, failure_reason: str = "") -> RoutingDecision:
+        decision = decide_with_local_router(task, ctx, config)
+        decision.routing_source = routing_source
+        decision.model = _safe_agent_model(agent_def, decision.provider) or decision.model
+        if agent_def:
+            decision.system_prompt_addition = agent_def.system_prompt_addition
+        if failure_reason:
+            decision.reason = f"{failure_reason} {decision.reason}"
+        return decision
+
+    if not can_send(router_provider_name):
+        return local_decision("local_router")
+
+    signals = _calculate_keyword_signals(task, ctx)
+    similar = _fetch_similar_runs(task, ctx.name, n=3)
 
     try:
         from orchestrator.catalog import get_model_profiles
@@ -413,12 +427,12 @@ def decide_provider(task: str, ctx: ProjectContext, config: dict) -> RoutingDeci
             routing_source="llm_router",
         )
 
-    except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier falla del router
-        return RoutingDecision(
-            provider=fallback,
-            reason=f"Router no disponible ({exc}); se usó fallback '{fallback}'.",
-            used_fallback=True,
-            routing_source="fallback_router_error",
+    except EgressBlocked:
+        return local_decision("local_router")
+    except Exception:  # noqa: BLE001 - cualquier falla técnica degrada al router local
+        return local_decision(
+            "fallback_router_error",
+            "El router externo falló: error de red o parsing.",
         )
 
 
