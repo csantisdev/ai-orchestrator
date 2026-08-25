@@ -54,9 +54,16 @@ def _get_commits(path: Path, max_commits: Optional[int] = None, since: Optional[
     real para tolerar commits backdated. Sin `since` (primera sincronizacion
     del proyecto), se limita a los `max_commits` mas recientes como ventana
     inicial.
+
+    La fecha usada (`%ci`, fecha de COMMITTER) es intencional: `git log
+    --since` filtra por fecha de committer, no de autor. Usar `%ai` (autor)
+    aca desincroniza el cursor guardado del campo que --since realmente
+    filtra - un commit con fecha de AUTOR a futuro (rebase, cherry-pick,
+    reloj mal configurado) podia entonces "adelantar" el cursor y excluir
+    silenciosamente commits reales posteriores.
     """
     sep = "\x1f"
-    fmt = f"%H{sep}%s{sep}%ai{sep}%an{sep}%b"
+    fmt = f"%H{sep}%s{sep}%ci{sep}%an{sep}%b"
     args = [
         "log",
         "--all",           # todas las ramas locales y remotas
@@ -121,10 +128,13 @@ def newest_local_commit_date(path: Path) -> Optional[str]:
     `--no-merges` para que coincida con lo que `_get_commits` realmente trae -
     sin esto, un merge sin commits normales posteriores queda como el mas
     reciente para siempre y `doctor` avisa staleness que ningun sync corrige.
+    `%ci` (fecha de committer) para comparar contra la misma magnitud que
+    `_newest_imported_commit_date` (que ahora tambien guarda fecha de
+    committer, no de autor - ver `_get_commits`).
     """
     if not _is_git_repo(path):
         return None
-    raw = _run_git(["log", "--all", "--no-merges", "-1", "--format=%ai"], path)
+    raw = _run_git(["log", "--all", "--no-merges", "-1", "--format=%ci"], path)
     return raw or None
 
 

@@ -40,10 +40,14 @@ def test_daily_cost_no_runs_returns_zero(request):
 
 
 def test_insert_or_ignore_race_lastrowid_points_elsewhere(request):
-    """Regresion: tras un INSERT OR IGNORE ignorado (rowcount=0), lastrowid
-    de esa conexion apunta a la ULTIMA fila que esa conexion inserto, no al
-    registro real con ese session_id. git_scanner/watcher/codex_watcher
-    deben resolver el run_id real via SELECT por session_id en ese caso."""
+    """Prueba el patron SQL en aislamiento (una sola conexion, sin threads):
+    tras un INSERT OR IGNORE ignorado (rowcount=0), lastrowid de esa conexion
+    apunta a la ULTIMA fila que esa conexion inserto, no al registro real con
+    ese session_id. git_scanner/watcher/codex_watcher deben resolver el
+    run_id real via SELECT por session_id en ese caso. No ejercita ninguno de
+    los tres importadores reales bajo una carrera real - para eso ver
+    test_git_scanner.py::test_insert_or_ignore_race_indexes_correct_run_id
+    (con threads reales, end-to-end)."""
     project = f"race-{request.node.name}"
     sid = f"race::{request.node.name}"
     conn = _conn()

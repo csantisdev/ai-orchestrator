@@ -1,5 +1,6 @@
 import os
 import subprocess
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -171,9 +172,94 @@ def test_newest_local_commit_date_ignores_merges(synthetic_repo):
         GIT_COMMITTER_DATE="2026-01-01T03:00:00+00:00",
     )
     subprocess.run(
-        ["git", "merge", "feature", "--no-edit"],
+        # --no-ff fuerza un merge commit real - sin esto, como "main" no
+        # avanzo desde el punto de rama, git hace fast-forward y nunca se
+        # crea un merge, dejando el test en falso-verde (nunca ejercita
+        # --no-merges porque HEAD termina con un solo padre).
+        ["git", "merge", "feature", "--no-ff", "--no-edit"],
         cwd=str(repo), check=True, capture_output=True, env=merge_env,
     )
+    parents = subprocess.run(
+        ["git", "log", "-1", "--format=%P"], cwd=str(repo),
+        capture_output=True, text=True,
+    ).stdout.split()
+    assert len(parents) == 2, "el merge deberia tener 2 padres (no fast-forward)"
 
     normal_commit_date = git_scanner._get_commits(repo)[0]["date"]
     assert git_scanner.newest_local_commit_date(repo) == normal_commit_date
+
+
+def test_insert_or_ignore_race_indexes_correct_run_id(synthetic_repo, monkeypatch):
+    """Regresion end-to-end (no solo a nivel SQL, ver test_db.py para eso):
+    dos threads corriendo scan_and_import concurrentemente para el mismo
+    alias no deben terminar indexando un commit con el run_id de OTRO commit
+    ya insertado por la misma conexion. Fuerza la interseccion exacta con
+    threading.Event en vez de depender de timing."""
+    alias, repo = synthetic_repo
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # Orden de creacion normal (sin backdating): "older" es el padre (mas
+    # viejo en fecha Y en el grafo), "newer" es HEAD. git log lista HEAD
+    # primero, asi que "newer" se procesa primero (insert normal, deja a
+    # esta conexion con un lastrowid real y ajeno) y "older" segundo - ahi
+    # se fuerza la carrera.
+    _commit(repo, "older.txt", "commit-older", base)
+    _commit(repo, "newer.txt", "commit-newer", base + timedelta(minutes=1))
+
+    captured_run_ids: list[int] = []
+    monkeypatch.setattr(
+        "orchestrator.rag.index_response",
+        lambda run_id, *a, **kw: captured_run_ids.append(run_id),
+    )
+
+    entered = threading.Event()
+    release = threading.Event()
+    state = {"n": 0}
+    real_get_diff = git_scanner._get_diff
+
+    def blocking_get_diff(path, commit_hash):
+        state["n"] += 1
+        if state["n"] == 2:  # segundo commit de ESTE thread (commit-older)
+            entered.set()
+            assert release.wait(timeout=5), "release nunca se seteo"
+        return real_get_diff(path, commit_hash)
+
+    monkeypatch.setattr(git_scanner, "_get_diff", blocking_get_diff)
+
+    t1 = threading.Thread(target=git_scanner.scan_and_import, args=({},), kwargs={"quiet": True})
+    t1.start()
+    assert entered.wait(timeout=5), "t1 nunca llego a bloquearse en commit-older"
+
+    # t2 corre completo: no ve commit-newer (ya importado por t1), importa
+    # commit-older por su cuenta antes de que t1 reanude.
+    t2 = threading.Thread(target=git_scanner.scan_and_import, args=({},), kwargs={"quiet": True})
+    t2.start()
+    t2.join(timeout=10)
+
+    release.set()
+    t1.join(timeout=10)  # t1 reanuda: su INSERT OR IGNORE de commit-older ya no inserta nada
+
+    log = subprocess.run(
+        ["git", "log", "--all", "--format=%H\x1f%s"], cwd=str(repo),
+        capture_output=True, text=True,
+    ).stdout.strip().split("\n")
+    hash_by_subject = {}
+    for line in log:
+        h, s = line.split("\x1f", 1)
+        hash_by_subject[s] = h
+
+    conn = _conn()
+    row_newer = conn.execute(
+        "SELECT id FROM runs WHERE session_id=?",
+        (f"git::{alias}::{hash_by_subject['commit-newer']}",),
+    ).fetchone()
+    row_older = conn.execute(
+        "SELECT id FROM runs WHERE session_id=?",
+        (f"git::{alias}::{hash_by_subject['commit-older']}",),
+    ).fetchone()
+    assert row_newer is not None and row_older is not None
+    assert row_newer["id"] != row_older["id"]
+
+    # Sin el fix, t1 habria indexado commit-older con SU propio lastrowid
+    # (el de commit-newer, ajeno) en vez del id real de commit-older.
+    assert row_older["id"] in captured_run_ids
+    assert captured_run_ids.count(row_newer["id"]) == 1

@@ -812,29 +812,42 @@ async function runFix(btn, opts) {
   finally { _actBusy(btn, false, "fix"); }
 }
 
+async function _syncOne(url, label, unit) {
+  // Cada fuente se maneja de forma independiente: si una falla (red, HTTP,
+  // JSON), las demas igual se intentan - antes un error en sync-cc cortaba
+  // toda la cadena y Git/Codex ni se pedian.
+  try {
+    const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) {
+      _actAppend(label + " — " + (d.error || ("HTTP " + r.status)), "fail");
+      return 0;
+    }
+    if (d.status === "busy") {
+      _actAppend(label + " — ya hay una sincronización en curso, probá de nuevo en un rato", "warn");
+      return 0;
+    }
+    const n = d.imported || 0;
+    _actAppend(label + " — " + n + " " + unit + " importado(s)", n > 0 ? "ok" : "info");
+    return n;
+  } catch (e) {
+    _actAppend(label + " — " + e.message, "fail");
+    return 0;
+  }
+}
+
 async function runSync(btn) {
   _actBusy(btn, true);
   _actAppend("sync — importando Claude Code + Git + Codex...", "info");
   try {
     // Secuencial, no Promise.all: los tres endpoints comparten un mismo lock
-    // no-bloqueante en el servidor: en paralelo, solo el primero en llegar
+    // no-bloqueante en el servidor - en paralelo, solo el primero en llegar
     // adquiere el lock y los otros dos responden 409 "busy".
-    const rcc = await fetch("/sync-cc",    {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
-    const cc = await rcc.json();
-    const rg = await fetch("/sync-git",   {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
-    const g = await rg.json();
-    const rx = await fetch("/sync-codex", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
-    const x = await rx.json();
-    if (cc.status==="busy" || g.status==="busy" || x.status==="busy") {
-      _actAppend("sync — ya hay una sincronización en curso, probá de nuevo en un rato", "warn");
-    } else {
-      _actAppend("sync-cc — " + (cc.imported||0) + " sesión(es) importada(s)", (cc.imported||0)>0?"ok":"info");
-      _actAppend("sync-git — " + (g.imported||0) + " commit(s) importado(s)",   (g.imported||0)>0?"ok":"info");
-      _actAppend("sync-codex — " + (x.imported||0) + " sesión(es) importada(s)", (x.imported||0)>0?"ok":"info");
-    }
-    if (((cc.imported||0)+(x.imported||0))>0 && typeof renderRunsTable==="function") setTimeout(renderRunsTable, 800);
-  } catch(e) { _actAppend("sync — " + e.message, "fail"); }
-  finally { _actBusy(btn, false, "sync"); }
+    const nCc = await _syncOne("/sync-cc", "sync-cc", "sesión(es)");
+    const nGit = await _syncOne("/sync-git", "sync-git", "commit(s)");
+    const nCodex = await _syncOne("/sync-codex", "sync-codex", "sesión(es)");
+    if ((nCc + nGit + nCodex) > 0 && typeof renderRunsTable === "function") setTimeout(renderRunsTable, 800);
+  } finally { _actBusy(btn, false, "sync"); }
 }
 
 async function runIndexDocs(btn) {

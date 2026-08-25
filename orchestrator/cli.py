@@ -1002,6 +1002,13 @@ def doctor(
     from orchestrator.db import _conn as _doctor_conn
     _now = _dt.now(_tz.utc)
     _STALE_HOURS = 24
+    # Tolerancia para el gap residual entre mtime del archivo / updated_at_ms
+    # y el "fin" reconstruido (ts_start + duration_ms): son magnitudes
+    # equivalentes pero no bit-a-bit identicas (el archivo se flushea despues
+    # del ultimo evento parseado). Sin esto, sesiones YA sincronizadas con un
+    # gap de fracciones de segundo terminaban en falso-stale permanente en
+    # cuanto esa actividad envejecia mas de _STALE_HOURS.
+    _STALENESS_TOLERANCE = _td(minutes=5)
 
     def _parse_dt(raw: Optional[str]):
         if not raw:
@@ -1012,26 +1019,35 @@ def doctor(
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=_tz.utc)
 
-    def _newest_imported_end(provider: str):
-        """Fin de actividad mas reciente ya importado para `provider`.
+    def _newest_imported_end(provider: str, reason_prefix: str):
+        """Fin de actividad mas reciente ya importado por el watcher AUTOMATICO
+        de `provider` (no cualquier run con ese provider).
 
         `runs.ts` guarda el INICIO de la sesion/thread (`ts_start`), pero lo
         disponible en disco para Claude Code y Codex se mide por actividad
         (mtime del archivo / `updated_at_ms`), que refleja el FIN. Comparar
         inicio contra fin subestima lo importado y puede quedar en falso-stale
         permanente para sesiones largas, sin que un resync lo corrija. Se
-        aproxima el fin real como `ts_start + duration_ms`, ambos ya
-        guardados por fila.
+        aproxima el fin real como `ts_start + duration_ms` (clamped a >=0 -
+        un duration_ms negativo de un import manual/MCP no debe restar tiempo).
+
+        Se filtra ademas por el prefijo de `routing_reason` que usan
+        watcher.py/codex_watcher.py (`"Claude Code session · "` /
+        `"Codex thread · "`) y NO solo por `provider`: un import manual
+        (`import-context --agent claude-code`) comparte el mismo provider
+        pero no es evidencia de que el sync automatico este al dia - podia
+        enmascarar staleness real si su ts era mas reciente.
         """
         rows = _doctor_conn().execute(
-            "SELECT ts, duration_ms FROM runs WHERE provider=?", (provider,)
+            "SELECT ts, duration_ms FROM runs WHERE provider=? AND routing_reason LIKE ?",
+            (provider, f"{reason_prefix}%"),
         ).fetchall()
         latest = None
         for row in rows:
             start = _parse_dt(row["ts"])
             if start is None:
                 continue
-            end = start + _td(milliseconds=row["duration_ms"] or 0)
+            end = start + _td(milliseconds=max(row["duration_ms"] or 0, 0))
             if latest is None or end > latest:
                 latest = end
         return latest
@@ -1039,7 +1055,7 @@ def doctor(
     def _check_staleness(label: str, available, imported, hint: str) -> None:
         if available is None:
             return  # nada en disco para esta fuente todavía
-        if imported is None or available > imported:
+        if imported is None or available > imported + _STALENESS_TOLERANCE:
             gap_h = (_now - available).total_seconds() / 3600
             if gap_h > _STALE_HOURS:
                 warn(f"{label}: hay actividad de hace {gap_h / 24:.1f} día(s) sin sincronizar", hint)
@@ -1050,14 +1066,16 @@ def doctor(
 
     try:
         from orchestrator.watcher import newest_available_mtime as _cc_avail
-        _check_staleness("Claude Code", _cc_avail(), _newest_imported_end("claude-code"),
+        _check_staleness("Claude Code", _cc_avail(),
+                          _newest_imported_end("claude-code", "Claude Code session · "),
                           "Ejecutá: ai-orchestrator sync-cc")
     except Exception as exc:
         info(f"No se pudo evaluar staleness de Claude Code: {exc}")
 
     try:
         from orchestrator.codex_watcher import newest_available_ts as _codex_avail
-        _check_staleness("Codex", _codex_avail(), _newest_imported_end("codex"),
+        _check_staleness("Codex", _codex_avail(),
+                          _newest_imported_end("codex", "Codex thread · "),
                           "Ejecutá: ai-orchestrator sync-codex")
     except Exception as exc:
         info(f"No se pudo evaluar staleness de Codex: {exc}")
