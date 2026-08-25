@@ -814,16 +814,25 @@ async function runFix(btn, opts) {
 
 async function runSync(btn) {
   _actBusy(btn, true);
-  _actAppend("sync — importando Claude Code + Git...", "info");
+  _actAppend("sync — importando Claude Code + Git + Codex...", "info");
   try {
-    const [rcc, rg] = await Promise.all([
-      fetch("/sync-cc",  {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"}),
-      fetch("/sync-git", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"}),
-    ]);
-    const cc = await rcc.json(); const g = await rg.json();
-    _actAppend("sync-cc — " + (cc.imported||0) + " sesión(es) importada(s)", (cc.imported||0)>0?"ok":"info");
-    _actAppend("sync-git — " + (g.imported||0) + " commit(s) importado(s)",   (g.imported||0)>0?"ok":"info");
-    if ((cc.imported||0)>0 && typeof renderRunsTable==="function") setTimeout(renderRunsTable, 800);
+    // Secuencial, no Promise.all: los tres endpoints comparten un mismo lock
+    // no-bloqueante en el servidor: en paralelo, solo el primero en llegar
+    // adquiere el lock y los otros dos responden 409 "busy".
+    const rcc = await fetch("/sync-cc",    {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+    const cc = await rcc.json();
+    const rg = await fetch("/sync-git",   {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+    const g = await rg.json();
+    const rx = await fetch("/sync-codex", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+    const x = await rx.json();
+    if (cc.status==="busy" || g.status==="busy" || x.status==="busy") {
+      _actAppend("sync — ya hay una sincronización en curso, probá de nuevo en un rato", "warn");
+    } else {
+      _actAppend("sync-cc — " + (cc.imported||0) + " sesión(es) importada(s)", (cc.imported||0)>0?"ok":"info");
+      _actAppend("sync-git — " + (g.imported||0) + " commit(s) importado(s)",   (g.imported||0)>0?"ok":"info");
+      _actAppend("sync-codex — " + (x.imported||0) + " sesión(es) importada(s)", (x.imported||0)>0?"ok":"info");
+    }
+    if (((cc.imported||0)+(x.imported||0))>0 && typeof renderRunsTable==="function") setTimeout(renderRunsTable, 800);
   } catch(e) { _actAppend("sync — " + e.message, "fail"); }
   finally { _actBusy(btn, false, "sync"); }
 }

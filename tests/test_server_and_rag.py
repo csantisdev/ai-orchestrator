@@ -345,3 +345,64 @@ def test_router_cost_persisted():
         paths_mod.HOME_DIR = orig_home
         paths_mod.DB_PATH = orig_db
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_sync_endpoints_reject_concurrent_runs(monkeypatch):
+    """Un segundo POST /sync-git mientras el primero esta en curso responde
+    409 'busy' en vez de correr en paralelo (Workstream D - _sync_lock)."""
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+    import orchestrator.git_scanner as git_scanner_mod
+    from orchestrator.server import serve
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    orig_home = paths_mod.HOME_DIR
+    orig_db = paths_mod.DB_PATH
+    port = 19980
+
+    def _slow_scan(*_a, **_kw):
+        time.sleep(0.6)
+        return []
+
+    monkeypatch.setattr(git_scanner_mod, "scan_and_import", _slow_scan)
+
+    def _run():
+        paths_mod.HOME_DIR = tmp_path
+        paths_mod.DB_PATH = tmp_path / "runs.db"
+        db_mod._local = threading.local()
+        db_mod.init_db()
+        serve(port, None, False, {})
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    try:
+        assert _wait_for_port(port), "server did not start in time"
+
+        statuses: list[int] = []
+
+        def _post():
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("POST", "/sync-git", body="{}",
+                         headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            statuses.append(resp.status)
+            resp.read()
+            conn.close()
+
+        t1 = threading.Thread(target=_post)
+        t1.start()
+        time.sleep(0.15)  # asegura que t1 tome el lock antes de que arranque t2
+        t2 = threading.Thread(target=_post)
+        t2.start()
+        t1.join(timeout=5)
+        t2.join(timeout=5)
+
+        assert 200 in statuses, f"esperaba una respuesta 200, obtuve {statuses}"
+        assert 409 in statuses, f"esperaba una respuesta 409 'busy', obtuve {statuses}"
+    finally:
+        paths_mod.HOME_DIR = orig_home
+        paths_mod.DB_PATH = orig_db
+        db_mod._local = threading.local()
+        shutil.rmtree(tmp, ignore_errors=True)

@@ -34,6 +34,16 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
     from orchestrator.index import ProjectNotFoundError
     from orchestrator.sse import BUS
 
+    # Compartido entre los handlers manuales de sync y el hilo de autosync
+    # periodico (mas abajo) para que no corran dos sincronizaciones a la vez
+    # DENTRO de este proceso. Los tres importadores dedupean via INSERT OR
+    # IGNORE sobre session_id UNIQUE, pero ese INSERT no es atomico con el
+    # lastrowid que usan para indexar en RAG - un segundo proceso corriendo
+    # sync en paralelo (fuera de este lock, que es solo intra-proceso) podia
+    # hacer que el perdedor de la carrera indexara con un run_id ajeno; ver
+    # el fallback via SELECT session_id en git_scanner/watcher/codex_watcher.
+    _sync_lock = _threading.Lock()
+
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass
@@ -784,6 +794,9 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             return
 
         def _post_sync_cc(self):
+            if not _sync_lock.acquire(blocking=False):
+                self._json({"status": "busy", "message": "sincronización ya en curso"}, 409)
+                return
             try:
                 from orchestrator.watcher import scan_and_import
                 from orchestrator.tracer import span as _tspan
@@ -792,9 +805,14 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 self._json({"imported": len(imported), "sessions": imported})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
+            finally:
+                _sync_lock.release()
             return
 
         def _post_sync_git(self):
+            if not _sync_lock.acquire(blocking=False):
+                self._json({"status": "busy", "message": "sincronización ya en curso"}, 409)
+                return
             try:
                 from orchestrator.git_scanner import scan_and_import as git_import
                 from orchestrator.tracer import span as _tspan
@@ -803,9 +821,14 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 self._json({"imported": len(imported), "commits": imported})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
+            finally:
+                _sync_lock.release()
             return
 
         def _post_sync_codex(self):
+            if not _sync_lock.acquire(blocking=False):
+                self._json({"status": "busy", "message": "sincronización ya en curso"}, 409)
+                return
             try:
                 from orchestrator.codex_watcher import scan_and_import as codex_import
                 from orchestrator.tracer import span as _tspan
@@ -814,6 +837,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 self._json({"imported": len(imported), "sessions": imported})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
+            finally:
+                _sync_lock.release()
             return
 
         def _post_rates_refresh(self):
@@ -1463,6 +1488,46 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
         except Exception:
             pass
     _threading.Thread(target=_prewarm_chroma, daemon=True).start()
+
+    _AUTOSYNC_INTERVAL_SEC = 900  # 15 min
+
+    def _autosync_pass():
+        from orchestrator.tracer import span as _tspan
+        try:
+            from orchestrator.watcher import scan_and_import as cc_import
+            with _tspan("Autosync · Claude Code"):
+                cc_import(config, quiet=True)
+        except Exception:
+            pass
+        try:
+            from orchestrator.git_scanner import scan_and_import as git_import
+            with _tspan("Autosync · Git"):
+                git_import({}, quiet=True)
+        except Exception:
+            pass
+        try:
+            from orchestrator.codex_watcher import scan_and_import as codex_import
+            with _tspan("Autosync · Codex"):
+                codex_import(config, quiet=True)
+        except Exception:
+            pass
+
+    def _periodic_sync():
+        import time as _time
+        _time.sleep(30)  # deja que el dashboard termine de arrancar primero
+        while True:
+            try:
+                if _sync_lock.acquire(blocking=False):
+                    try:
+                        _autosync_pass()
+                    finally:
+                        _sync_lock.release()
+                # si el lock esta tomado (sync manual en curso), se salta este ciclo
+            except Exception:
+                pass  # una iteracion fallida no debe matar el hilo
+            _time.sleep(_AUTOSYNC_INTERVAL_SEC)
+
+    _threading.Thread(target=_periodic_sync, daemon=True).start()
 
     if open_browser:
         webbrowser.open(url)

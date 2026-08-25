@@ -34,6 +34,22 @@ class CCSession:
     response_text: str = ""
 
 
+def newest_available_mtime() -> Optional[datetime]:
+    """mtime mas reciente entre los archivos de sesion en disco (chequeo de
+    staleness en `doctor`, no dispara ningun parseo/import)."""
+    if not CLAUDE_PROJECTS_DIR.exists():
+        return None
+    newest: Optional[float] = None
+    for jsonl_path in CLAUDE_PROJECTS_DIR.glob("*/*.jsonl"):
+        try:
+            mtime = jsonl_path.stat().st_mtime
+        except OSError:
+            continue
+        if newest is None or mtime > newest:
+            newest = mtime
+    return datetime.fromtimestamp(newest, tz=timezone.utc) if newest is not None else None
+
+
 def _parse_session(jsonl_path: Path) -> Optional[CCSession]:
     entries = []
     try:
@@ -300,8 +316,17 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                                 session.session_id,
                             ),
                         )
+                        if cur.rowcount:
+                            run_id = cur.lastrowid
+                        else:
+                            # Otro proceso ya importo esta sesion entre el
+                            # chequeo `existing` y este INSERT - lastrowid de
+                            # esta conexion apuntaria a una fila ajena.
+                            existing_row = conn.execute(
+                                "SELECT id FROM runs WHERE session_id=?", (session.session_id,)
+                            ).fetchone()
+                            run_id = existing_row[0] if existing_row else None
                         conn.commit()
-                    run_id = cur.lastrowid
                     if run_id:
                         try:
                             from orchestrator.db import get_active_step_id

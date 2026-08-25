@@ -978,7 +978,108 @@ def doctor(
                 if resp_count > 0:
                     info(f"  RAG responses: {resp_count} vectores")
 
-    # ── 5. Resumen ─────────────────────────────────────────────────────────
+    # ── 5. Ingesta y pricing ────────────────────────────────────────────────
+    console.print("\n[bold cyan]Ingesta y pricing[/bold cyan]")
+
+    try:
+        from orchestrator.catalog import list_used_models_without_price
+        _gaps = list_used_models_without_price(config)
+    except Exception as exc:
+        _gaps = []
+        info(f"No se pudo evaluar pricing: {exc}")
+
+    # 'git' registra el autor del commit en el campo modelo, no un modelo real.
+    _real_gaps = [g for g in _gaps if g["provider"] != "git"]
+    if _real_gaps:
+        _modelos = ", ".join(f"{g['provider']}/{g['model']}" for g in _real_gaps[:8])
+        _extra = f" (+{len(_real_gaps) - 8} más)" if len(_real_gaps) > 8 else ""
+        warn(f"{len(_real_gaps)} modelo(s) usados sin precio: {_modelos}{_extra}",
+             "Agregá el precio en config.yaml → pricing, o corré 'ai-orchestrator pricing validate'")
+    else:
+        ok("Todos los modelos usados tienen precio registrado")
+
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from orchestrator.db import _conn as _doctor_conn
+    _now = _dt.now(_tz.utc)
+    _STALE_HOURS = 24
+
+    def _parse_dt(raw: Optional[str]):
+        if not raw:
+            return None
+        try:
+            parsed = _dt.fromisoformat(raw)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=_tz.utc)
+
+    def _newest_imported_end(provider: str):
+        """Fin de actividad mas reciente ya importado para `provider`.
+
+        `runs.ts` guarda el INICIO de la sesion/thread (`ts_start`), pero lo
+        disponible en disco para Claude Code y Codex se mide por actividad
+        (mtime del archivo / `updated_at_ms`), que refleja el FIN. Comparar
+        inicio contra fin subestima lo importado y puede quedar en falso-stale
+        permanente para sesiones largas, sin que un resync lo corrija. Se
+        aproxima el fin real como `ts_start + duration_ms`, ambos ya
+        guardados por fila.
+        """
+        rows = _doctor_conn().execute(
+            "SELECT ts, duration_ms FROM runs WHERE provider=?", (provider,)
+        ).fetchall()
+        latest = None
+        for row in rows:
+            start = _parse_dt(row["ts"])
+            if start is None:
+                continue
+            end = start + _td(milliseconds=row["duration_ms"] or 0)
+            if latest is None or end > latest:
+                latest = end
+        return latest
+
+    def _check_staleness(label: str, available, imported, hint: str) -> None:
+        if available is None:
+            return  # nada en disco para esta fuente todavía
+        if imported is None or available > imported:
+            gap_h = (_now - available).total_seconds() / 3600
+            if gap_h > _STALE_HOURS:
+                warn(f"{label}: hay actividad de hace {gap_h / 24:.1f} día(s) sin sincronizar", hint)
+            else:
+                info(f"{label}: actividad reciente ya cubierta por el próximo sync ({gap_h:.1f}h)")
+        else:
+            info(f"{label}: sincronizado")
+
+    try:
+        from orchestrator.watcher import newest_available_mtime as _cc_avail
+        _check_staleness("Claude Code", _cc_avail(), _newest_imported_end("claude-code"),
+                          "Ejecutá: ai-orchestrator sync-cc")
+    except Exception as exc:
+        info(f"No se pudo evaluar staleness de Claude Code: {exc}")
+
+    try:
+        from orchestrator.codex_watcher import newest_available_ts as _codex_avail
+        _check_staleness("Codex", _codex_avail(), _newest_imported_end("codex"),
+                          "Ejecutá: ai-orchestrator sync-codex")
+    except Exception as exc:
+        info(f"No se pudo evaluar staleness de Codex: {exc}")
+
+    if projects:
+        try:
+            from orchestrator.git_scanner import newest_local_commit_date, _newest_imported_commit_date
+            _conn_git = _doctor_conn()
+            for alias, path in sorted(projects.items()):
+                if project and alias != project:
+                    continue
+                proj_path = _Path(path)
+                if not proj_path.exists():
+                    continue
+                local_dt = _parse_dt(newest_local_commit_date(proj_path))
+                imported_dt = _parse_dt(_newest_imported_commit_date(_conn_git, alias))
+                _check_staleness(f"Git · {alias}", local_dt, imported_dt,
+                                  "Ejecutá: ai-orchestrator sync-git")
+        except Exception as exc:
+            info(f"No se pudo evaluar staleness de git: {exc}")
+
+    # ── 6. Resumen ─────────────────────────────────────────────────────────
     console.print()
     if not issues and not warnings:
         console.print("[bold green]✓ Todo en orden — el orquestador está listo para usar.[/bold green]")

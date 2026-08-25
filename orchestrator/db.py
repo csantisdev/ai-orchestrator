@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from orchestrator.providers.base import CompletionResult
@@ -292,13 +292,28 @@ def fts_search(query: str, limit: int = 10) -> list[sqlite3.Row]:
 
 
 def daily_cost(project: str) -> float:
+    """Costo acumulado del dia LOCAL para `project`.
+
+    `ts` se guarda en UTC; convertir cada `ts` a fecha local con
+    `local_date_from_ts` (en vez de comparar el string UTC directamente)
+    evita que el corte de "dia" ocurra en la medianoche UTC en lugar de la
+    medianoche del usuario - ver orchestrator/timeutil.py.
+    """
+    from orchestrator.timeutil import local_date_from_ts
+
     conn = _conn()
-    today = datetime.now(timezone.utc).date().isoformat()
-    row = conn.execute(
-        "SELECT COALESCE(SUM(cost_usd), 0.0) FROM runs WHERE project=? AND date(ts)=?",
-        (project, today),
-    ).fetchone()
-    return float(row[0]) if row else 0.0
+    today_local = datetime.now().astimezone().date()
+    # Ventana de 2 dias UTC alcanza cualquier offset de zona horaria real.
+    window_start = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    rows = conn.execute(
+        "SELECT ts, cost_usd FROM runs WHERE project=? AND ts >= ? AND cost_usd IS NOT NULL",
+        (project, window_start),
+    ).fetchall()
+    total = 0.0
+    for row in rows:
+        if local_date_from_ts(row["ts"]) == today_local:
+            total += row["cost_usd"] or 0.0
+    return total
 
 
 def projects_list() -> list[str]:
