@@ -1328,7 +1328,10 @@ def _mcp_client_envs(project_root: Path, gemini_settings: Path) -> list[tuple[st
             found.append((label, None, f"no se pudo leer como TOML ({type(exc).__name__})"))
             continue
         servers = data.get("mcp_servers", {})
-        server = servers.get("ai_orchestrator") if isinstance(servers, dict) else None
+        if not isinstance(servers, dict):
+            found.append((label, None, "'mcp_servers' no es una tabla"))
+            continue
+        server = servers.get("ai_orchestrator")
         if server is None:
             continue
         if not isinstance(server, dict):

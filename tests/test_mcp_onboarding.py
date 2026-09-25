@@ -374,3 +374,13 @@ def test_codex_scalar_env_fails_closed_without_rewriting(tmp_path):
 
     assert path.read_text(encoding="utf-8") == original
     assert len(calls["fail"]) == 1 and calls["did"] == []
+
+
+def test_client_env_discovery_reports_scalar_codex_servers(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text('mcp_servers = "broken"', encoding="utf-8")
+
+    found = {label: error for label, _, error in _mcp_client_envs(tmp_path, tmp_path / "missing.json")}
+
+    assert "mcp_servers" in found[".codex/config.toml"]
