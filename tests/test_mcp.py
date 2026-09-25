@@ -174,6 +174,14 @@ def governed_env(monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_MCP_TRANSPORT", "stdio")
 
 
+@pytest.fixture()
+def workflow_env(monkeypatch):
+    monkeypatch.setenv("ORCHESTRATOR_MCP_PROFILE", "workflow_operator")
+    monkeypatch.setenv("ORCHESTRATOR_MCP_PROJECTS", "allowed")
+    monkeypatch.setenv("ORCHESTRATOR_MCP_CLIENT_SURFACE", "codex_cli")
+    monkeypatch.setenv("ORCHESTRATOR_MCP_TRANSPORT", "stdio")
+
+
 def test_readonly_discovery_exposes_only_read_tools(governed_env):
     import orchestrator.mcp as mcp
     from orchestrator.mcp_governance import execution_identity, visible_tools
@@ -271,3 +279,142 @@ def test_invalid_arguments_are_rejected_before_handler_and_audited(isolated_db, 
         "SELECT status, reason_code FROM mcp_invocations"
     ).fetchone()
     assert dict(row) == {"status": "error", "reason_code": "invalid_arguments"}
+
+
+def test_mutation_request_id_replays_durable_result_without_duplicate(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    args = {
+        "project": "allowed",
+        "title": "Idempotent context",
+        "request_id": "create-context-001",
+    }
+    first, first_error = mcp._governed_tool_call("create_context", args, "rpc-1")
+    replay, replay_error = mcp._governed_tool_call("create_context", args, "rpc-2")
+
+    assert (first_error, replay_error) == (False, False)
+    assert replay == first
+    assert isolated_db._conn().execute("SELECT COUNT(*) FROM contexts").fetchone()[0] == 1
+    row = isolated_db._conn().execute(
+        "SELECT status, request_source, replay_safe, result_json FROM mcp_invocations"
+    ).fetchone()
+    assert row["status"] == "success"
+    assert row["request_source"] == "client"
+    assert row["replay_safe"] == 1
+    assert '"context_id":' in row["result_json"]
+
+
+def test_reused_jsonrpc_id_without_request_id_executes_distinct_mutations(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    first, first_error = mcp._governed_tool_call(
+        "create_context", {"project": "allowed", "title": "First"}, "reused-rpc-id"
+    )
+    second, second_error = mcp._governed_tool_call(
+        "create_context", {"project": "allowed", "title": "Second"}, "reused-rpc-id"
+    )
+
+    assert (first_error, second_error) == (False, False)
+    assert first["context_id"] != second["context_id"]
+    rows = isolated_db._conn().execute(
+        "SELECT correlation_id, request_source, replay_safe FROM mcp_invocations ORDER BY id"
+    ).fetchall()
+    assert [dict(row) for row in rows] == [
+        {"correlation_id": "reused-rpc-id", "request_source": "generated", "replay_safe": 0},
+        {"correlation_id": "reused-rpc-id", "request_source": "generated", "replay_safe": 0},
+    ]
+
+
+def test_sqlite_mutation_and_terminal_idempotency_record_rollback_together(
+    isolated_db, workflow_env, monkeypatch
+):
+    import orchestrator.mcp as mcp
+
+    original_dispatch = mcp._dispatch
+
+    def fail_after_mutation(name, args):
+        original_dispatch(name, args)
+        raise RuntimeError("simulated process failure before terminal result")
+
+    monkeypatch.setattr(mcp, "_dispatch", fail_after_mutation)
+    result, is_error = mcp._governed_tool_call(
+        "create_context",
+        {"project": "allowed", "title": "Must roll back", "request_id": "atomic-rollback"},
+        "rpc-atomic",
+    )
+
+    assert is_error is True
+    assert result["reason_code"] == "execution_error"
+    assert isolated_db._conn().execute("SELECT COUNT(*) FROM contexts").fetchone()[0] == 0
+    invocation = isolated_db._conn().execute(
+        "SELECT status, result_json FROM mcp_invocations"
+    ).fetchone()
+    assert invocation["status"] == "error"
+    assert "simulated process failure" in invocation["result_json"]
+
+
+def test_request_id_cannot_be_reused_for_another_mutation(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    mcp._governed_tool_call(
+        "create_context",
+        {"project": "allowed", "title": "First", "request_id": "one-logical-request"},
+        "rpc-1",
+    )
+    result, is_error = mcp._governed_tool_call(
+        "create_context",
+        {"project": "allowed", "title": "Second", "request_id": "one-logical-request"},
+        "rpc-2",
+    )
+
+    assert is_error is True
+    assert result["reason_code"] == "request_id_reused"
+    assert isolated_db._conn().execute("SELECT COUNT(*) FROM contexts").fetchone()[0] == 1
+
+
+def test_transition_retry_and_competitor_do_not_activate_two_steps(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Workflow")
+    first_step = isolated_db.insert_step(context_id, 1, "First")
+    second_step = isolated_db.insert_step(context_id, 2, "Second")
+    isolated_db.activate_first_step(context_id)
+
+    completed, completed_error = mcp._governed_tool_call(
+        "advance_step", {"step_id": first_step, "request_id": "advance-1"}, "rpc-1"
+    )
+    replay, replay_error = mcp._governed_tool_call(
+        "advance_step", {"step_id": first_step, "request_id": "advance-1"}, "rpc-2"
+    )
+    competitor, competitor_error = mcp._governed_tool_call(
+        "advance_step", {"step_id": first_step, "request_id": "advance-2"}, "rpc-3"
+    )
+
+    assert (completed_error, replay_error, competitor_error) == (False, False, True)
+    assert replay == completed
+    assert competitor["reason_code"] == "execution_error"
+    statuses = isolated_db._conn().execute(
+        "SELECT id, status FROM steps WHERE context_id=? ORDER BY order_idx", (context_id,)
+    ).fetchall()
+    assert [dict(row) for row in statuses] == [
+        {"id": first_step, "status": "completed"},
+        {"id": second_step, "status": "in_progress"},
+    ]
+
+
+def test_mutation_ownership_is_checked_before_transition(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("other", "Private")
+    step_id = isolated_db.insert_step(context_id, 1, "Private step")
+    isolated_db.activate_first_step(context_id)
+
+    result, is_error = mcp._governed_tool_call(
+        "advance_step", {"step_id": step_id, "request_id": "private-advance"}, "rpc-1"
+    )
+
+    assert is_error is True
+    assert result["reason_code"] == "project_out_of_scope"
+    assert isolated_db._conn().execute(
+        "SELECT status FROM steps WHERE id=?", (step_id,)
+    ).fetchone()["status"] == "in_progress"

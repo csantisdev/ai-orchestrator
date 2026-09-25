@@ -125,6 +125,19 @@ descubrirlas como antes de ejecutarlas. Cada `tools/call`, incluso uno denegado,
 queda registrado automáticamente en SQLite con hashes de entrada/salida, sin
 persistir los argumentos completos.
 
+Las herramientas mutables aceptan opcionalmente `request_id`. Solo una clave
+explícita del cliente tiene semántica de persistencia: el cliente debe mantener
+la misma clave al reintentar una operación y el servidor devuelve el resultado
+terminal almacenado sin ejecutar la mutación de nuevo. El ID JSON-RPC se guarda
+solo como correlación de auditoría y nunca se deriva como clave durable; sin
+`request_id`, el servidor genera una clave nueva no segura para replay. Reutilizar
+una clave explícita para otro tool o argumentos devuelve `request_id_reused`; una
+operación reservada pero aún en curso devuelve `request_in_progress` y es
+reintentable. Las mutaciones que solo escriben SQLite, incluida su evidencia
+terminal de idempotencia, se confirman en una única transacción SQLite. Las
+transiciones `advance_step` y `skip_step` son además condicionales, por lo que un
+competidor no puede completar ni activar pasos extra.
+
 Para habilitar herramientas de un proyecto, la configuración que inicia el
 proceso debe declarar una allowlist explícita. Estas variables son parte del
 límite de confianza del proceso local; los argumentos de una tool no pueden

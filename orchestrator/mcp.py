@@ -274,6 +274,18 @@ TOOLS = [
     },
 ]
 
+_MUTATING_TOOLS = {
+    "confirm_alignment", "record_tool_call", "create_context", "add_step",
+    "update_context", "update_step", "advance_step", "skip_step",
+    "import_agent_context",
+}
+for _tool in TOOLS:
+    if _tool["name"] in _MUTATING_TOOLS:
+        _tool["inputSchema"]["properties"]["request_id"] = {
+            "type": "string",
+            "description": "Clave estable por intento lógico; repetirla reproduce el resultado sin repetir la mutación.",
+        }
+
 
 def _tool_get_context(args: dict) -> dict:
     from orchestrator.db import _conn
@@ -317,7 +329,7 @@ def _validate_step_context(conn: Any, step_id: int, context_id: int) -> None:
 
 
 def _tool_confirm_alignment(args: dict) -> dict:
-    from orchestrator.db import _conn, _write_lock
+    from orchestrator.db import _conn, _write_lock, commit_if_not_atomic
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
     with _write_lock:
@@ -335,12 +347,12 @@ def _tool_confirm_alignment(args: dict) -> dict:
                 args.get("message", ""),
             ),
         )
-        conn.commit()
+        commit_if_not_atomic(conn)
     return {"id": cur.lastrowid, "ts": ts, "confirmed": args.get("confirmed", True)}
 
 
 def _tool_record_tool_call(args: dict) -> dict:
-    from orchestrator.db import _conn, _write_lock
+    from orchestrator.db import _conn, _write_lock, commit_if_not_atomic
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
     with _write_lock:
@@ -359,45 +371,64 @@ def _tool_record_tool_call(args: dict) -> dict:
                 args.get("duration_ms"),
             ),
         )
-        conn.commit()
+        commit_if_not_atomic(conn)
     return {"id": cur.lastrowid, "ts": ts}
 
 
 def _tool_skip_step(args: dict) -> dict:
-    from orchestrator.db import _conn, _write_lock
+    from orchestrator.db import _conn, _write_lock, commit_if_not_atomic
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
     step_id = args["step_id"]
     with _write_lock:
-        step = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
-        if step is None:
-            raise ValueError(f"step {step_id} not found")
-        if step["status"] not in ("pending", "in_progress"):
-            raise ValueError(f"step {step_id} is '{step['status']}' — only pending/in_progress can be skipped")
-        context_id = step["context_id"]
-        was_active = step["status"] == "in_progress"
-        conn.execute(
-            "UPDATE steps SET status='skipped', completed_at=?, notes=? WHERE id=?",
-            (ts, args.get("reason", ""), step_id),
-        )
-        next_step = None
-        if was_active:
-            next_step = conn.execute(
-                """SELECT * FROM steps
-                   WHERE context_id=? AND order_idx > ? AND status='pending'
-                   ORDER BY order_idx LIMIT 1""",
-                (context_id, step["order_idx"]),
-            ).fetchone()
-            if next_step:
-                conn.execute(
-                    "UPDATE steps SET status='in_progress', started_at=? WHERE id=?",
+        try:
+            if not conn.in_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            step = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
+            if step is None:
+                raise ValueError(f"step {step_id} not found")
+            if step["status"] not in ("pending", "in_progress"):
+                raise ValueError(f"step {step_id} is '{step['status']}' — only pending/in_progress can be skipped")
+            context_id = step["context_id"]
+            was_active = step["status"] == "in_progress"
+            changed = conn.execute(
+                "UPDATE steps SET status='skipped', completed_at=?, notes=? WHERE id=? AND status=?",
+                (ts, args.get("reason", ""), step_id, step["status"]),
+            )
+            if changed.rowcount != 1:
+                raise ValueError(f"step {step_id} changed concurrently")
+            next_step = None
+            if was_active:
+                next_step = conn.execute(
+                    """SELECT * FROM steps WHERE context_id=? AND order_idx > ? AND status='pending'
+                       ORDER BY order_idx LIMIT 1""",
+                    (context_id, step["order_idx"]),
+                ).fetchone()
+                if next_step and conn.execute(
+                    "UPDATE steps SET status='in_progress', started_at=? WHERE id=? AND status='pending'",
                     (ts, next_step["id"]),
+                ).rowcount != 1:
+                    raise ValueError(f"next step {next_step['id']} changed concurrently")
+            context_done = False
+            if was_active and next_step is None and conn.execute(
+                """SELECT COUNT(*) FROM steps
+                   WHERE context_id=? AND id!=? AND status IN ('pending','in_progress')""",
+                (context_id, step_id),
+            ).fetchone()[0] == 0:
+                conn.execute(
+                    "UPDATE contexts SET status='completed', updated_at=? WHERE id=? AND status='active'",
+                    (ts, context_id),
                 )
-        conn.commit()
+                context_done = True
+            commit_if_not_atomic(conn)
+        except Exception:
+            conn.rollback()
+            raise
     return {
         "skipped_step_id": step_id,
         "was_active": was_active,
-        "next_step": dict(next_step) if next_step else None,
+        "next_step": {**dict(next_step), "status": "in_progress", "started_at": ts} if next_step else None,
+        "context_done": context_done,
     }
 
 
@@ -429,7 +460,7 @@ def _tool_create_context(args: dict) -> dict:
 
 
 def _tool_update_context(args: dict) -> dict:
-    from orchestrator.db import _conn, _write_lock
+    from orchestrator.db import _conn, _write_lock, commit_if_not_atomic
     context_id = args.get("context_id")
     if not context_id:
         raise ValueError("context_id es requerido")
@@ -462,14 +493,14 @@ def _tool_update_context(args: dict) -> dict:
             f"UPDATE contexts SET {', '.join(fields)} WHERE id=?",
             params,
         )
-        conn.commit()
+        commit_if_not_atomic(conn)
 
     updated_fields = [f for f in ("title", "description", "status") if f in args]
     return {"context_id": context_id, "updated": updated_fields, "updated_at": ts}
 
 
 def _tool_update_step(args: dict) -> dict:
-    from orchestrator.db import _conn, _write_lock
+    from orchestrator.db import _conn, _write_lock, commit_if_not_atomic
     step_id = args.get("step_id")
     if not step_id:
         raise ValueError("step_id es requerido")
@@ -493,7 +524,7 @@ def _tool_update_step(args: dict) -> dict:
             f"UPDATE steps SET {', '.join(fields)} WHERE id=?",
             params,
         )
-        conn.commit()
+        commit_if_not_atomic(conn)
 
     updated_fields = [f for f in ("title", "description", "notes", "agent_preset") if f in args]
     return {"step_id": step_id, "updated": updated_fields}
@@ -522,48 +553,54 @@ def _tool_add_step(args: dict) -> dict:
 
 
 def _tool_advance_step(args: dict) -> dict:
-    from orchestrator.db import _conn, _write_lock
+    from orchestrator.db import _conn, _write_lock, commit_if_not_atomic
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
     step_id = args["step_id"]
     with _write_lock:
-        step = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
-        if step is None:
-            raise ValueError(f"step {step_id} not found")
-        if step["status"] != "in_progress":
-            raise ValueError(f"step {step_id} está en '{step['status']}' — solo se pueden avanzar pasos in_progress")
-        context_id = step["context_id"]
-        conn.execute(
-            "UPDATE steps SET status='completed', completed_at=?, notes=? WHERE id=?",
-            (ts, args.get("notes", ""), step_id),
-        )
-        next_step_row = conn.execute(
-            """SELECT * FROM steps
-               WHERE context_id=? AND order_idx > ? AND status='pending'
-               ORDER BY order_idx LIMIT 1""",
-            (context_id, step["order_idx"]),
-        ).fetchone()
-        context_done = False
-        next_step = None
-        if next_step_row:
-            conn.execute(
-                "UPDATE steps SET status='in_progress', started_at=? WHERE id=?",
-                (ts, next_step_row["id"]),
-            )
-            next_step = {**dict(next_step_row), "status": "in_progress", "started_at": ts}
-        else:
-            unresolved = conn.execute(
-                """SELECT COUNT(*) FROM steps
-                   WHERE context_id=? AND id!=? AND status IN ('pending','in_progress')""",
-                (context_id, step_id),
-            ).fetchone()[0]
-            if unresolved == 0:
-                conn.execute(
-                    "UPDATE contexts SET status='completed', updated_at=? WHERE id=?",
-                    (ts, context_id),
-                )
-                context_done = True
-        conn.commit()
+        try:
+            if not conn.in_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            step = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
+            if step is None:
+                raise ValueError(f"step {step_id} not found")
+            context_id = step["context_id"]
+            if conn.execute(
+                """UPDATE steps SET status='completed', completed_at=?, notes=?
+                   WHERE id=? AND status='in_progress'""",
+                (ts, args.get("notes", ""), step_id),
+            ).rowcount != 1:
+                raise ValueError(f"step {step_id} está en '{step['status']}' — solo se pueden avanzar pasos in_progress")
+            next_step_row = conn.execute(
+                """SELECT * FROM steps WHERE context_id=? AND order_idx > ? AND status='pending'
+                   ORDER BY order_idx LIMIT 1""",
+                (context_id, step["order_idx"]),
+            ).fetchone()
+            context_done = False
+            next_step = None
+            if next_step_row:
+                if conn.execute(
+                    "UPDATE steps SET status='in_progress', started_at=? WHERE id=? AND status='pending'",
+                    (ts, next_step_row["id"]),
+                ).rowcount != 1:
+                    raise ValueError(f"next step {next_step_row['id']} changed concurrently")
+                next_step = {**dict(next_step_row), "status": "in_progress", "started_at": ts}
+            else:
+                unresolved = conn.execute(
+                    """SELECT COUNT(*) FROM steps
+                       WHERE context_id=? AND id!=? AND status IN ('pending','in_progress')""",
+                    (context_id, step_id),
+                ).fetchone()[0]
+                if unresolved == 0:
+                    conn.execute(
+                        "UPDATE contexts SET status='completed', updated_at=? WHERE id=? AND status='active'",
+                        (ts, context_id),
+                    )
+                    context_done = True
+            commit_if_not_atomic(conn)
+        except Exception:
+            conn.rollback()
+            raise
     return {
         "completed_step_id": step_id,
         "next_step": next_step,
@@ -668,7 +705,10 @@ def _governed_tool_call(name: str, args: Any, correlation_id: str | None) -> tup
         TOOL_CATEGORIES,
         audit_invocation,
         authorize,
+        claim_mutation,
+        complete_mutation,
         execution_identity,
+        mutation_request_id,
         new_request_id,
         resolve_project,
         validate_arguments,
@@ -679,6 +719,11 @@ def _governed_tool_call(name: str, args: Any, correlation_id: str | None) -> tup
     started_at = time.monotonic()
     project = None
     safe_args = args if isinstance(args, dict) else {}
+    request_source = "generated"
+    replay_safe = False
+    is_mutation = False
+    mutation_claimed = False
+    atomic_sqlite_mutation = False
     try:
         tool = next((tool for tool in TOOLS if tool["name"] == name), None)
         if tool is None:
@@ -689,13 +734,67 @@ def _governed_tool_call(name: str, args: Any, correlation_id: str | None) -> tup
             args = {**args, "project": next(iter(identity.project_scope))}
             project = args["project"]
         authorize(identity, name, project)
-        result = _dispatch(name, args)
+        is_mutation = TOOL_CATEGORIES[name] != "read"
+        if is_mutation:
+            request_id, request_source, replay_safe = mutation_request_id(
+                name, args, correlation_id, identity
+            )
+            # RAG indexing is an external side effect; every other mutation is SQLite-only.
+            atomic_sqlite_mutation = name != "import_agent_context"
+            if atomic_sqlite_mutation:
+                from orchestrator.db import atomic_mutation
+                with atomic_mutation():
+                    claim_status, replay, replay_is_error = claim_mutation(
+                        request_id=request_id, correlation_id=correlation_id, identity=identity,
+                        tool_name=name, project=project, args=args,
+                        request_source=request_source, replay_safe=replay_safe,
+                    )
+                    if claim_status == "replay":
+                        return replay or {}, replay_is_error
+                    if claim_status == "in_progress":
+                        return {
+                            "error": "a matching mutation is still in progress",
+                            "reason_code": "request_in_progress",
+                            "retryable": True,
+                        }, True
+                    if claim_status == "mismatch":
+                        return {
+                            "error": "request_id was already used for a different mutation",
+                            "reason_code": "request_id_reused",
+                        }, True
+                    mutation_claimed = True
+                    result = _dispatch(name, args)
+                    complete_mutation(request_id, result, False, started_at)
+            else:
+                claim_status, replay, replay_is_error = claim_mutation(
+                    request_id=request_id, correlation_id=correlation_id, identity=identity,
+                    tool_name=name, project=project, args=args,
+                    request_source=request_source, replay_safe=replay_safe,
+                )
+                if claim_status == "replay":
+                    return replay or {}, replay_is_error
+                if claim_status == "in_progress":
+                    return {
+                        "error": "a matching mutation is still in progress",
+                        "reason_code": "request_in_progress",
+                        "retryable": True,
+                    }, True
+                if claim_status == "mismatch":
+                    return {
+                        "error": "request_id was already used for a different mutation",
+                        "reason_code": "request_id_reused",
+                    }, True
+                mutation_claimed = True
+                result = _dispatch(name, args)
+        else:
+            result = _dispatch(name, args)
     except PolicyDenied as exc:
         error = {"error": "tool invocation denied", "reason_code": exc.reason_code}
         audit_invocation(
             request_id=request_id, correlation_id=correlation_id, identity=identity,
             tool_name=name, project=project, args=safe_args, status="denied",
             reason_code=exc.reason_code, output=error, started_at=started_at,
+            request_source=request_source, replay_safe=replay_safe, is_error=True,
         )
         return error, True
     except ArgumentValidationError as exc:
@@ -705,22 +804,35 @@ def _governed_tool_call(name: str, args: Any, correlation_id: str | None) -> tup
             tool_name=name, project=project, args=safe_args, status="error",
             reason_code="invalid_arguments", output=error, error_code="invalid_arguments",
             started_at=started_at,
+            request_source=request_source, replay_safe=replay_safe, is_error=True,
         )
         return error, True
     except Exception as exc:
         error = {"error": str(exc), "reason_code": "execution_error"}
+        if is_mutation and mutation_claimed and not atomic_sqlite_mutation:
+            complete_mutation(
+                request_id, error, True, started_at,
+                reason_code="execution_error", error_code="execution_error",
+            )
+        else:
+            audit_invocation(
+                request_id=request_id, correlation_id=correlation_id, identity=identity,
+                tool_name=name, project=project, args=safe_args, status="error",
+                reason_code="execution_error", output=error, error_code="execution_error",
+                started_at=started_at, request_source=request_source,
+                replay_safe=replay_safe, is_error=True,
+            )
+        return error, True
+    if is_mutation:
+        if not atomic_sqlite_mutation:
+            complete_mutation(request_id, result, False, started_at)
+    else:
         audit_invocation(
             request_id=request_id, correlation_id=correlation_id, identity=identity,
-            tool_name=name, project=project, args=safe_args, status="error",
-            reason_code="execution_error", output=error, error_code="execution_error",
-            started_at=started_at,
+            tool_name=name, project=project, args=args, status="success",
+            output=result, started_at=started_at, request_source=request_source,
+            replay_safe=replay_safe,
         )
-        return error, True
-    audit_invocation(
-        request_id=request_id, correlation_id=correlation_id, identity=identity,
-        tool_name=name, project=project, args=args, status="success",
-        output=result, started_at=started_at,
-    )
     return result, False
 
 

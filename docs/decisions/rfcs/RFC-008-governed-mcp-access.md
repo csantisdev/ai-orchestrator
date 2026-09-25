@@ -470,13 +470,14 @@ CREATE INDEX idx_mcp_invocations_tool_ts
 
 ### 9.1 Request ID
 
-Toda invocación mutable MUST recibir o derivar un `request_id` estable.
+Toda invocación mutable que requiera replay durable MUST recibir un
+`request_id` explícito y estable del cliente. El ID JSON-RPC solo sirve para
+correlación de auditoría y MUST NOT derivarse como una clave durable.
 
 Prioridad:
 
-1. ID de invocación entregado por el transporte/cliente, si es estable.
-2. `client_session_id + JSON-RPC id + tool_name`.
-3. UUID generado por wrapper; no sirve para deduplicar reintentos externos y debe marcarse como `non_replay_safe`.
+1. `request_id` explícito entregado por el cliente.
+2. UUID generado por wrapper; no sirve para deduplicar reintentos externos y debe marcarse como `non_replay_safe`.
 
 ### 9.2 Contrato de idempotencia
 
@@ -484,6 +485,15 @@ Prioridad:
 - Si está `in_progress`, MUST devolver conflicto/retryable sin volver a ejecutar.
 - Si falló antes de mutar, MAY reintentarse.
 - Si el estado de mutación es incierto, MUST requerir reconciliación; no repetir a ciegas.
+
+**Implementación local actual:** las mutaciones aceptan `request_id` como
+argumento opcional. Se almacena un resultado canónico duradero junto con su
+hash y un indicador de si la clave es segura para replay. Cuando no se entrega
+la clave, el wrapper genera una marcada
+`non_replay_safe`. Para handlers que solo escriben SQLite, la reserva, los
+efectos y el resultado terminal se confirman en una misma transacción SQLite:
+un crash o error revierte los efectos junto con la reserva, en vez de dejar una
+mutación confirmada con un registro `in_progress`.
 
 ### 9.3 Transiciones de workflow
 

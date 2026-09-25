@@ -195,6 +195,9 @@ def audit_invocation(
     reason_code: str | None = None,
     output: Any = None,
     error_code: str | None = None,
+    request_source: str = "generated",
+    replay_safe: bool = False,
+    is_error: bool = False,
 ) -> None:
     """Write observed MCP evidence; deliberately never persists raw tool input."""
     from datetime import datetime, timezone
@@ -208,13 +211,15 @@ def audit_invocation(
             """INSERT INTO mcp_invocations
                (ts, request_id, correlation_id, server_instance_id, client_surface, transport,
                 actor_id, capability_profile, tool_name, tool_category, project, input_hash,
-                output_hash, status, reason_code, duration_ms, error_code, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                output_hash, result_json, is_error, request_source, replay_safe, status,
+                reason_code, duration_ms, error_code, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 now, request_id, correlation_id, SERVER_INSTANCE_ID, identity.client_surface,
                 identity.transport, identity.actor_id, identity.capability_profile, tool_name,
                 TOOL_CATEGORIES.get(tool_name, "unknown"), project,
-                _hash(canonical_input), _hash(canonical_output), status, reason_code,
+                _hash(canonical_input), _hash(canonical_output), canonical_output,
+                int(is_error), request_source, int(replay_safe), status, reason_code,
                 round((time.monotonic() - started_at) * 1000), error_code, now,
             ),
         )
@@ -223,6 +228,110 @@ def audit_invocation(
 
 def new_request_id() -> str:
     return str(uuid.uuid4())
+
+
+def mutation_request_id(
+    tool_name: str,
+    args: dict[str, Any],
+    correlation_id: str | None,
+    identity: ExecutionIdentity,
+) -> tuple[str, str, bool]:
+    """Return a durable key only when the client explicitly supplied one."""
+    supplied = str(args.get("request_id", "")).strip()
+    if supplied:
+        source, stable_value, replay_safe = "client", supplied, True
+    else:
+        source, stable_value, replay_safe = "generated", new_request_id(), False
+    namespace = {
+        "actor_id": identity.actor_id,
+        "client_surface": identity.client_surface,
+        "transport": identity.transport,
+        "capability_profile": identity.capability_profile,
+        "tool_name": tool_name,
+        "request": stable_value,
+    }
+    return _hash(json.dumps(namespace, sort_keys=True, separators=(",", ":"))), source, replay_safe
+
+
+def claim_mutation(
+    *,
+    request_id: str,
+    correlation_id: str | None,
+    identity: ExecutionIdentity,
+    tool_name: str,
+    project: str | None,
+    args: dict[str, Any],
+    request_source: str,
+    replay_safe: bool,
+) -> tuple[str, dict[str, Any] | None, bool]:
+    """Reserve a mutation or return its durable completed/in-progress outcome."""
+    from datetime import datetime, timezone
+    from orchestrator.db import _conn, _local, _write_lock
+
+    canonical_input = json.dumps(args, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    now = datetime.now(timezone.utc).isoformat()
+    with _write_lock:
+        conn = _conn()
+        in_atomic_mutation = getattr(_local, "atomic_mutation_depth", 0)
+        try:
+            if not in_atomic_mutation:
+                conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """INSERT INTO mcp_invocations
+                   (ts, request_id, correlation_id, server_instance_id, client_surface, transport,
+                    actor_id, capability_profile, tool_name, tool_category, project, input_hash,
+                    output_hash, result_json, is_error, request_source, replay_safe, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, 'in_progress', ?)""",
+                (
+                    now, request_id, correlation_id, SERVER_INSTANCE_ID, identity.client_surface,
+                    identity.transport, identity.actor_id, identity.capability_profile, tool_name,
+                    TOOL_CATEGORIES[tool_name], project, _hash(canonical_input), _hash("null"),
+                    request_source, int(replay_safe), now,
+                ),
+            )
+            from orchestrator.db import commit_if_not_atomic
+            commit_if_not_atomic(conn)
+            return "claimed", None, False
+        except Exception as exc:
+            if not in_atomic_mutation:
+                conn.rollback()
+            row = conn.execute(
+                """SELECT tool_name, input_hash, status, result_json, is_error
+                   FROM mcp_invocations WHERE request_id=?""",
+                (request_id,),
+            ).fetchone()
+            if row is None:
+                raise exc
+            if row["tool_name"] != tool_name or row["input_hash"] != _hash(canonical_input):
+                return "mismatch", None, True
+            if row["status"] == "in_progress":
+                return "in_progress", None, True
+            return "replay", json.loads(row["result_json"]), bool(row["is_error"])
+
+
+def complete_mutation(
+    request_id: str, result: Any, is_error: bool, started_at: float,
+    reason_code: str | None = None, error_code: str | None = None,
+) -> None:
+    """Persist a terminal result after a reserved mutation; retries replay it verbatim."""
+    from orchestrator.db import _conn, _write_lock
+
+    canonical_output = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    with _write_lock:
+        conn = _conn()
+        conn.execute(
+            """UPDATE mcp_invocations
+               SET output_hash=?, result_json=?, is_error=?, status=?, reason_code=?,
+                   duration_ms=?, error_code=?
+               WHERE request_id=? AND status='in_progress'""",
+            (
+                _hash(canonical_output), canonical_output, int(is_error),
+                "error" if is_error else "success", reason_code,
+                round((time.monotonic() - started_at) * 1000), error_code, request_id,
+            ),
+        )
+        from orchestrator.db import commit_if_not_atomic
+        commit_if_not_atomic(conn)
 
 
 def _hash(value: str) -> str:
