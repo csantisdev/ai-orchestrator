@@ -271,6 +271,63 @@ def test_egress_blocked_during_iteration_is_not_retried():
     mock_sleep.assert_not_called()
 
 
+def test_forced_provider_cannot_reach_provider_http_when_egress_blocks():
+    from orchestrator.providers.claude import ClaudeProvider
+
+    provider = ClaudeProvider(api_key="test", model="test-model")
+    ctx = ProjectContext(name="forced-provider-blocked", sensitivity="restricted")
+
+    with _worker_runtime(provider) as runtime, \
+         patch("orchestrator.providers.claude.httpx.stream") as mock_stream:
+        background._worker(
+            110,
+            "forced-provider-blocked",
+            "tarea",
+            _config("public"),
+            "claude",
+            ctx,
+        )
+
+    assert runtime.failed.is_set()
+    mock_stream.assert_not_called()
+
+
+def test_forced_active_step_cannot_reach_provider_http_when_egress_blocks():
+    from orchestrator.providers.claude import ClaudeProvider
+
+    provider = ClaudeProvider(api_key="test", model="test-model")
+    ctx = ProjectContext(name="forced-step-blocked", sensitivity="restricted")
+    active_context = {
+        "title": "t",
+        "description": "d",
+        "active_step": {
+            "id": 1,
+            "order_idx": 1,
+            "title": "Paso forzado",
+            "description": "",
+            "provider": "claude",
+        },
+    }
+
+    with _worker_runtime(provider) as runtime, \
+         patch(
+             "orchestrator.router._fetch_active_context",
+             return_value=active_context,
+         ), \
+         patch("orchestrator.providers.claude.httpx.stream") as mock_stream:
+        background._worker(
+            111,
+            "forced-step-blocked",
+            "tarea",
+            _config("public"),
+            None,
+            ctx,
+        )
+
+    assert runtime.failed.is_set()
+    mock_stream.assert_not_called()
+
+
 def test_transient_error_is_still_retried():
     provider = MagicMock()
     provider.complete_stream.side_effect = ConnectionError("temporary outage")

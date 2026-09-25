@@ -63,4 +63,11 @@ Incidente que originó esta regla (2026-07-13): la serie RFC-001…006, escrita 
 
 **Análisis vigente:** ANL-001 define el protocolo local y anonimizado para evaluar modelos en generación y validación de tests. `evidence/RFC-006/` y `evidence/RFC-007/` solo tienen el README de qué se espera — separadas porque RFC-006 es el diseño histórico (I1-I14, patch efímero nunca publicado) y RFC-007 es quien gobierna la reconstrucción real contra código (los 13 commits, I1-I15, el Draft PR). Ver `evidence/RFC-007/README.md` para la tabla de trazabilidad.
 
-**Pendiente, no bloqueante:** un validador (`scripts/validate_decision_docs.py`) que chequee en CI nombres de archivo, unicidad de ID, coincidencia carpeta/tipo, front matter bien formado y ubicado, vocabulario de `status` válido, y links locales resolubles — hoy esa disciplina es manual.
+## Validación automática
+
+Ejecutar `python scripts/validate_decision_docs.py` desde la raíz del repositorio.
+El validador se ejecuta también en CI cuando cambian documentos de decisión o el
+propio validador. Comprueba nombres y categorías, IDs canónicos únicos de los
+documentos vigentes, front matter presente (incluida su ubicación y vocabulario)
+y links Markdown locales. Los documentos legados sin front matter siguen
+permitidos; cuando un documento tiene front matter, se valida por completo.

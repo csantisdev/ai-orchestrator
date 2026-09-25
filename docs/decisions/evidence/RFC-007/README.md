@@ -19,25 +19,28 @@ No pegar prompts, tareas ni contexto real de proyectos en esta carpeta — misma
 
 ## Tabla de trazabilidad
 
-Completar una fila por invariante a medida que Fase 1 avanza — no antes. `Commit` es el SHA real que la implementó, `CI` el link al run que la validó en el Draft PR.
+Los SHA y enlaces de CI de esta tabla son evidencia histórica de Fase 1. La
+columna de tests identifica la cobertura vigente por archivo; no se deduce de
+ella un conteo de CI contemporáneo ni que `tests/test_egress.py` por sí solo
+pruebe todas las invariantes.
 
 | Invariante | Test | Commit | CI |
 |---|---|---|---|
 | I1 | `test_no_policy_blocks_provider_complete` | `60c431f` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29231131539/job/86755411217) |
 | I2 | `test_restricted_project_blocks_public_provider` | `60c431f` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29231131539/job/86755411217) |
-| I3 | `test_streaming_http_not_reached_when_blocked` | `a76a4d7` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29631543303/job/88046001542) |
-| I4 | `test_provider_cannot_override_complete` | `a76a4d7` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29631543303/job/88046001542) |
+| I3 | `tests/test_egress.py::test_streaming_http_not_reached_when_blocked`; `tests/test_background.py::test_forced_provider_cannot_reach_provider_http_when_egress_blocks`, `test_forced_active_step_cannot_reach_provider_http_when_egress_blocks` | `a76a4d7` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29631543303/job/88046001542) |
+| I4 | `tests/test_providers.py::test_provider_cannot_override_complete` | `a76a4d7` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29631543303/job/88046001542) |
 | I5 | `test_external_router_blocked_uses_local_router_not_fixed_fallback` | `39a8b2c` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29632691437/job/88049370327) |
 | I6 | `test_no_fixed_claude_fallback_when_router_blocked` | `39a8b2c` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29632691437/job/88049370327) |
 | I7 | `test_unknown_project_sensitivity_fails_closed` | `60c431f` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29231131539/job/86755411217) |
-| I8 | `test_fetch_similar_runs_filters_by_project`, `test_router_prompt_excludes_other_projects`, `test_fetch_similar_runs_overqueries_before_filtering` (Commit 0.2 — no confundir con `test_local_router_never_returns_blocked_provider`, que demuestra I5/I6, no I8) | `d056d0c` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29230382189/job/86753117262) |
-| I9 | `test_provider_cannot_override_complete_stream` | `a76a4d7` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29631543303/job/88046001542) |
-| I10 | `test_secret_in_prompt_escalates_to_secret_and_blocks` | `77cad81` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29632974490/job/88050154679) |
+| I8 | `tests/test_router.py::test_fetch_similar_runs_filters_by_project`, `test_router_prompt_excludes_other_projects`, `test_fetch_similar_runs_overqueries_before_filtering` (Commit 0.2 — no confundir con `test_local_router_never_returns_blocked_provider`, que demuestra I5/I6, no I8) | `d056d0c` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29230382189/job/86753117262) |
+| I9 | `tests/test_providers.py::test_provider_cannot_override_complete_stream` | `a76a4d7` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29631543303/job/88046001542) |
+| I10 | `tests/test_egress.py::test_secret_in_prompt_escalates_to_secret_and_blocks`, `test_unrecognized_generic_api_key_does_not_escalate`: un patrón reconocido escala a `secret`; clearance decide permitir o bloquear. | `77cad81` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29632974490/job/88050154679) |
 | I11 | `test_complete_stream_check_is_eager_not_deferred` | `a76a4d7` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29631543303/job/88046001542) |
-| I12 | `test_background_worker_sets_policy_inside_thread` | `b1bacc1`* | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29633518957/job/88051612705) |
-| I13 | `test_egress_blocked_at_call_is_not_retried` / `..._during_iteration_is_not_retried` | `b74fd20` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29633901956/job/88052627517) |
+| I12 | `tests/test_background.py::test_background_worker_sets_policy_inside_thread`, `test_parent_thread_policy_does_not_silently_leak_to_worker` | `b1bacc1`* | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29633518957/job/88051612705) |
+| I13 | `tests/test_background.py::test_egress_blocked_at_call_is_not_retried`, `test_egress_blocked_during_iteration_is_not_retried` | `b74fd20` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29633901956/job/88052627517) |
 | I14 | `test_blocked_fallback_provider_does_not_abort_when_other_provider_permitted` | `39a8b2c` | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29632691437/job/88049370327) |
-| I15 | `test_policy_reset_restores_previous_policy`, `test_policy_does_not_leak_between_operations` (Commit 1.1), `test_worker_resets_policy_between_runs` (Commit 1.7, nombre real — el prompt original decía `test_worker_resets_policy_in_finally`) | `60c431f` / `b1bacc1`* | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29231131539/job/86755411217) / [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29633518957/job/88051612705) |
+| I15 | `tests/test_egress.py::test_policy_reset_restores_previous_policy`, `test_policy_does_not_leak_between_operations`; `tests/test_background.py::test_worker_resets_policy_between_runs` (el prompt original decía `test_worker_resets_policy_in_finally`) | `60c431f` / `b1bacc1`* | [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29231131539/job/86755411217) / [run](https://github.com/csantisdev/ai-orchestrator/actions/runs/29633518957/job/88051612705) |
 
 \* El commit que implementó I12 (`b1bacc1`) tuvo su propio CI run en **fail** por un gap de mocking no relacionado con I12 en sí (`test_background_worker_sets_policy_inside_thread` disparaba una llamada real a ChromaDB en un runner limpio — ver detalle en la sección de verificación adversarial más abajo). El fix (mocks adicionales, sin tocar la lógica de I12) se comiteó por separado en `aaddd81`, cuyo run es el que efectivamente valida el test en verde. El link de CI de esta fila apunta a `aaddd81`, no a `b1bacc1`, a propósito — es la corrida real que lo confirma pasando.
 
