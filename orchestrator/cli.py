@@ -1391,6 +1391,21 @@ def _toml_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _codex_env_inserted_exactly(original: str, candidate: str, env: dict) -> bool:
+    """Accept a textual TOML edit only if its sole parsed effect is the new env table."""
+    import tomllib
+    try:
+        before = tomllib.loads(original)
+        after = tomllib.loads(candidate)
+    except tomllib.TOMLDecodeError:
+        return False
+    server = after.get("mcp_servers", {}).get("ai_orchestrator", {})
+    if server.get("env") != env:
+        return False
+    server.pop("env")
+    return after == before
+
+
 def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail) -> None:
     import tomllib
     env_block = "[mcp_servers.ai_orchestrator.env]\n" + "".join(
@@ -1436,10 +1451,14 @@ def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail) -> None:
     import re as _re
     header = _re.search(r"^[ \t]*\[mcp_servers\.ai_orchestrator\.tools\.", text, _re.MULTILINE)
     if header:
-        text = text[:header.start()] + env_block + text[header.start():]
+        candidate = text[:header.start()] + env_block + text[header.start():]
     else:
-        text = text.rstrip("\n") + "\n\n" + env_block
-    path.write_text(text, encoding="utf-8")
+        candidate = text.rstrip("\n") + "\n\n" + env_block
+    if not _codex_env_inserted_exactly(text, candidate, entry["env"]):
+        fail(".codex/config.toml: no se pudo insertar el env MCP de forma segura — agregá "
+             "[mcp_servers.ai_orchestrator.env] a mano (ver 'doctor')")
+        return
+    path.write_text(candidate, encoding="utf-8")
     did(".codex/config.toml: perfil y alcance MCP agregados (abrí una sesión nueva de Codex)")
 
 

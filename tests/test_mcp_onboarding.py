@@ -300,3 +300,18 @@ def test_fix_aborts_before_writing_when_scope_is_empty(tmp_path, monkeypatch):
 
     assert result.exit_code == 1
     assert writes == []
+
+
+def test_codex_env_is_not_written_inside_multiline_string(tmp_path):
+    path = tmp_path / "config.toml"
+    original = (
+        '[mcp_servers.ai_orchestrator]\ncommand = "py"\nnote = """\n'
+        '[mcp_servers.ai_orchestrator.tools.fake]\n"""\n'
+    )
+    path.write_text(original, encoding="utf-8")
+    calls, did, skip, fail = _recorder()
+
+    _apply_codex_mcp(path, _entry(surface="codex_cli"), did, skip, fail)
+
+    assert path.read_text(encoding="utf-8") == original
+    assert calls["did"] == [] and len(calls["fail"]) == 1
