@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from orchestrator.providers.base import CompletionResult
 
 _local = threading.local()
-_write_lock = threading.Lock()
+_write_lock = threading.RLock()
 
 
 def _conn() -> sqlite3.Connection:
@@ -24,6 +25,37 @@ def _conn() -> sqlite3.Connection:
         conn.execute("PRAGMA busy_timeout=5000")
         _local.conn = conn
     return _local.conn
+
+
+def commit_if_not_atomic(conn: sqlite3.Connection) -> None:
+    """Commit ordinary writes, leaving a governed mutation's transaction open."""
+    if not getattr(_local, "atomic_mutation_depth", 0):
+        conn.commit()
+
+
+@contextmanager
+def atomic_mutation():
+    """Run nested SQLite-only MCP writes in one durable transaction."""
+    conn = _conn()
+    with _write_lock:
+        depth = getattr(_local, "atomic_mutation_depth", 0)
+        if depth:
+            _local.atomic_mutation_depth = depth + 1
+            try:
+                yield conn
+            finally:
+                _local.atomic_mutation_depth = depth
+            return
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            _local.atomic_mutation_depth = 1
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            _local.atomic_mutation_depth = 0
 
 
 _SCHEMA = """
@@ -96,6 +128,10 @@ CREATE TABLE IF NOT EXISTS mcp_invocations (
     project             TEXT,
     input_hash          TEXT NOT NULL,
     output_hash         TEXT NOT NULL,
+    result_json         TEXT,
+    is_error            INTEGER NOT NULL DEFAULT 0,
+    request_source      TEXT NOT NULL DEFAULT 'generated',
+    replay_safe         INTEGER NOT NULL DEFAULT 0,
     status              TEXT NOT NULL,
     reason_code         TEXT,
     duration_ms         INTEGER,
@@ -537,7 +573,7 @@ def insert_context(project: str, title: str, description: str = "", metadata: st
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (ts, ts, project, title, description, status, metadata, parent_step_id),
         )
-        conn.commit()
+        commit_if_not_atomic(conn)
         return cur.lastrowid  # type: ignore[return-value]
 
 
@@ -552,7 +588,7 @@ def insert_step(
                VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
             (context_id, order_idx, title, description, provider, agent_preset),
         )
-        conn.commit()
+        commit_if_not_atomic(conn)
         return cur.lastrowid  # type: ignore[return-value]
 
 
@@ -618,5 +654,5 @@ def activate_first_step(context_id: int) -> bool:
             "UPDATE steps SET status='in_progress', started_at=? WHERE id=?",
             (ts, row["id"]),
         )
-        conn.commit()
+        commit_if_not_atomic(conn)
         return True
