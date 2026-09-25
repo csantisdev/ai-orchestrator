@@ -118,6 +118,34 @@ ai-orchestrator serve                  # abre http://127.0.0.1:8080
 
 ## MCP Plugin
 
+El servidor MCP usa únicamente **STDIO local** (o STDIO sobre SSH); no abre un
+listener de red. Desde la versión de acceso gobernado, el perfil efectivo es
+`readonly` si no se configura uno y las herramientas se autorizan tanto al
+descubrirlas como antes de ejecutarlas. Cada `tools/call`, incluso uno denegado,
+queda registrado automáticamente en SQLite con hashes de entrada/salida, sin
+persistir los argumentos completos.
+
+Para habilitar herramientas de un proyecto, la configuración que inicia el
+proceso debe declarar una allowlist explícita. Estas variables son parte del
+límite de confianza del proceso local; los argumentos de una tool no pueden
+elevar el perfil ni cambiar su alcance:
+
+```json
+{
+  "env": {
+    "ORCHESTRATOR_MCP_PROFILE": "readonly",
+    "ORCHESTRATOR_MCP_PROJECTS": "mi-proyecto",
+    "ORCHESTRATOR_MCP_CLIENT_SURFACE": "claude_code",
+    "ORCHESTRATOR_MCP_TRANSPORT": "stdio"
+  }
+}
+```
+
+Perfiles disponibles: `readonly`, `observability`, `workflow_operator`,
+`memory_curator` y `admin`. `memory_curator` no concede mutaciones de workflow
+y `workflow_operator` no concede ingestión RAG. Un alcance vacío falla cerrado
+para las tools vinculadas a un proyecto.
+
 El servidor MCP expone 12 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, Gemini Code Assist, etc.) puede invocar directamente sin usar la CLI:
 
 | Tool | Propósito |

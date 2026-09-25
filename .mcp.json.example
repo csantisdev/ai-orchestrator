@@ -2,7 +2,14 @@
   "mcpServers": {
     "ai-orchestrator": {
       "command": ".venv/Scripts/python.exe",
-      "args": ["-m", "orchestrator.mcp"]
+      "args": ["-u", "-m", "orchestrator.mcp"],
+      "cwd": ".",
+      "env": {
+        "ORCHESTRATOR_MCP_PROFILE": "readonly",
+        "ORCHESTRATOR_MCP_PROJECTS": "your-project-alias",
+        "ORCHESTRATOR_MCP_CLIENT_SURFACE": "other",
+        "ORCHESTRATOR_MCP_TRANSPORT": "stdio"
+      }
     }
   }
 }
