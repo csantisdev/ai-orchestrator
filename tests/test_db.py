@@ -24,6 +24,36 @@ def test_daily_cost_sums_only_local_today(request):
     assert daily_cost(project) == 1.5
 
 
+def test_daily_cost_never_reuses_a_frozen_tz_per_row(request, monkeypatch):
+    """Regresion (ronda 3 de auditoria): local_date_from_ts en si mismo ya
+    esta cubierto (test_timeutil.py), pero ningun test protegia al CALLER -
+    si daily_cost() volviera a capturar un tzinfo congelado una sola vez
+    (datetime.now().astimezone().tzinfo) y pasarlo por fila, ese es
+    exactamente el bug real de DST que se corrigio. Este test falla si
+    alguien reintroduce un segundo argumento en la llamada."""
+    project = f"daily-cost-tz-{request.node.name}"
+    now_utc = datetime.now(timezone.utc)
+    _insert(project, now_utc.isoformat(), 1.0)
+
+    calls: list[tuple] = []
+    import orchestrator.timeutil as timeutil_module
+    real = timeutil_module.local_date_from_ts
+
+    def spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr("orchestrator.timeutil.local_date_from_ts", spy)
+    daily_cost(project)
+
+    assert calls, "daily_cost no llamo a local_date_from_ts"
+    for args, kwargs in calls:
+        assert len(args) == 1 and not kwargs, (
+            "daily_cost esta pasando un tz explicito a local_date_from_ts - "
+            "eso reintroduce el bug de offset congelado que rompia con DST"
+        )
+
+
 def test_daily_cost_ignores_other_projects(request):
     project = f"daily-cost-iso-{request.node.name}"
     other = f"{project}-other"

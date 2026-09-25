@@ -44,21 +44,30 @@ class _SyntheticDstTz(tzinfo):
     """tzinfo minimo con una regla de cambio de offset determinista y
     portable (no depende de la zona real de la maquina que corre el test),
     para probar que local_date_from_ts resuelve el offset POR INSTANTE via
-    .astimezone(tz) y no lo reutiliza de otro momento."""
+    .astimezone(tz) y no lo reutiliza de otro momento.
 
-    # Naive a proposito: durante .astimezone(tz), Python invoca
-    # utcoffset(dt) con dt.tzinfo apuntando a ESTA MISMA instancia -
-    # comparar dt como aware ahi dispara una resolucion recursiva de
-    # utcoffset() (RecursionError). Se ignora dt.tzinfo y se comparan los
-    # campos de reloj directamente, que en ese punto representan el
-    # instante UTC.
-    _TRANSITION = datetime(2026, 6, 1, 3, 0)
+    Sobrescribe fromutc() en vez de apoyarse en el algoritmo default
+    (utcoffset()/dst() con deteccion de fold) - la version anterior de este
+    tzinfo no preservaba el instante en la conversion (round-trip UTC ->
+    local -> UTC no volvia al mismo valor), aunque la fecha final le
+    resultara casualmente correcta a este test puntual. fromutc() recibe un
+    datetime cuyos campos YA representan el instante UTC (tageado con
+    tzinfo=self) y construye directamente el resultado, sin ambiguedad.
+    """
+
+    _TRANSITION = datetime(2026, 6, 1, 3, 0)  # naive, representa un instante UTC
+
+    def _offset_for_utc_instant(self, naive_utc: datetime) -> timedelta:
+        return timedelta(hours=-4) if naive_utc >= self._TRANSITION else timedelta(hours=-3)
+
+    def fromutc(self, dt):
+        offset = self._offset_for_utc_instant(dt.replace(tzinfo=None))
+        return (dt + offset).replace(tzinfo=self)
 
     def utcoffset(self, dt):
         if dt is None:
             return timedelta(hours=-3)
-        naive = dt.replace(tzinfo=None)
-        return timedelta(hours=-4) if naive >= self._TRANSITION else timedelta(hours=-3)
+        return self._offset_for_utc_instant(dt.replace(tzinfo=None))
 
     def dst(self, dt):
         return timedelta(0)

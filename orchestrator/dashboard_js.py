@@ -818,13 +818,18 @@ async function _syncOne(url, label, unit) {
   // toda la cadena y Git/Codex ni se pedian.
   try {
     const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok || d.error) {
-      _actAppend(label + " — " + (d.error || ("HTTP " + r.status)), "fail");
-      return 0;
-    }
+    let d, parseFailed = false;
+    try { d = await r.json(); } catch (e) { d = {}; parseFailed = true; }
+    // "busy" (409) va PRIMERO: r.ok es false en un 409, asi que si el
+    // chequeo de !r.ok fuera antes, el 409 real caia en la rama de error y
+    // esta rama quedaba inalcanzable.
     if (d.status === "busy") {
       _actAppend(label + " — ya hay una sincronización en curso, probá de nuevo en un rato", "warn");
+      return 0;
+    }
+    if (!r.ok || d.error || parseFailed) {
+      const msg = d.error || ("HTTP " + r.status + (parseFailed ? " (respuesta inválida)" : ""));
+      _actAppend(label + " — " + msg, "fail");
       return 0;
     }
     const n = d.imported || 0;

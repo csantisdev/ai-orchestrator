@@ -177,9 +177,34 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
         if cursor:
             try:
                 cursor_dt = datetime.fromisoformat(cursor)
-                since = (cursor_dt - _SINCE_SAFETY_BUFFER).isoformat()
             except ValueError:
+                cursor_dt = None
+            if cursor_dt is None:
                 since = cursor
+            elif cursor_dt > datetime.now(timezone.utc) + timedelta(hours=1):
+                # Cursor implausible (a futuro): puede venir de filas
+                # historicas importadas con fecha de AUTOR como cursor (antes
+                # del fix %ai->%ci) o de cualquier otra corrupcion. Restarle
+                # el buffer igual dejaria el cutoff en el futuro y excluiria
+                # TODO commit real para siempre. "1970" fuerza un rescan
+                # completo (sin --max-count, ver _get_commits) una unica vez;
+                # el dedup por hash existente evita reimportar lo ya conocido.
+                #
+                # Borramos exactamente las filas corruptas que produjeron el
+                # cursor bajo el lock de escritura: sin esto MAX(ts) vuelve a
+                # devolver el mismo valor en cada ejecucion y el rescan nunca
+                # deja de ser completo.
+                with _write_lock:
+                    conn.execute(
+                        """DELETE FROM runs
+                           WHERE provider=? AND ts=?
+                             AND session_id LIKE ? ESCAPE '\\'""",
+                        (PROVIDER_NAME, cursor, f"git::{_escape_like(alias)}::%"),
+                    )
+                    conn.commit()
+                since = "1970-01-01T00:00:00+00:00"
+            else:
+                since = (cursor_dt - _SINCE_SAFETY_BUFFER).isoformat()
         commits = _get_commits(proj_path, since=since)
         if not commits:
             continue

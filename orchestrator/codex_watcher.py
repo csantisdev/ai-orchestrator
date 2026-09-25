@@ -25,8 +25,16 @@ def _find_state_db() -> Optional[Path]:
 
 
 def newest_available_ts() -> Optional[datetime]:
-    """`updated_at` mas reciente entre los threads del state_N.sqlite mas nuevo
-    (chequeo de staleness en `doctor`, no dispara ningun parseo/import)."""
+    """`updated_at` mas reciente entre los threads del state_N.sqlite mas
+    nuevo (chequeo de staleness en `doctor`, no dispara ningun parseo/import
+    de rollouts).
+
+    Filtra threads sin `first_user_message` - `scan_and_import` los excluye
+    con el mismo criterio SQL (barato, sin leer el rollout), asi que
+    contarlos aca solo puede producir staleness que ningun sync resuelve. No
+    filtra por tokens=0 ni cwd no registrado porque eso requiere parsear el
+    rollout JSONL de cada thread - el costo que esta funcion evita a proposito.
+    """
     db_path = _find_state_db()
     if db_path is None:
         return None
@@ -34,7 +42,10 @@ def newest_available_ts() -> Optional[datetime]:
     try:
         conn = sqlite3.connect(str(db_path))
         try:
-            row = conn.execute("SELECT MAX(updated_at_ms) FROM threads").fetchone()
+            row = conn.execute(
+                """SELECT MAX(updated_at_ms) FROM threads
+                   WHERE first_user_message IS NOT NULL AND first_user_message != ''"""
+            ).fetchone()
         finally:
             conn.close()
     except sqlite3.Error:
@@ -205,9 +216,17 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
     for r in rows:
         thread_id = str(r["id"])
 
-        if conn.execute(
-            "SELECT 1 FROM runs WHERE session_id=?", (thread_id,)
-        ).fetchone():
+        created_ms  = int(r["created_at_ms"] or 0)
+        updated_ms  = int(r["updated_at_ms"] or created_ms)
+        duration_ms = max(updated_ms - created_ms, 0)
+
+        existing_row = conn.execute(
+            "SELECT id, duration_ms FROM runs WHERE session_id=?", (thread_id,)
+        ).fetchone()
+        if existing_row is not None and duration_ms <= (existing_row["duration_ms"] or 0):
+            # Ya importado y sin actividad nueva desde entonces (antes se
+            # saltaba SIEMPRE que ya existiera, dejando un thread reanudado
+            # despues del primer import con datos parciales para siempre).
             continue
 
         cwd = _strip_cwd_prefix(r["cwd"] or "")
@@ -230,9 +249,6 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
 
             response_text = _extract_response_text(rollout) if rollout else ""
 
-            created_ms  = int(r["created_at_ms"] or 0)
-            updated_ms  = int(r["updated_at_ms"] or created_ms)
-            duration_ms = max(updated_ms - created_ms, 0)
             ts_start = (
                 datetime.fromtimestamp(created_ms / 1000, tz=timezone.utc).isoformat()
                 if created_ms else datetime.now(timezone.utc).isoformat()
@@ -251,43 +267,60 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
             )
             cost_usd = calculate_cost(fake_result, pricing)
 
-            with _write_lock:
-                cur = conn.execute(
-                    """INSERT OR IGNORE INTO runs
-                       (ts, project, provider, model, status,
-                        task, task_preview, response,
-                        duration_ms, input_tokens, output_tokens,
-                        cache_creation_tokens, cache_read_tokens,
-                        cost_usd, routing_reason, session_id)
-                       VALUES (?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
-                    (
-                        ts_start,
-                        project_alias,
-                        PROVIDER_NAME,
-                        model,
-                        task,
-                        task[:150],
-                        response_text,
-                        duration_ms,
-                        input_tokens,
-                        output_tokens,
-                        cache_read,
-                        cost_usd,
-                        f"Codex thread · {thread_id[:8]}",
-                        thread_id,
-                    ),
-                )
-                if cur.rowcount:
-                    run_id = cur.lastrowid
-                else:
-                    # Otro proceso ya importo este thread entre el chequeo
-                    # inicial y este INSERT - lastrowid de esta conexion
-                    # apuntaria a una fila ajena.
-                    existing_row = conn.execute(
-                        "SELECT id FROM runs WHERE session_id=?", (thread_id,)
-                    ).fetchone()
-                    run_id = existing_row[0] if existing_row else None
-                conn.commit()
+            if existing_row is not None:
+                with _write_lock:
+                    conn.execute(
+                        """UPDATE runs SET
+                           model = ?, task = ?, task_preview = ?, response = ?,
+                           duration_ms = ?, input_tokens = ?, output_tokens = ?,
+                           cache_read_tokens = ?, cost_usd = ?
+                           WHERE id = ?""",
+                        (
+                            model, task, task[:150], response_text,
+                            duration_ms, input_tokens, output_tokens,
+                            cache_read, cost_usd, existing_row["id"],
+                        ),
+                    )
+                    conn.commit()
+                run_id = existing_row["id"]
+            else:
+                with _write_lock:
+                    cur = conn.execute(
+                        """INSERT OR IGNORE INTO runs
+                           (ts, project, provider, model, status,
+                            task, task_preview, response,
+                            duration_ms, input_tokens, output_tokens,
+                            cache_creation_tokens, cache_read_tokens,
+                            cost_usd, routing_reason, session_id)
+                           VALUES (?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
+                        (
+                            ts_start,
+                            project_alias,
+                            PROVIDER_NAME,
+                            model,
+                            task,
+                            task[:150],
+                            response_text,
+                            duration_ms,
+                            input_tokens,
+                            output_tokens,
+                            cache_read,
+                            cost_usd,
+                            f"Codex thread · {thread_id[:8]}",
+                            thread_id,
+                        ),
+                    )
+                    if cur.rowcount:
+                        run_id = cur.lastrowid
+                    else:
+                        # Otro proceso ya importo este thread entre el chequeo
+                        # inicial y este INSERT - lastrowid de esta conexion
+                        # apuntaria a una fila ajena.
+                        fallback_row = conn.execute(
+                            "SELECT id FROM runs WHERE session_id=?", (thread_id,)
+                        ).fetchone()
+                        run_id = fallback_row[0] if fallback_row else None
+                    conn.commit()
 
             if run_id:
                 try:
