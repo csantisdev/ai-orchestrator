@@ -61,7 +61,7 @@ Incidente que originó esta regla (2026-07-13): la serie RFC-001…006, escrita 
 
 **Decisiones** (`adrs/`): ADR-001 (chunking RAG, aceptada). ADR-002 (catálogo versionado de precios, **aceptada, `implementation_status: implemented`**, cerrada 2026-07-07 — el propio archivo decía "propuesta" hasta que se corrigió en este reorg, quedó desactualizado desde que se cerró). Las entregas reales de ADR-002 están etiquetadas en git como `etapa 1, 2, 3, 5, 6` — **no existe un commit `etapa 4`**; ver la tabla de trazabilidad en `support/ADR-002/implementation-map.md` para el detalle verificado contra `git log`, no contra lo que el mapa planeaba originalmente.
 
-**Análisis vigente:** ANL-001 define el protocolo local y anonimizado para evaluar modelos en generación y validación de tests. `evidence/RFC-006/` y `evidence/RFC-007/` solo tienen el README de qué se espera — separadas porque RFC-006 es el diseño histórico (I1-I14, patch efímero nunca publicado) y RFC-007 es quien gobierna la reconstrucción real contra código (los 13 commits, I1-I15, el Draft PR). Ver `evidence/RFC-007/README.md` para la tabla de trazabilidad.
+**Análisis vigente:** ANL-001 define el protocolo local y anonimizado para evaluar modelos en generación y validación de tests. ANL-002 define la auditoría cruzada de solo lectura entre Codex y Claude. `evidence/RFC-006/` y `evidence/RFC-007/` solo tienen el README de qué se espera — separadas porque RFC-006 es el diseño histórico (I1-I14, patch efímero nunca publicado) y RFC-007 es quien gobierna la reconstrucción real contra código (los 13 commits, I1-I15, el Draft PR). Ver `evidence/RFC-007/README.md` para la tabla de trazabilidad.
 
 ## Validación automática
 
