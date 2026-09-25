@@ -1347,15 +1347,33 @@ def _merge_governance_env(existing: dict, wanted: dict) -> tuple[dict, bool]:
     return merged, changed
 
 
-def _apply_json_mcp(path: Path, key: str, name: str, entry: dict, label: str, did, skip) -> None:
+def _apply_json_mcp(
+    path: Path, key: str, name: str, entry: dict, label: str, did, skip, create: bool = True,
+) -> None:
     import json as _json
-    try:
-        data = _json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except Exception:
+    if path.exists():
+        try:
+            data = _json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            skip(f"{label}: JSON inválido — no se modifica")
+            return
+        if not isinstance(data, dict) or not isinstance(data.get(key, {}), dict):
+            skip(f"{label}: estructura inesperada — no se modifica")
+            return
+    else:
         data = {}
     servers = data.setdefault(key, {})
     current = servers.get(name)
-    if not isinstance(current, dict):
+    if current is not None and not isinstance(current, dict):
+        skip(f"{label}: entrada ai-orchestrator inesperada — no se modifica")
+        return
+    if current is not None and not isinstance(current.get("env", {}), dict):
+        skip(f"{label}: env de ai-orchestrator no es un objeto — no se modifica")
+        return
+    if current is None:
+        if not create:
+            skip(f"{label}: ai-orchestrator no registrado")
+            return
         servers[name] = entry
         message = f"{label}: ai-orchestrator registrado con perfil y alcance MCP (reiniciá el cliente)"
     else:
@@ -1415,9 +1433,10 @@ def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail) -> None:
         else:
             skip(".codex/config.toml ya declara perfil y alcance MCP")
         return
-    anchor = "[mcp_servers.ai_orchestrator.tools."
-    if anchor in text:
-        text = text.replace(anchor, env_block + anchor, 1)
+    import re as _re
+    header = _re.search(r"^[ \t]*\[mcp_servers\.ai_orchestrator\.tools\.", text, _re.MULTILINE)
+    if header:
+        text = text[:header.start()] + env_block + text[header.start():]
     else:
         text = text.rstrip("\n") + "\n\n" + env_block
     path.write_text(text, encoding="utf-8")
@@ -1464,6 +1483,7 @@ def fix_command(
     ]
     if not scope:
         fail("Sin alias para ORCHESTRATOR_MCP_PROJECTS: registrá el repo o pasá --mcp-projects")
+        raise typer.Exit(code=1)
 
     _apply_json_mcp(
         project_root / ".mcp.json", "mcpServers", "ai-orchestrator",
@@ -1475,13 +1495,12 @@ def fix_command(
     )
 
     # ── 2. MCP global en ~/.claude/settings.json ──────────────────────────
-    if global_mcp or all_fixes:
-        console.print("\n[bold cyan]MCP global[/bold cyan]")
-        _apply_json_mcp(
-            _Path.home() / ".claude" / "settings.json", "mcpServers", "ai-orchestrator",
-            _mcp_entry(project_root, mcp_profile, scope, "claude_code"),
-            "~/.claude/settings.json global", did, skip,
-        )
+    console.print("\n[bold cyan]MCP global[/bold cyan]")
+    _apply_json_mcp(
+        _Path.home() / ".claude" / "settings.json", "mcpServers", "ai-orchestrator",
+        _mcp_entry(project_root, mcp_profile, scope, "claude_code"),
+        "~/.claude/settings.json global", did, skip, create=global_mcp or all_fixes,
+    )
 
     console.print("\n[bold cyan]Gemini MCP[/bold cyan]")
     import os as _os

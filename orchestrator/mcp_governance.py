@@ -106,7 +106,10 @@ def governance_env(profile: str, projects: list[str], client_surface: str) -> di
 
 def governance_env_issues(env: dict[str, Any] | None, known_projects: set[str]) -> list[str]:
     """List reasons a client config would make the MCP server deny project tools."""
-    env = env or {}
+    if env is None:
+        env = {}
+    if not isinstance(env, dict):
+        return [f"env debe ser un objeto, no {type(env).__name__}: el servidor usa 'readonly' sin alcance"]
     issues = []
     profile = str(env.get("ORCHESTRATOR_MCP_PROFILE", "")).strip()
     if not profile:

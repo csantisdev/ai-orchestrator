@@ -226,3 +226,77 @@ def test_cli_step_done_rejects_pending_step_with_exit_code(isolated_db):
 
     assert result.exit_code == 1
     assert "in_progress" in result.output
+
+
+def test_malformed_json_config_is_never_overwritten(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"mcpServers": {', encoding="utf-8")
+    calls, did, skip, _ = _recorder()
+
+    _apply_json_mcp(path, "mcpServers", "ai-orchestrator", _entry(), "settings", did, skip)
+
+    assert path.read_text(encoding="utf-8") == '{"mcpServers": {'
+    assert calls["did"] == [] and len(calls["skip"]) == 1
+
+
+def test_json_config_with_non_object_env_is_not_rewritten(tmp_path):
+    path = tmp_path / "settings.json"
+    original = json.dumps({"mcpServers": {"ai-orchestrator": {"command": "py", "env": []}}})
+    path.write_text(original, encoding="utf-8")
+    calls, did, skip, _ = _recorder()
+
+    _apply_json_mcp(path, "mcpServers", "ai-orchestrator", _entry(), "settings", did, skip)
+
+    assert path.read_text(encoding="utf-8") == original
+    assert calls["did"] == []
+
+
+def test_existing_entry_is_completed_even_when_creation_is_disabled(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"mcpServers": {"ai-orchestrator": {"command": "py"}}}), encoding="utf-8")
+    missing = tmp_path / "absent.json"
+    calls, did, skip, _ = _recorder()
+
+    _apply_json_mcp(path, "mcpServers", "ai-orchestrator", _entry(), "global", did, skip, create=False)
+    _apply_json_mcp(missing, "mcpServers", "ai-orchestrator", _entry(), "global", did, skip, create=False)
+
+    env = json.loads(path.read_text(encoding="utf-8"))["mcpServers"]["ai-orchestrator"]["env"]
+    assert env["ORCHESTRATOR_MCP_PROJECTS"] == "allowed"
+    assert not missing.exists()
+
+
+def test_governance_env_issues_reports_non_object_env():
+    issues = governance_env_issues([], {"allowed"})
+    assert len(issues) == 1 and "objeto" in issues[0]
+
+
+def test_codex_env_block_ignores_commented_tool_header(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[mcp_servers.ai_orchestrator]\ncommand = "py"\n'
+        '# see [mcp_servers.ai_orchestrator.tools.get_context] below\n\n'
+        '[mcp_servers.ai_orchestrator.tools.get_context]\napproval_mode = "approve"\n',
+        encoding="utf-8",
+    )
+    _, did, skip, fail = _recorder()
+
+    _apply_codex_mcp(path, _entry(surface="codex_cli"), did, skip, fail)
+
+    server = tomllib.loads(path.read_text(encoding="utf-8"))["mcp_servers"]["ai_orchestrator"]
+    assert server["env"]["ORCHESTRATOR_MCP_PROJECTS"] == "allowed"
+    assert "ORCHESTRATOR_MCP_PROFILE" not in server
+
+
+def test_fix_aborts_before_writing_when_scope_is_empty(tmp_path, monkeypatch):
+    import orchestrator.cli as cli
+
+    monkeypatch.setattr(cli, "_ensure_db", lambda: None)
+    monkeypatch.setattr(cli, "_mcp_default_scope", lambda root: [])
+    writes = []
+    monkeypatch.setattr(cli, "_apply_json_mcp", lambda *a, **k: writes.append(a))
+    monkeypatch.setattr(cli, "_apply_codex_mcp", lambda *a, **k: writes.append(a))
+
+    result = CliRunner().invoke(app, ["fix"])
+
+    assert result.exit_code == 1
+    assert writes == []
