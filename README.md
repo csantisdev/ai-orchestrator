@@ -122,14 +122,15 @@ El servidor MCP usa únicamente **STDIO local** (o STDIO sobre SSH); no abre un
 listener de red. Desde la versión de acceso gobernado, el perfil efectivo es
 `readonly` si no se configura uno y las herramientas se autorizan tanto al
 descubrirlas como antes de ejecutarlas. Cada `tools/call`, incluso uno denegado,
-queda registrado automáticamente en SQLite con hashes de entrada/salida, sin
-persistir los argumentos completos.
+queda registrado automáticamente en SQLite con hashes de entrada y compromisos
+HMAC locales de salida, sin persistir los argumentos completos.
 
 Las herramientas mutables aceptan opcionalmente `request_id`. Solo una clave
 explícita del cliente tiene semántica de persistencia: el cliente debe mantener
-la misma clave al reintentar una operación y el servidor devuelve el resultado
-terminal almacenado sin ejecutar la mutación de nuevo. El ID JSON-RPC se guarda
-solo como correlación de auditoría y nunca se deriva como clave durable; sin
+la misma clave al reintentar una operación y el servidor devuelve un recibo
+terminal con su estado, sin ejecutar la mutación de nuevo ni retener o exponer
+el payload ni su compromiso. El ID JSON-RPC se guarda solo como correlación de auditoría
+y nunca se deriva como clave durable; sin
 `request_id`, el servidor genera una clave nueva no segura para replay. Reutilizar
 una clave explícita para otro tool o argumentos devuelve `request_id_reused`; una
 operación reservada pero aún en curso devuelve `request_in_progress` y es

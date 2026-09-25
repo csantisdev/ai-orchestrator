@@ -29,6 +29,117 @@ def _mark_applied(conn: sqlite3.Connection, name: str) -> None:
     )
 
 
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone() is not None
+
+
+def _table_columns(conn: sqlite3.Connection, name: str) -> set[str]:
+    return {
+        row[1] for row in conn.execute(f"PRAGMA table_info({name})").fetchall()
+    }
+
+
+def recover_mcp_payload_rebuild(conn: sqlite3.Connection) -> None:
+    """Promote a legacy replacement table left by an interrupted table swap."""
+    source = "mcp_invocations"
+    replacement = "mcp_invocations_without_payload"
+    if _table_exists(conn, source) or not _table_exists(conn, replacement):
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(f"ALTER TABLE {replacement} RENAME TO {source}")
+        # The pre-atomic migration copied legacy plain output hashes. They
+        # cannot be made keyed without the original payload, so remove them.
+        conn.execute(f"UPDATE {source} SET output_hash='redacted'")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _remove_mcp_result_payloads(conn: sqlite3.Connection) -> None:
+    """Atomically rebuild the invocation table, recovering old partial rebuilds."""
+    source = "mcp_invocations"
+    replacement = "mcp_invocations_without_payload"
+    source_exists = _table_exists(conn, source)
+    replacement_exists = _table_exists(conn, replacement)
+    recovered_replacement = False
+
+    # A previous non-atomic implementation could stop after dropping the source.
+    # The replacement is already complete at that boundary, so promote it first.
+    if not source_exists and replacement_exists:
+        conn.execute(f"ALTER TABLE {replacement} RENAME TO {source}")
+        source_exists = True
+        replacement_exists = False
+        recovered_replacement = True
+    elif source_exists and replacement_exists:
+        # The source remains authoritative until the atomic swap commits.
+        conn.execute(f"DROP TABLE {replacement}")
+        replacement_exists = False
+
+    if not source_exists:
+        raise sqlite3.OperationalError("mcp_invocations is missing during payload-removal migration")
+
+    if "result_json" in _table_columns(conn, source):
+        conn.execute(f"""
+            CREATE TABLE {replacement} (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts                  TEXT NOT NULL,
+                request_id          TEXT NOT NULL UNIQUE,
+                correlation_id      TEXT,
+                server_instance_id  TEXT NOT NULL,
+                client_surface      TEXT NOT NULL,
+                transport           TEXT NOT NULL,
+                actor_id            TEXT,
+                capability_profile  TEXT NOT NULL,
+                tool_name           TEXT NOT NULL,
+                tool_category       TEXT NOT NULL,
+                project             TEXT,
+                input_hash          TEXT NOT NULL,
+                output_hash         TEXT NOT NULL,
+                is_error            INTEGER NOT NULL DEFAULT 0,
+                request_source      TEXT NOT NULL DEFAULT 'generated',
+                replay_safe         INTEGER NOT NULL DEFAULT 0,
+                status              TEXT NOT NULL,
+                reason_code         TEXT,
+                duration_ms         INTEGER,
+                error_code          TEXT,
+                created_at          TEXT NOT NULL
+            )
+        """)
+        conn.execute(f"""
+            INSERT INTO {replacement} (
+                id, ts, request_id, correlation_id, server_instance_id,
+                client_surface, transport, actor_id, capability_profile,
+                tool_name, tool_category, project, input_hash, output_hash,
+                is_error, request_source, replay_safe, status, reason_code,
+                duration_ms, error_code, created_at
+            )
+            SELECT
+                id, ts, request_id, correlation_id, server_instance_id,
+                client_surface, transport, actor_id, capability_profile,
+                tool_name, tool_category, project, input_hash, 'redacted',
+                is_error, request_source, replay_safe, status, reason_code,
+                duration_ms, error_code, created_at
+            FROM {source}
+        """)
+        conn.execute(f"DROP TABLE {source}")
+        conn.execute(f"ALTER TABLE {replacement} RENAME TO {source}")
+    elif recovered_replacement:
+        conn.execute(f"UPDATE {source} SET output_hash='redacted'")
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_mcp_invocations_project_ts
+        ON mcp_invocations(project, ts DESC)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_mcp_invocations_tool_ts
+        ON mcp_invocations(tool_name, ts DESC)
+    """)
+
+
 def _migrate_jsonl(conn: sqlite3.Connection) -> int:
     runs_jsonl = _runs_jsonl()
     if not runs_jsonl.exists():
@@ -390,7 +501,6 @@ def run_migrations() -> None:
                     ).fetchall()
                 }
                 for name, definition in (
-                    ("result_json", "TEXT"),
                     ("is_error", "INTEGER NOT NULL DEFAULT 0"),
                     ("request_source", "TEXT NOT NULL DEFAULT 'generated'"),
                     ("replay_safe", "INTEGER NOT NULL DEFAULT 0"),
@@ -401,3 +511,29 @@ def run_migrations() -> None:
                         )
                 _mark_applied(conn, "add_mcp_idempotency_results")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "remove_mcp_result_payloads"):
+                conn.execute("PRAGMA secure_delete=ON")
+                try:
+                    conn.execute("BEGIN IMMEDIATE")
+                    _remove_mcp_result_payloads(conn)
+                    _mark_applied(conn, "remove_mcp_result_payloads")
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+
+        with _write_lock:
+            if not _already_applied(conn, "redact_legacy_mcp_output_hashes"):
+                # Existing values predate keyed commitments and cannot safely be
+                # upgraded without the removed payload. Clear them once before
+                # new invocations can write HMAC commitments.
+                try:
+                    conn.execute("BEGIN IMMEDIATE")
+                    conn.execute("UPDATE mcp_invocations SET output_hash='redacted'")
+                    _mark_applied(conn, "redact_legacy_mcp_output_hashes")
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise

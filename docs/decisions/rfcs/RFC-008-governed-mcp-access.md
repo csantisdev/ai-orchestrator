@@ -437,8 +437,10 @@ CREATE TABLE mcp_invocations (
     context_id           INTEGER,
     step_id              INTEGER,
     input_hash           TEXT NOT NULL,
-    redacted_input_json  TEXT,
-    output_hash          TEXT,
+    output_hash          TEXT NOT NULL,
+    is_error             INTEGER NOT NULL DEFAULT 0,
+    request_source       TEXT NOT NULL DEFAULT 'generated',
+    replay_safe          INTEGER NOT NULL DEFAULT 0,
     status               TEXT NOT NULL,
     policy_hash          TEXT,
     reason_code          TEXT,
@@ -458,8 +460,11 @@ CREATE INDEX idx_mcp_invocations_tool_ts
 
 - API keys, tokens y secretos MUST NOT persistirse.
 - El input completo SHOULD permanecer desactivado por defecto.
-- `input_hash` y `output_hash` MUST calcularse sobre una representación canónica.
-- Cuando se persista input, MUST pasar por redacción estructurada.
+- `input_hash` MUST calcularse sobre una representación canónica. `output_hash`
+  es un compromiso HMAC canónico con una clave local del servidor y nunca se
+  expone al cliente.
+- Los payloads de entrada y salida MUST NOT persistirse en `mcp_invocations`;
+  hashes, estado y códigos estructurados son la única evidencia de payload.
 - Denegaciones MUST registrarse sin ejecutar el handler.
 - Errores de auditoría en modo `strict` MUST bloquear mutaciones.
 - Errores de auditoría en modo `best_effort` MAY permitir lecturas, dejando evidencia de degradación cuando sea posible.
@@ -481,14 +486,16 @@ Prioridad:
 
 ### 9.2 Contrato de idempotencia
 
-- Si llega un `request_id` ya completado, el servidor MUST devolver el resultado almacenado.
+- Si llega un `request_id` ya completado, el servidor MUST devolver un recibo
+  de replay con estado terminal, sin ejecutar otra vez ni
+  almacenar el payload del resultado.
 - Si está `in_progress`, MUST devolver conflicto/retryable sin volver a ejecutar.
 - Si falló antes de mutar, MAY reintentarse.
 - Si el estado de mutación es incierto, MUST requerir reconciliación; no repetir a ciegas.
 
 **Implementación local actual:** las mutaciones aceptan `request_id` como
-argumento opcional. Se almacena un resultado canónico duradero junto con su
-hash y un indicador de si la clave es segura para replay. Cuando no se entrega
+argumento opcional. Se almacena evidencia terminal estructurada (estado,
+indicador de error y hash del resultado), nunca el resultado canónico. Cuando no se entrega
 la clave, el wrapper genera una marcada
 `non_replay_safe`. Para handlers que solo escriben SQLite, la reserva, los
 efectos y el resultado terminal se confirman en una misma transacción SQLite:

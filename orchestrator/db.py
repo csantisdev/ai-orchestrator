@@ -128,7 +128,6 @@ CREATE TABLE IF NOT EXISTS mcp_invocations (
     project             TEXT,
     input_hash          TEXT NOT NULL,
     output_hash         TEXT NOT NULL,
-    result_json         TEXT,
     is_error            INTEGER NOT NULL DEFAULT 0,
     request_source      TEXT NOT NULL DEFAULT 'generated',
     replay_safe         INTEGER NOT NULL DEFAULT 0,
@@ -148,6 +147,8 @@ CREATE INDEX IF NOT EXISTS idx_mcp_invocations_tool_ts
 def init_db() -> None:
     conn = _conn()
     with _write_lock:
+        from orchestrator.migrate import recover_mcp_payload_rebuild
+        recover_mcp_payload_rebuild(conn)
         conn.executescript(_SCHEMA)
         conn.commit()
 
