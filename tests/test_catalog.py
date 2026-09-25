@@ -181,12 +181,14 @@ def test_list_used_models_without_price(tmp_path, monkeypatch):
     db_mod.init_db()
 
     db_mod.insert_run("proj", "tarea 1", "claude", "claude-sonnet-4-6")
-    db_mod.insert_run("proj", "tarea 2", "mystery", "modelo-inexistente")
+    db_mod.insert_run("proj", "tarea 2", "codex", "modelo-inexistente")
+    db_mod.insert_run("proj", "tarea 3", "git", "autor-no-es-modelo")
 
     missing = catalog.list_used_models_without_price({})
 
-    assert {"provider": "mystery", "model": "modelo-inexistente"} in missing
+    assert {"provider": "codex", "model": "modelo-inexistente"} in missing
     assert not any(m["model"] == "claude-sonnet-4-6" for m in missing)
+    assert not any(m["provider"] == "git" for m in missing)
 
 
 def _catalog_payload_with_purpose(model_id="fake-model", status="active", has_purpose=True, has_price=True):

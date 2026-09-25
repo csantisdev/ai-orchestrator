@@ -248,13 +248,24 @@ def validate_model_for_provider(config: dict, provider: str, model_id: str) -> d
 
 
 def list_used_models_without_price(config: dict) -> list[dict]:
-    """Modelos con runs registrados en `runs.db` que no tienen entrada en la tabla efectiva."""
+    """Modelos facturables usados sin entrada en la tabla efectiva.
+
+    Los importadores de Git y otras fuentes no LLM pueden poblar ``model`` con
+    metadatos de autor. Esos valores no representan un modelo ni deben aparecer
+    en un reporte de pricing.
+    """
     from orchestrator.db import _conn
+    from orchestrator.paths import PROVIDERS
 
     pricing = get_effective_pricing(config)
     conn = _conn()
+    billable_providers = (*PROVIDERS, "claude-code", "codex")
+    placeholders = ", ".join("?" for _ in billable_providers)
     rows = conn.execute(
-        "SELECT DISTINCT provider, model FROM runs WHERE model != '' ORDER BY provider, model"
+        f"""SELECT DISTINCT provider, model FROM runs
+            WHERE model != '' AND provider IN ({placeholders})
+            ORDER BY provider, model""",
+        billable_providers,
     ).fetchall()
     return [
         {"provider": row["provider"], "model": row["model"]}
