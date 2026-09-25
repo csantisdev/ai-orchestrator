@@ -8,6 +8,12 @@ enabled = true
 required = true
 default_tools_approval_mode = "auto"
 
+[mcp_servers.ai_orchestrator.env]
+ORCHESTRATOR_MCP_PROFILE = "readonly"
+ORCHESTRATOR_MCP_PROJECTS = "your-project-alias"
+ORCHESTRATOR_MCP_CLIENT_SURFACE = "codex_cli"
+ORCHESTRATOR_MCP_TRANSPORT = "stdio"
+
 [mcp_servers.ai_orchestrator.tools.get_context]
 approval_mode = "approve"
 
