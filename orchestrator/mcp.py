@@ -11,13 +11,17 @@ from typing import Any, Callable
 _HANDLERS: dict[str, Callable[[dict], Any]] = {}
 
 SERVER_INSTRUCTIONS = (
-    "Use this server to coordinate work in ai-orchestrator. At the start of a "
-    "substantial task call get_context(project='ai-orchestrator'); if an active "
-    "context exists, call list_steps and work on its in_progress step. Use "
+    "Use this server to coordinate work tracked by ai-orchestrator. At the start "
+    "of a substantial task call get_context with the project alias of the "
+    "repository you are changing (the repo's CLAUDE.md or AGENTS.md names it). "
+    "If workflow_state.warnings is not empty, tell the user before working: "
+    "several active contexts or no in_progress step mean the plan is ambiguous. "
+    "Otherwise call list_steps and work on the in_progress step. Use "
     "confirm_alignment before significant changes and advance_step only after "
-    "implementation and verification are complete. Create a context only when "
-    "no suitable active context exists. Do not skip or complete steps merely "
-    "to clean up tracking."
+    "implementation and verification are complete. If a call is denied, report "
+    "its reason_code and hint to the user and stop instead of continuing "
+    "untracked. Create a context only when no suitable active context exists. "
+    "Do not skip or complete steps merely to clean up tracking."
 )
 
 SUPPORTED_PROTOCOL_VERSIONS = {
@@ -39,7 +43,10 @@ TOOLS = [
             "properties": {
                 "context_id": {
                     "type": "integer",
-                    "description": "ID del contexto. Si se omite, retorna el más reciente activo del proyecto.",
+                    "description": (
+                    "ID del contexto. Si se omite, retorna el más reciente activo del proyecto; "
+                    "revisá workflow_state.warnings por si hay varios activos o ningún step in_progress."
+                ),
                 },
                 "project": {
                     "type": "string",
@@ -305,7 +312,47 @@ def _tool_get_context(args: dict) -> dict:
         ).fetchone()
     if row is None:
         return {"error": "no active context found"}
-    return dict(row)
+    return {**dict(row), "workflow_state": _workflow_state(conn, row, implicit=not context_id)}
+
+
+def _workflow_state(conn: Any, context: Any, implicit: bool) -> dict:
+    """Surface ambiguous or stalled workflow state instead of letting agents guess."""
+    other_active = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM contexts WHERE project=? AND status='active' AND id!=? ORDER BY ts DESC",
+            (context["project"], context["id"]),
+        )
+    ]
+    active_step = conn.execute(
+        "SELECT id, title FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx LIMIT 1",
+        (context["id"],),
+    ).fetchone()
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM steps WHERE context_id=? AND status='pending'", (context["id"],)
+    ).fetchone()[0]
+    warnings = []
+    if other_active and implicit:
+        warnings.append({
+            "code": "multiple_active_contexts",
+            "message": (
+                f"El proyecto tiene {len(other_active) + 1} contextos activos; se devolvió el más reciente. "
+                "Confirmá con el usuario cuál corresponde y usá context_id explícito."
+            ),
+        })
+    if context["status"] == "active" and active_step is None and pending:
+        warnings.append({
+            "code": "no_step_in_progress",
+            "message": (
+                f"El contexto tiene {pending} step(s) pending y ninguno in_progress. "
+                "No avances en paralelo: pedí que se active el step de la tarea actual."
+            ),
+        })
+    return {
+        "active_step": dict(active_step) if active_step else None,
+        "pending_steps": pending,
+        "other_active_context_ids": other_active,
+        "warnings": warnings,
+    }
 
 
 def _tool_list_steps(args: dict) -> dict:
@@ -410,16 +457,15 @@ def _tool_skip_step(args: dict) -> dict:
                 ).rowcount != 1:
                     raise ValueError(f"next step {next_step['id']} changed concurrently")
             context_done = False
-            if was_active and next_step is None and conn.execute(
+            if next_step is None and conn.execute(
                 """SELECT COUNT(*) FROM steps
                    WHERE context_id=? AND id!=? AND status IN ('pending','in_progress')""",
                 (context_id, step_id),
             ).fetchone()[0] == 0:
-                conn.execute(
+                context_done = conn.execute(
                     "UPDATE contexts SET status='completed', updated_at=? WHERE id=? AND status='active'",
                     (ts, context_id),
-                )
-                context_done = True
+                ).rowcount == 1
             commit_if_not_atomic(conn)
         except Exception:
             conn.rollback()
@@ -592,11 +638,10 @@ def _tool_advance_step(args: dict) -> dict:
                     (context_id, step_id),
                 ).fetchone()[0]
                 if unresolved == 0:
-                    conn.execute(
+                    context_done = conn.execute(
                         "UPDATE contexts SET status='completed', updated_at=? WHERE id=? AND status='active'",
                         (ts, context_id),
-                    )
-                    context_done = True
+                    ).rowcount == 1
             commit_if_not_atomic(conn)
         except Exception:
             conn.rollback()

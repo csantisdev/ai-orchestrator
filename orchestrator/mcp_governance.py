@@ -224,7 +224,7 @@ def resolve_project(tool_name: str, args: dict[str, Any]) -> str | None:
     """Resolve resource ownership before a handler executes."""
     if tool_name in {"create_context", "import_agent_context"}:
         return str(args.get("project", "")).strip() or None
-    if tool_name == "get_context" and args.get("project"):
+    if tool_name == "get_context" and args.get("project") and not args.get("context_id"):
         return str(args["project"]).strip()
     resource_id = args.get("context_id")
     if tool_name in {"advance_step", "skip_step", "update_step"}:
