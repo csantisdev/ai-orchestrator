@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -304,11 +305,23 @@ def _tool_list_steps(args: dict) -> dict:
     return {"steps": [dict(r) for r in rows]}
 
 
+def _validate_step_context(conn: Any, step_id: int, context_id: int) -> None:
+    step = conn.execute(
+        "SELECT context_id FROM steps WHERE id=?",
+        (step_id,),
+    ).fetchone()
+    if step is None:
+        raise ValueError(f"step {step_id} not found")
+    if step["context_id"] != context_id:
+        raise ValueError(f"step {step_id} does not belong to context {context_id}")
+
+
 def _tool_confirm_alignment(args: dict) -> dict:
     from orchestrator.db import _conn, _write_lock
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
     with _write_lock:
+        _validate_step_context(conn, args["step_id"], args["context_id"])
         cur = conn.execute(
             """INSERT INTO alignments (ts, step_id, context_id, agent, confirmed, checkpoint, message)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -331,6 +344,7 @@ def _tool_record_tool_call(args: dict) -> dict:
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
     with _write_lock:
+        _validate_step_context(conn, args["step_id"], args["context_id"])
         cur = conn.execute(
             """INSERT INTO tool_calls (ts, step_id, context_id, tool_name, input, output, status, duration_ms)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -630,9 +644,9 @@ def _error(msg_id: Any, code: int, message: str) -> None:
     sys.stdout.flush()
 
 
-def _tool_call_result(result: Any) -> dict:
+def _tool_call_result(result: Any, is_error: bool = False) -> dict:
     """Return a result shape supported by modern and legacy MCP clients."""
-    return {
+    payload = {
         "structuredContent": result,
         "content": [
             {
@@ -641,6 +655,73 @@ def _tool_call_result(result: Any) -> dict:
             }
         ],
     }
+    if is_error:
+        payload["isError"] = True
+    return payload
+
+
+def _governed_tool_call(name: str, args: Any, correlation_id: str | None) -> tuple[dict, bool]:
+    """Validate, authorize, execute, and automatically record every MCP invocation."""
+    from orchestrator.mcp_governance import (
+        ArgumentValidationError,
+        PolicyDenied,
+        TOOL_CATEGORIES,
+        audit_invocation,
+        authorize,
+        execution_identity,
+        new_request_id,
+        resolve_project,
+        validate_arguments,
+    )
+
+    identity = execution_identity()
+    request_id = new_request_id()
+    started_at = time.monotonic()
+    project = None
+    safe_args = args if isinstance(args, dict) else {}
+    try:
+        tool = next((tool for tool in TOOLS if tool["name"] == name), None)
+        if tool is None:
+            raise PolicyDenied("unknown_tool")
+        validate_arguments(tool["inputSchema"], args)
+        project = resolve_project(name, args)
+        if name == "get_context" and project is None and len(identity.project_scope) == 1:
+            args = {**args, "project": next(iter(identity.project_scope))}
+            project = args["project"]
+        authorize(identity, name, project)
+        result = _dispatch(name, args)
+    except PolicyDenied as exc:
+        error = {"error": "tool invocation denied", "reason_code": exc.reason_code}
+        audit_invocation(
+            request_id=request_id, correlation_id=correlation_id, identity=identity,
+            tool_name=name, project=project, args=safe_args, status="denied",
+            reason_code=exc.reason_code, output=error, started_at=started_at,
+        )
+        return error, True
+    except ArgumentValidationError as exc:
+        error = {"error": str(exc), "reason_code": "invalid_arguments"}
+        audit_invocation(
+            request_id=request_id, correlation_id=correlation_id, identity=identity,
+            tool_name=name, project=project, args=safe_args, status="error",
+            reason_code="invalid_arguments", output=error, error_code="invalid_arguments",
+            started_at=started_at,
+        )
+        return error, True
+    except Exception as exc:
+        error = {"error": str(exc), "reason_code": "execution_error"}
+        audit_invocation(
+            request_id=request_id, correlation_id=correlation_id, identity=identity,
+            tool_name=name, project=project, args=safe_args, status="error",
+            reason_code="execution_error", output=error, error_code="execution_error",
+            started_at=started_at,
+        )
+        return error, True
+    audit_invocation(
+        request_id=request_id, correlation_id=correlation_id, identity=identity,
+        tool_name=name, project=project, args=args, status="success",
+        output=result, started_at=started_at,
+    )
+    return result, False
 
 
 def main() -> None:
@@ -685,12 +766,13 @@ def main() -> None:
             elif method == "ping":
                 _respond(msg_id, {})
             elif method == "tools/list":
-                _respond(msg_id, {"tools": TOOLS})
+                from orchestrator.mcp_governance import execution_identity, visible_tools
+                _respond(msg_id, {"tools": visible_tools(TOOLS, execution_identity())})
             elif method == "tools/call":
                 name = params.get("name", "")
                 args = params.get("arguments") or {}
-                result = _dispatch(name, args)
-                _respond(msg_id, _tool_call_result(result))
+                result, is_error = _governed_tool_call(name, args, str(msg_id) if msg_id is not None else None)
+                _respond(msg_id, _tool_call_result(result, is_error=is_error))
             elif msg_id is not None:
                 _error(msg_id, -32601, f"method not found: {method}")
         except Exception as exc:

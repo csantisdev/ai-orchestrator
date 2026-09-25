@@ -21,6 +21,7 @@ def _conn() -> sqlite3.Connection:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=5000")
         _local.conn = conn
     return _local.conn
 
@@ -79,6 +80,32 @@ CREATE TRIGGER IF NOT EXISTS runs_fts_update AFTER UPDATE ON runs BEGIN
     INSERT INTO runs_fts(rowid, task, routing_reason)
     VALUES (new.id, new.task, new.routing_reason);
 END;
+
+CREATE TABLE IF NOT EXISTS mcp_invocations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                  TEXT NOT NULL,
+    request_id          TEXT NOT NULL UNIQUE,
+    correlation_id      TEXT,
+    server_instance_id  TEXT NOT NULL,
+    client_surface      TEXT NOT NULL,
+    transport           TEXT NOT NULL,
+    actor_id            TEXT,
+    capability_profile  TEXT NOT NULL,
+    tool_name           TEXT NOT NULL,
+    tool_category       TEXT NOT NULL,
+    project             TEXT,
+    input_hash          TEXT NOT NULL,
+    output_hash         TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    reason_code         TEXT,
+    duration_ms         INTEGER,
+    error_code          TEXT,
+    created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_invocations_project_ts
+    ON mcp_invocations(project, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_invocations_tool_ts
+    ON mcp_invocations(tool_name, ts DESC);
 """
 
 
