@@ -122,7 +122,7 @@ No afirmación:                runtime autónomo multiagente
 - Streaming no puede bypassear el gate; el check es eager, no diferido al primer `next()` (I3, I11).
 - Ningún provider puede sobreescribir `complete()`/`complete_stream()` (I4, I9).
 - No existe fallback inseguro: si el router externo está bloqueado, se usa el router local, nunca un proveedor fijo sin re-evaluar política (I6); y un fallback bloqueado no aborta si existe *otro* proveedor permitido (I14).
-- Un secreto detectado en el payload escala la sensibilidad efectiva a `secret` (I10).
+- Un patrón de secreto reconocido en el payload escala la sensibilidad efectiva a `secret`; la política de clearance decide permitir o bloquear (I10).
 - La política se fija dentro de cada worker thread, nunca se asume heredada (I12).
 - El log de egress registra la decisión, nunca el payload (RFC-006 §6.2).
 - El dashboard MUST NOT hacer binding fuera de loopback sin autenticación (WP-Net-1, §11.6).
@@ -1162,7 +1162,7 @@ Tarea:
 5. pytest tests/ -v verde.
 ```
 
-**Salida de Fase 1:** los 10 commits mapeados contra los commits #2-#6 y #8-#12 de RFC-006 (el #7 se ejecutó antes, como Commit 0.2) reconstruidos contra `production@33ed228` real, con invariantes I1-I15 completas y verificadas en CI (§10.1 de v0.3, ahora sin huecos). H1a/H1b con evidencia pública completa por primera vez en la serie. Antes de sacar el PR de Draft: completar la tabla de trazabilidad y correr la verificación adversarial de `docs/decisions/evidence/RFC-007/README.md` — un commit que compila y pasa su test no es lo mismo que un gate verificado end-to-end.
+**Salida de Fase 1:** los 10 commits mapeados contra los commits #2-#6 y #8-#12 de RFC-006 (el #7 se ejecutó antes, como Commit 0.2) reconstruidos contra `production@33ed228` real, con invariantes I1-I15 cubiertas por las pruebas actuales listadas en el Apéndice A. La evidencia histórica de CI permanece en `docs/decisions/evidence/RFC-007/README.md`; este RFC no infiere un conteo de CI contemporáneo. Antes de sacar el PR de Draft: completar la tabla de trazabilidad y correr la verificación adversarial de esa evidencia — un commit que compila y pasa su test no es lo mismo que un gate verificado end-to-end.
 
 ### 11.3 Fase 2 — Separación política/contexto (evolución de seguridad, no parte del gate validado)
 
@@ -1304,9 +1304,9 @@ RN-1 (threat model), RN-2 (ontología de agentes), RN-3 (estado del arte), EP-1 
 
 ## Conclusión
 
-La revisión 1 de este documento diseñó un gate propio sin saber que uno mejor ya existía, probado, en el disco del usuario. La revisión 2 no inventa nada: reconstruye contra el código real de `production@33ed228` los commits #2-#6, #8-#12 (y el #7 como Commit 0.2 de Fase 0) que la serie RFC-001→006 ya validó localmente — **14 invariantes (I1-I14) mediante 15 tests** (`pytest tests/test_egress.py` → 15 passed, `pytest tests/` → 126 passed / 1 failed, resultado histórico de un patch efímero que nunca se mergeó, no un baseline comparable con este checkout hoy) — en el mismo orden, con las mismas invariantes, incluyendo el hallazgo más valioso de toda la serie: I14, el falso bloqueo que un test de seguridad anterior protegía por error.
+La revisión 1 de este documento diseñó un gate propio sin saber que uno mejor ya existía, probado, en el disco del usuario. La revisión 2 reconstruyó contra el código real de `production@33ed228` los commits #2-#6, #8-#12 (y el #7 como Commit 0.2 de Fase 0) que la serie RFC-001→006 había validado localmente. Los 15 tests de `tests/test_egress.py` pertenecen a ese patch efímero y son contexto histórico, no evidencia única de todas las invariantes actuales: el mapa de pruebas vigente del Apéndice A distribuye I1-I15 entre egress, providers, router y background. I14 conserva el hallazgo más valioso de la serie: un fallback bloqueado no debe abortar si existe otro proveedor seguro.
 
-Dos pasadas de verificación posteriores, ambas con Codex contra este mismo checkout, encontraron y cerraron: 5 desajustes materiales y 12 preguntas bloqueantes en el plan (tercera pasada), y una explicación aritmética incorrecta sobre por qué el baseline actual (`112 passed, 0 failed`, verificado empíricamente) difiere del `126/1` histórico de RFC-006 (cuarta pasada — la diferencia real son los 15 tests de `test_egress.py` del patch descartado, no evolución de la suite). Se agregó además una invariante nueva, **I15** (aislamiento de política entre operaciones/threads), que ni RFC-006 ni las revisiones anteriores de este documento habían formalizado — **I15 queda pendiente de implementación y validación en Fase 1**, a diferencia de I1-I14 que ya tienen evidencia histórica (aunque no pública) de haber pasado.
+Dos pasadas de verificación posteriores, ambas con Codex contra este mismo checkout, encontraron y cerraron: 5 desajustes materiales y 12 preguntas bloqueantes en el plan (tercera pasada), y una explicación aritmética incorrecta sobre por qué el baseline actual (`112 passed, 0 failed`, verificado empíricamente) difiere del `126/1` histórico de RFC-006 (cuarta pasada — la diferencia real son los 15 tests de `test_egress.py` del patch descartado, no evolución de la suite). Se agregó además **I15** (aislamiento de política entre operaciones/threads), que ni RFC-006 ni las revisiones anteriores de este documento habían formalizado. Ya está implementada por el ciclo `set_policy()`/`reset()` en `orchestrator/egress.py` y el `finally` de `orchestrator/background.py::_worker`, y está cubierta por `test_policy_reset_restores_previous_policy`, `test_policy_does_not_leak_between_operations` y `test_worker_resets_policy_between_runs`; la historia de su incorporación se conserva como contexto, no como estado pendiente.
 
 La siguiente acción sigue sin ser un documento: es pegar el prompt de Commit 0.1 en Codex.
 
@@ -1325,7 +1325,7 @@ La siguiente acción sigue sin ser un documento: es pegar el prompt de Commit 0.
 | I7 | Typo en política falla cerrado | RFC-001 |
 | I8 | `similar_runs` no cruza proyectos | RFC-001 |
 | I9 | El borde es sellado en definición de clase (`__init_subclass__`) | RFC-002 |
-| I10 | Un payload que coincide con un **patrón reconocido** por `_contains_secrets()` escala a `secret` y bloquea — no es detección universal de secretos, es una lista cerrada de patrones conocidos (Anthropic/OpenAI/MercadoPago/AWS/llaves privadas, ver `rag.py:60-68`) | RFC-002, **acotada** durante la verificación de este documento (2026-07-13): el enunciado original ("secreto en el prompt escala...") sobreafirmaba cobertura universal |
+| I10 | Un payload que coincide con un **patrón reconocido** por `_contains_secrets()` escala la sensibilidad efectiva a `secret`; la política normal de clearance decide permitir o bloquear. No es detección universal ni bloqueo incondicional: es una lista cerrada de patrones conocidos (Anthropic/OpenAI/MercadoPago/AWS/llaves privadas, ver `rag.py:60-68`). | RFC-002, **acotada** durante la verificación de este documento (2026-07-13): el enunciado original ("secreto en el prompt escala...") sobreafirmaba cobertura universal |
 | I11 | El check de streaming es eager, no diferido | RFC-003 |
 | I12 | La política no se filtra entre threads | RFC-003 |
 | I13 | Una denegación de política nunca se reintenta | RFC-004 |
@@ -1333,6 +1333,27 @@ La siguiente acción sigue sin ser un documento: es pegar el prompt de Commit 0.
 | **I15** | **La política activa se establece y se limpia por operación; una política de una operación anterior en el mismo thread no puede filtrarse a la siguiente** | **Verificación de RFC-007 con Codex (2026-07-13), no parte del RFC-006 original — motiva que `set_policy()` devuelva un `contextvars.Token` (Commit 1.1) y que el worker haga `reset()` en un `finally` (Commit 1.7)** |
 
 I4′: I9 reemplaza funcionalmente a I4; I4 se conserva como red redundante. RFC-006 dejó I15 vacía a propósito ("a formalizar cuando exista el código que las pruebe") — queda formalizada acá.
+
+### Mapa de pruebas vigente
+
+Ningún archivo único prueba I1-I15. Las fronteras se cubren en el componente
+que las aplica: I4/I9 en `tests/test_providers.py`
+(`test_provider_cannot_override_complete`,
+`test_provider_cannot_override_complete_stream`); I8 en
+`tests/test_router.py` (`test_fetch_similar_runs_filters_by_project`,
+`test_router_prompt_excludes_other_projects`,
+`test_fetch_similar_runs_overqueries_before_filtering`); I12/I13/I15 en
+`tests/test_background.py` (`test_background_worker_sets_policy_inside_thread`,
+`test_egress_blocked_at_call_is_not_retried`,
+`test_egress_blocked_during_iteration_is_not_retried`,
+`test_worker_resets_policy_between_runs`) junto con los tests de aislamiento
+de `tests/test_egress.py`. I10 está cubierto por
+`test_secret_in_prompt_escalates_to_secret_and_blocks` y
+`test_unrecognized_generic_api_key_does_not_escalate` en ese mismo archivo.
+Las rutas manuales y de paso activo se cubren sin I/O por
+`test_forced_provider_cannot_reach_provider_http_when_egress_blocks` y
+`test_forced_active_step_cannot_reach_provider_http_when_egress_blocks` en
+`tests/test_background.py`.
 
 ## Apéndice B — Vigencia documental
 

@@ -35,7 +35,7 @@ Lo que sigue es un **patch contra ese SHA**, ejecutado en un entorno local efím
 
 ## 0. Qué se pide
 
-El código existe, cierra una fuga reproducible y pasa 15 tests de invariante. Este RFC **no pide validar la idea**.
+El patch histórico existió, cerró una fuga reproducible y registró 15 tests de invariante. Ese resultado pertenece al patch efímero: no debe leerse como que un único archivo de 15 tests prueba todas las invariantes del árbol actual. La cobertura vigente se reparte por frontera (egress, providers, router y background), como se mapea en §4.3. Este RFC **no pide validar la idea**.
 
 Pide dos cosas:
 
@@ -305,7 +305,29 @@ secreto                        secret      → BLOQUEADO (ningún proveedor pasa
 
 Cero bytes a DeepSeek, ni como router ni como proveedor final.
 
-### 4.3 Invariantes (`tests/test_egress.py`, 15 passed)
+### 4.3 Invariantes y evidencia actual
+
+`tests/test_egress.py` y sus 15 resultados son evidencia histórica del patch
+efímero descrito en §4.1, no una prueba única de cada invariante actual. Las
+pruebas vigentes se distribuyen por el componente que impone cada frontera:
+
+| # | Cobertura vigente |
+|---|---|
+| I1 | `tests/test_egress.py::test_no_policy_blocks_provider_complete` |
+| I2 | `tests/test_egress.py::test_restricted_project_blocks_public_provider` |
+| I3 | `tests/test_egress.py::test_streaming_http_not_reached_when_blocked` |
+| I4 | `tests/test_providers.py::test_provider_cannot_override_complete` |
+| I5 | `tests/test_router.py::test_external_router_blocked_uses_local_router_not_fixed_fallback` |
+| I6 | `tests/test_router.py::test_no_fixed_claude_fallback_when_router_blocked` |
+| I7 | `tests/test_egress.py::test_unknown_project_sensitivity_fails_closed` |
+| I8 | `tests/test_router.py::test_fetch_similar_runs_filters_by_project`, `test_router_prompt_excludes_other_projects`, `test_fetch_similar_runs_overqueries_before_filtering` |
+| I9 | `tests/test_providers.py::test_provider_cannot_override_complete_stream` |
+| I10 | `tests/test_egress.py::test_secret_in_prompt_escalates_to_secret_and_blocks`, `test_unrecognized_generic_api_key_does_not_escalate` |
+| I11 | `tests/test_egress.py::test_complete_stream_check_is_eager_not_deferred` |
+| I12 | `tests/test_background.py::test_background_worker_sets_policy_inside_thread`, `test_parent_thread_policy_does_not_silently_leak_to_worker` |
+| I13 | `tests/test_background.py::test_egress_blocked_at_call_is_not_retried`, `test_egress_blocked_during_iteration_is_not_retried` |
+| I14 | `tests/test_router.py::test_blocked_fallback_provider_does_not_abort_when_other_provider_permitted` |
+| I15 | `tests/test_egress.py::test_policy_reset_restores_previous_policy`, `test_policy_does_not_leak_between_operations`; `tests/test_background.py::test_worker_resets_policy_between_runs` |
 
 | # | Invariante | Origen |
 |---|---|---|
@@ -318,11 +340,12 @@ Cero bytes a DeepSeek, ni como router ni como proveedor final.
 | I7 | Typo en política falla cerrado | RFC-001 |
 | I8 | `similar_runs` no cruza proyectos | RFC-001 |
 | I9 | El borde es sellado en definición de clase (`__init_subclass__`) | RFC-002 |
-| I10 | Secreto en el prompt escala a `secret` y bloquea | RFC-002 |
+| I10 | Un patrón de secreto **reconocido** escala la sensibilidad efectiva a `secret`; la política normal de clearance decide permitir o bloquear. No es detección universal ni bloqueo incondicional. | RFC-002 |
 | I11 | El check de streaming es eager, no diferido | RFC-003 |
 | I12 | La política no se filtra entre threads | RFC-003 |
 | I13 | Una denegación de política nunca se reintenta | RFC-004 |
 | **I14** | **Fallback bloqueado no aborta si existe otro proveedor seguro** | **RFC-006** |
+| **I15** | **La política se establece y limpia por operación, sin filtrarse a la siguiente ni entre workers** | **Formalizada después de este RFC; evidencia actual en `tests/test_egress.py` y `tests/test_background.py`** |
 | I4′ | *(I9 lo reemplaza funcionalmente; I4 se conserva como red redundante)* | — |
 
 ---

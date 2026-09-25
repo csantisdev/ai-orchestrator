@@ -1,0 +1,33 @@
+name: Decision documents
+
+on:
+  push:
+    branches: [production]
+    paths:
+      - "docs/decisions/**"
+      - "scripts/validate_decision_docs.py"
+      - "tests/test_validate_decision_docs.py"
+      - ".github/workflows/decision-docs.yml"
+  pull_request:
+    paths:
+      - "docs/decisions/**"
+      - "scripts/validate_decision_docs.py"
+      - "tests/test_validate_decision_docs.py"
+      - ".github/workflows/decision-docs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pyyaml pytest
+      - name: Validate decision documents
+        run: python scripts/validate_decision_docs.py
+      - name: Run validator tests
+        run: python -m pytest tests/test_validate_decision_docs.py -v
