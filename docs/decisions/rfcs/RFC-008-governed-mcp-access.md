@@ -1,8 +1,21 @@
+---
+id: RFC-008
+type: rfc
+title: Acceso MCP gobernado y superficie remota del Local AI Control Plane
+status: accepted
+created: 2026-07-11
+updated: 2026-09-25
+supersedes: []
+superseded_by: null
+related: [RFC-005, RFC-006, RFC-007]
+---
+
 # RFC-008 — Acceso MCP gobernado y superficie remota del Local AI Control Plane
 
-**Estado:** Draft para validación final  
+**Estado:** Aceptado  
 **Versión:** 0.1  
 **Fecha:** 2026-07-11  
+**Implementación (2026-09-25, `production@54c0cf9`):** Fase 0 y Fase 2 completas; Fases 1, 3 y 4 parciales; Fases 5-7 sin iniciar. Entregado por los PR #9 (perfiles, categorías, scope por proyecto, `mcp_invocations`, `ExecutionIdentity`), #10 (idempotencia por `request_id`), #11 (sin retención de payloads), #14 (onboarding del scope: hints de denegación, `fix --mcp-profile/--mcp-projects`, chequeos en `doctor`) y #15 (`workflow_state` en `get_context` y autorización de `get_context` por dueño del contexto). Pendiente dentro de las fases parciales: `outputSchema` y test de pureza de stdout (Fase 1), estado explícito de indexación Chroma `rag_index_status` (Fase 3) y `policy_hash` en las denegaciones (Fase 4). §3 y la Conclusión describen el baseline `33ed228` auditado al redactar este RFC, no el estado actual; §11.2-§11.4 ya reflejan la autorización server-side vigente.  
 **Repositorio de referencia:** `github.com/csantisdev/ai-orchestrator`  
 **Fuente de verdad de código:** rama `production`, commit `33ed228e0eb12664fc2dcf407c597200bd0c95c2`  
 **Documento base:** RFC-007 v0.3  
@@ -646,13 +659,14 @@ default_tools_approval_mode = "prompt"
 enabled_tools = ["get_context", "list_steps", "list_agents"]
 
 [mcp_servers.ai_orchestrator.env]
-# Metadata propuesta para Fases 2-3; production@33ed228 aún no la consume.
+# Perfil y alcance aplicados server-side desde el PR #9; sin ORCHESTRATOR_MCP_PROJECTS toda tool de proyecto se deniega.
 ORCHESTRATOR_MCP_PROFILE = "readonly"
+ORCHESTRATOR_MCP_PROJECTS = "mi-proyecto"
 ORCHESTRATOR_MCP_CLIENT_SURFACE = "chatgpt_desktop"
 ORCHESTRATOR_MCP_TRANSPORT = "stdio"
 ```
 
-**Control efectivo disponible hoy:** `enabled_tools` y la aprobación del cliente. Las variables `ORCHESTRATOR_MCP_*` son parte del contrato propuesto y no aplican autorización server-side en `production@33ed228`.
+**Control efectivo:** en el baseline `33ed228` (al redactar este RFC) solo existían `enabled_tools` y la aprobación del cliente; las variables `ORCHESTRATOR_MCP_*` eran contrato propuesto. Desde los PR #9 y #14 el servidor las aplica server-side: `ORCHESTRATOR_MCP_PROFILE` filtra `tools/list` y reautoriza cada `tools/call`, `ORCHESTRATOR_MCP_PROJECTS` fija el alcance por proyecto, y un perfil ausente o inválido cae a `readonly` (fail-closed). `ai-orchestrator fix --mcp-profile/--mcp-projects` genera este bloque y `doctor` lo verifica. `enabled_tools` y la aprobación del cliente siguen siendo una capa adicional, no la única.
 
 Después de implementar annotations y policy server-side, el cliente MAY usar:
 
@@ -681,6 +695,7 @@ Ejemplo `.mcp.json` de proyecto:
       "args": ["-u", "-m", "orchestrator.mcp"],
       "env": {
         "ORCHESTRATOR_MCP_PROFILE": "readonly",
+        "ORCHESTRATOR_MCP_PROJECTS": "mi-proyecto",
         "ORCHESTRATOR_MCP_CLIENT_SURFACE": "claude_code",
         "ORCHESTRATOR_MCP_TRANSPORT": "stdio"
       }
@@ -689,7 +704,7 @@ Ejemplo `.mcp.json` de proyecto:
 }
 ```
 
-El archivo compartido MUST NOT contener secretos. En el estado actual, Claude Code puede lanzar el servidor, pero las variables de perfil son solo metadata futura: el servidor todavía expondrá las doce tools y la autorización dependerá del cliente hasta completar la Fase 2.
+El archivo compartido MUST NOT contener secretos. En el baseline `33ed228` las variables de perfil eran solo metadata futura y el servidor exponía las doce tools; con la Fase 2 implementada (PR #9, #14), el servidor expone y ejecuta solo las tools que el perfil autoriza, dentro de los proyectos listados en `ORCHESTRATOR_MCP_PROJECTS`.
 
 ### 11.4 SSH-stdio
 
@@ -705,6 +720,7 @@ El archivo compartido MUST NOT contener secretos. En el estado actual, Claude Co
       ],
       "env": {
         "ORCHESTRATOR_MCP_PROFILE": "readonly",
+        "ORCHESTRATOR_MCP_PROJECTS": "mi-proyecto",
         "ORCHESTRATOR_MCP_CLIENT_SURFACE": "ssh_client",
         "ORCHESTRATOR_MCP_TRANSPORT": "ssh_stdio"
       }
@@ -1218,7 +1234,7 @@ Lista:
 
 ## Conclusión
 
-El servidor MCP actual ya es útil como integración local, pero todavía no constituye una superficie gobernada del Local AI Control Plane. La conexión no requiere esperar Streamable HTTP: puede validarse inmediatamente mediante STDIO en modo lectura.
+Al redactar este RFC (baseline `33ed228`), el servidor MCP ya era útil como integración local, pero todavía no constituía una superficie gobernada del Local AI Control Plane; el estado de implementación posterior está en el header. La conexión no requiere esperar Streamable HTTP: puede validarse inmediatamente mediante STDIO en modo lectura.
 
 El valor arquitectónico aparece cuando cada invocación deja de ser una llamada opaca y pasa a estar vinculada con identidad, transporte, capability, scope de proyecto, política, mutación, costo indirecto y outcome. Ese vínculo extiende PGDP desde la decisión de proveedor hacia la operación multi-tool sin inflar prematuramente la afirmación de multiagencia.
 

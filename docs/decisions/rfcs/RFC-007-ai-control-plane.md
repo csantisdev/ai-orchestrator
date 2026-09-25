@@ -1,13 +1,26 @@
+---
+id: RFC-007
+type: rfc
+title: "Local AI Control Plane: Plan de Implementación Definitivo"
+status: accepted
+created: 2026-07-13
+updated: 2026-09-25
+supersedes: []
+superseded_by: null
+related: [RFC-005, RFC-006, RFC-008]
+---
+
 # RFC-007 — Local AI Control Plane: Plan de Implementación Definitivo
 
-**Estado:** Draft para ejecución (Codex)
+**Estado:** Aceptado
 **Versión:** 0.9 (revisión 3)
 **Fecha:** 2026-07-13
-**Baseline de código auditado:** `33ed228e0eb12664fc2dcf407c597200bd0c95c2` — todas las citas de archivo:línea de la Parte II están verificadas contra este commit, y el código de `orchestrator/`, `tests/`, `pyproject.toml` y `.github/` no cambió desde entonces (verificado: cero diffs en esos paths entre `33ed228` y `production` hoy).
+**Implementación:** Fase 0 y Fase 1 completas — los 13 commits de la Parte II se ejecutaron en `feat/egress-gate` y entraron a `production` con el PR #2 (merge `4f35c47`, 2026-07-18); evidencia en `evidence/RFC-007/README.md`. Fases 2-6 (§11.3-§11.7) siguen sin iniciar o diferidas según lo declarado en cada una.
+**Baseline de código auditado:** `33ed228e0eb12664fc2dcf407c597200bd0c95c2` — todas las citas de archivo:línea de la Parte II están verificadas contra este commit, y el código de `orchestrator/`, `tests/`, `pyproject.toml` y `.github/` no cambió desde entonces (verificado el 2026-07-13, antes de ejecutar el plan: cero diffs en esos paths entre `33ed228` y `production` en esa fecha).
 **Fuente documental:** este archivo, tal como está en `production` (`git log -1 -- docs/decisions/rfcs/RFC-007-ai-control-plane.md` da el commit exacto — no se fija un SHA fijo acá adentro, porque editar esta misma línea generaría un SHA nuevo cada vez).
-**Rama de implementación:** `feat/egress-gate`, creada desde `production`. Todo el código va acá, nunca directo a `production` (RFC-006 §0). **Ya tiene upstream** (`origin/feat/egress-gate` existe desde el saneamiento de historial del 2026-07-13) pero **sin commits propios de Fase 0/1 todavía** — el Draft PR se abre junto con el Commit 0.1 (ver §11.0, corrige un defecto de diseño real: sin un PR abierto, los pushes a esta rama no disparan el workflow de CI que crea ese mismo commit). El paso `gh pr create` requiere la CLI de GitHub instalada y autenticada (`gh auth login`) — verificar antes de llegar a ese punto; si no está disponible, crear el Draft PR manualmente desde la UI web de GitHub (`Compare & pull request` sobre la rama, marcar como Draft) tiene el mismo efecto.
+**Rama de implementación:** `feat/egress-gate`, creada desde `production`. Todo el código va acá, nunca directo a `production` (RFC-006 §0). **Ejecutada y mergeada:** los commits de Fase 0/1 se hicieron en esta rama y entraron a `production` con el PR #2 el 2026-07-18. El texto que sigue describe cómo se planificó — el Draft PR se abrió junto con el Commit 0.1 (ver §11.0, corrige un defecto de diseño real: sin un PR abierto, los pushes a esta rama no disparan el workflow de CI que crea ese mismo commit). El paso `gh pr create` requiere la CLI de GitHub instalada y autenticada (`gh auth login`) — verificar antes de llegar a ese punto; si no está disponible, crear el Draft PR manualmente desde la UI web de GitHub (`Compare & pull request` sobre la rama, marcar como Draft) tiene el mismo efecto.
 **Relación con la serie:** sucede a RFC-007 v0.3. No cubre MCP — eso es RFC-008 v0.1. **Incorpora el hallazgo de la serie RFC-001…006** (`archive/RFC-001-egress-gate.md`, `archive/RFC-002…005-*.md`, `rfcs/RFC-006-provider-safe-routing.md`), aportada por el usuario después de la primera redacción de este documento — ver Changelog. **Incorpora además tres pasadas de verificación de Codex** (solo lectura, contra este mismo checkout) que encontraron desajustes materiales, preguntas bloqueantes, un error aritmético propio y un defecto de diseño en el flujo de CI/PR — todo resuelto en esta revisión, ver Changelog.
-**Destinatario de ejecución:** extensión Codex de VS Code, commit por commit, en el orden de la Parte II. **"Commit N.M" = un commit dentro de `feat/egress-gate`, no un Pull Request de GitHub** — hay un único PR real (Draft, abierto tras el Commit 0.1). Ver §11.0.
+**Destinatario de ejecución:** extensión Codex de VS Code, commit por commit, en el orden de la Parte II. **"Commit N.M" = un commit dentro de `feat/egress-gate`, no un Pull Request de GitHub** — hubo un único PR real (#2, abierto como Draft tras el Commit 0.1 y mergeado el 2026-07-18). Ver §11.0.
 
 ---
 
@@ -52,6 +65,10 @@ Nada de esto cambia el diseño de fondo de RFC-006 — son correcciones de preci
 **Segunda pasada de Codex (sobre Commit 0.1 y el estado de git):** el prompt de Commit 0.1 seguía dejando una decisión sin resolver ("preguntá antes de decidir un mecanismo") — un prompt "ya resuelto" no puede delegar una decisión al ejecutor. Se verificó empíricamente (`.venv` de este checkout, `pytest tests/ -v`) en vez de asumir: **`112 passed, 0 failed`**, sin ningún fallo que aislar. Commit 0.1 quedó corregido a exigir 100% verde sin excepciones — no hizo falta ningún mecanismo de `--deselect`/`continue-on-error`, la pregunta desapareció al verificar el hecho en vez de discutir el mecanismo.
 
 **Tercera pasada de Codex (aritmética `112` vs `126`):** la primera explicación que este documento daba de la diferencia (revisión 3 original: "la suite evolucionó, ADR-002 agregó tests") **era falsa** — verificado con `git merge-base --is-ancestor`: `tests/test_validate_pricing_catalog.py` ya existía en el commit `4de07de`, que es ancestro de `33ed228`, el mismo baseline que audita RFC-006. No hubo ningún test agregado entre RFC-006 y hoy. La explicación correcta, con la aritmética exacta de RFC-006 §4.1 (`111 passed, 1 failed` antes del patch efímero; `126 passed, 1 failed` después de agregar los 15 tests de `test_egress.py` del patch): **`112` = `111+1` = exactamente la misma cuenta total que el baseline pre-patch de RFC-006, con la única diferencia de que el test de RAG ahora pasa en vez de fallar** (chromadb disponible). El `126/1` de RFC-006 no es un baseline comparable con el checkout actual — es evidencia histórica de un patch efímero que incluía 15 tests (`test_egress.py`) que **todavía no existen** en este repo. Se corrigió la redacción en §11.1 Commit 0.1, Apéndice D y la Conclusión para no mezclar ambos números como si fueran la misma medición.
+
+### Actualización de metadata operativa (2026-09-25, sin cambio normativo)
+
+Se agregó el front matter y se alinearon con el estado real el `**Estado:**`, la línea de rama de implementación y la verificación del baseline, que seguían diciendo que no había commits de Fase 0/1: el plan se ejecutó completo y se mergeó con el PR #2 el 2026-07-18. La versión se mantiene en 0.9 revisión 3 porque ni el diseño ni el plan cambian — ver "Regla de inmutabilidad" en `../README.md`.
 
 ---
 
