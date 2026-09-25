@@ -50,10 +50,79 @@ class ExecutionIdentity:
     project_scope: frozenset[str]
 
 
+_DENIAL_HINTS = {
+    "project_out_of_scope": (
+        "The project is not listed in ORCHESTRATOR_MCP_PROJECTS for this MCP server process. "
+        "Add its alias to the env block of the MCP client config and restart the client."
+    ),
+    "project_scope_required": (
+        "The call does not identify a project. Pass project, context_id or step_id; "
+        "get_context needs an explicit project unless exactly one project is in scope."
+    ),
+    "capability_denied": (
+        "ORCHESTRATOR_MCP_PROFILE of this MCP server process does not grant this tool. "
+        "Configure a profile that does (e.g. workflow_operator) in the MCP client config env."
+    ),
+}
+GOVERNANCE_ENV_KEYS = (
+    "ORCHESTRATOR_MCP_PROFILE",
+    "ORCHESTRATOR_MCP_PROJECTS",
+    "ORCHESTRATOR_MCP_CLIENT_SURFACE",
+    "ORCHESTRATOR_MCP_TRANSPORT",
+)
+
+
 class PolicyDenied(ValueError):
     def __init__(self, reason_code: str):
         super().__init__(reason_code)
         self.reason_code = reason_code
+
+
+def denial_error(reason_code: str, identity: "ExecutionIdentity") -> dict[str, Any]:
+    """Explain a denial without revealing which other projects are in scope."""
+    error: dict[str, Any] = {
+        "error": "tool invocation denied",
+        "reason_code": reason_code,
+        "capability_profile": identity.capability_profile,
+    }
+    if reason_code in _DENIAL_HINTS:
+        error["hint"] = _DENIAL_HINTS[reason_code]
+    return error
+
+
+def governance_env(profile: str, projects: list[str], client_surface: str) -> dict[str, str]:
+    """Build the trusted launch env a client config must pass to the MCP server."""
+    if profile not in PROFILE_CAPABILITIES:
+        raise ValueError(f"unknown MCP profile: {profile}")
+    if client_surface not in _SURFACES:
+        raise ValueError(f"unknown MCP client surface: {client_surface}")
+    return {
+        "ORCHESTRATOR_MCP_PROFILE": profile,
+        "ORCHESTRATOR_MCP_PROJECTS": ",".join(p.strip() for p in projects if p.strip()),
+        "ORCHESTRATOR_MCP_CLIENT_SURFACE": client_surface,
+        "ORCHESTRATOR_MCP_TRANSPORT": "stdio",
+    }
+
+
+def governance_env_issues(env: dict[str, Any] | None, known_projects: set[str]) -> list[str]:
+    """List reasons a client config would make the MCP server deny project tools."""
+    if env is None:
+        env = {}
+    if not isinstance(env, dict):
+        return [f"env debe ser un objeto, no {type(env).__name__}: el servidor usa 'readonly' sin alcance"]
+    issues = []
+    profile = str(env.get("ORCHESTRATOR_MCP_PROFILE", "")).strip()
+    if not profile:
+        issues.append("ORCHESTRATOR_MCP_PROFILE ausente: el servidor usa 'readonly'")
+    elif profile not in PROFILE_CAPABILITIES:
+        issues.append(f"ORCHESTRATOR_MCP_PROFILE '{profile}' inválido: el servidor usa 'readonly'")
+    projects = [p.strip() for p in str(env.get("ORCHESTRATOR_MCP_PROJECTS", "")).split(",") if p.strip()]
+    if not projects:
+        issues.append("ORCHESTRATOR_MCP_PROJECTS vacío: toda tool de proyecto se deniega")
+    unknown = sorted(set(projects) - known_projects)
+    if unknown:
+        issues.append(f"ORCHESTRATOR_MCP_PROJECTS incluye alias no registrados: {', '.join(unknown)}")
+    return issues
 
 
 class ArgumentValidationError(ValueError):

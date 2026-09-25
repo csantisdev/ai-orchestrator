@@ -177,7 +177,9 @@ El servidor MCP expone 12 herramientas que cualquier agente compatible (Claude C
 | `import_agent_context` | Importa trabajo de un agente externo al historial + ChromaDB |
 | `list_agents` | Lista los agentes (presets de provider/model/system-prompt) registrados |
 
-Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto, registra Codex en `.codex/config.toml` y registra Gemini en `~/.gemini/settings.json`. Para Claude global, usá `ai-orchestrator fix --global-mcp`.
+Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto, registra Codex en `.codex/config.toml` y registra Gemini en `~/.gemini/settings.json`. Para Claude global, usá `ai-orchestrator fix --global-mcp`. Cada entrada se escribe con el bloque `env` de gobernanza: `--mcp-profile` (por defecto `readonly`) y `--mcp-projects` (por defecto, el alias registrado para este repo). En entradas existentes, `fix` solo completa las claves `ORCHESTRATOR_MCP_*` que faltan y nunca pisa las ya declaradas. `ai-orchestrator doctor` revisa el `env` de todas las configuraciones de cliente conocidas (incluidas `~/.claude.json`, `~/.copilot/mcp-config.json` y `~/.codex/config.toml`) y falla si el perfil o el alcance harían que el servidor deniegue las tools de proyecto.
+
+Si el MCP no está disponible, el estado de los pasos se puede corregir desde la CLI: `ai-orchestrator step start <id>` activa un paso `pending` cuando el contexto no tiene ninguno `in_progress` (y avisa si quedan pendientes anteriores), `step done <id> --notes ...` equivale a `advance_step` y `step skip <id> --reason ...` equivale a `skip_step`. Estas transiciones las ejecuta el operador local y no quedan registradas en `mcp_invocations`.
 
 ---
 

@@ -707,6 +707,7 @@ def _governed_tool_call(name: str, args: Any, correlation_id: str | None) -> tup
         authorize,
         claim_mutation,
         complete_mutation,
+        denial_error,
         execution_identity,
         mutation_request_id,
         new_request_id,
@@ -789,7 +790,7 @@ def _governed_tool_call(name: str, args: Any, correlation_id: str | None) -> tup
         else:
             result = _dispatch(name, args)
     except PolicyDenied as exc:
-        error = {"error": "tool invocation denied", "reason_code": exc.reason_code}
+        error = denial_error(exc.reason_code, identity)
         audit_invocation(
             request_id=request_id, correlation_id=correlation_id, identity=identity,
             tool_name=name, project=project, args=safe_args, status="denied",
