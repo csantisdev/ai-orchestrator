@@ -15,6 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from orchestrator import benchmark as benchmark_module
 from orchestrator import context as context_module
 from orchestrator import egress
 from orchestrator import eval as eval_module
@@ -691,6 +692,95 @@ def router_eval_command(
             "se requieren al menos 200 runs evaluados.[/yellow]"
         )
 
+
+@app.command(name="model-eval")
+def model_eval_command(
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Filtrar localmente por proyecto."),
+    task_class: Optional[str] = typer.Option(
+        None,
+        "--task-class",
+        help="Filtrar por: unit, integration, regression, schema o edge_case.",
+    ),
+):
+    """Muestra métricas agregadas de evaluación local sin exponer payloads."""
+    _ensure_db()
+    try:
+        report = eval_module.local_model_eval(project=project, task_class=task_class)
+    except ValueError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    table = Table(title="Evaluación local de modelos (agregada)")
+    table.add_column("Proveedor")
+    table.add_column("Modelo")
+    table.add_column("Clase")
+    table.add_column("Verificación")
+    table.add_column("Runs", justify="right")
+    table.add_column("Útil/P./Err.", justify="right")
+    table.add_column("Costo", justify="right")
+    table.add_column("Dur. media", justify="right")
+    for group in report["groups"]:
+        avg_ms = group["avg_duration_ms"]
+        table.add_row(
+            group["provider"],
+            group["model"],
+            group["task_class"],
+            group["verification_result"],
+            str(group["runs"]),
+            f"{group['useful_runs']}/{group['partial_runs']}/{group['wrong_runs']}",
+            f"USD {group['cost_usd']:.6f}",
+            f"{avg_ms:.0f} ms" if avg_ms is not None else "sin datos",
+        )
+    console.print(table)
+    console.print(
+        "Runs evaluados: "
+        f"{report['evaluated_runs']} | Cobertura de rating: {report['rating_coverage']:.1%}"
+    )
+
+
+@app.command(name="benchmark-validate")
+def benchmark_validate_command(
+    manifest: Path = typer.Option(..., "--manifest", exists=True, dir_okay=False),
+    model: list[str] = typer.Option(..., "--model", help="Modelo candidato; repetir por brazo."),
+    seed: str = typer.Option("pilot-v1", "--seed", help="Seed estable de asignación."),
+    execute: bool = typer.Option(
+        False,
+        "--execute",
+        help="Ejecuta localmente los comandos del manifest; sin esta opción solo valida el plan.",
+    ),
+):
+    """Valida localmente un corpus y mide detección de mutaciones agregada."""
+    try:
+        report = benchmark_module.run_benchmark(manifest, model, seed, execute)
+    except benchmark_module.BenchmarkManifestError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    table = Table(title="Benchmark local de validación")
+    table.add_column("Modelo")
+    table.add_column("Clase")
+    table.add_column("Plan", justify="right")
+    table.add_column("Base ok", justify="right")
+    table.add_column("Mut. detect./no", justify="right")
+    table.add_column("Timeouts", justify="right")
+    table.add_column("Detección", justify="right")
+    for group in report["groups"]:
+        rate = group["mutation_detection_rate"]
+        table.add_row(
+            group["model"],
+            group["task_class"],
+            str(group["planned"]),
+            str(group["baseline_passed"]),
+            f"{group['mutation_detected']}/{group['mutation_missed']}",
+            str(group["timeouts"]),
+            f"{rate:.1%}" if rate is not None else "sin datos",
+        )
+    console.print(table)
+    if not report["executed"]:
+        console.print(
+            "[yellow]Plan validado: no se ejecutaron comandos. "
+            "Usá --execute solo sobre un corpus local confiable.[/yellow]"
+        )
 
 
 @app.command()

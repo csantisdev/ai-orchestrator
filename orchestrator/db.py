@@ -156,6 +156,53 @@ def update_run(
         conn.commit()
 
 
+VALID_TASK_CLASSES = frozenset({
+    "unit",
+    "integration",
+    "regression",
+    "schema",
+    "edge_case",
+})
+VALID_VERIFICATION_RESULTS = frozenset({
+    "passed",
+    "failed",
+    "manual_review",
+})
+VALID_RATINGS = frozenset({
+    "useful",
+    "partial",
+    "wrong",
+})
+
+
+def record_run_evaluation(
+    run_id: int,
+    task_class: str,
+    verification_result: str,
+    rating: str | None = None,
+) -> None:
+    """Registra etiquetas de evaluación estructuradas sin guardar payloads."""
+    if task_class not in VALID_TASK_CLASSES:
+        raise ValueError(f"task_class inválido: {task_class!r}")
+    if verification_result not in VALID_VERIFICATION_RESULTS:
+        raise ValueError(f"verification_result inválido: {verification_result!r}")
+    if rating is not None and rating not in VALID_RATINGS:
+        raise ValueError(f"rating inválido: {rating!r}")
+
+    conn = _conn()
+    with _write_lock:
+        cur = conn.execute(
+            """UPDATE runs
+               SET task_class=?, verification_result=?, rating=COALESCE(?, rating)
+               WHERE id=?""",
+            (task_class, verification_result, rating, run_id),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            raise ValueError(f"run inexistente: {run_id}")
+        conn.commit()
+
+
 def delete_imported_runs(project: str, provider: Optional[str] = None) -> list[int]:
     """Elimina runs importados de un proyecto. Si provider se especifica, filtra por él.
     Retorna lista de run_ids eliminados (para limpiar ChromaDB)."""

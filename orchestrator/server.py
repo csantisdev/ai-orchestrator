@@ -560,6 +560,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/delete-contexts":         self._post_delete_contexts,
                 "/clear-imports":           self._post_clear_imports,
                 "/rate-run":                self._post_rate_run,
+                "/evaluate-run":            self._post_evaluate_run,
                 "/import-context":          self._post_import_context,
                 "/sync-cc":                 self._post_sync_cc,
                 "/sync-git":                self._post_sync_git,
@@ -752,6 +753,28 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                     )
                     _c.commit()
                 self._json({"run_id": rid, "rating": rating or None})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+            return
+
+        def _post_evaluate_run(self):
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json_mod.loads(self.rfile.read(length))
+                rid = int(body.get("run_id", 0))
+                task_class = (body.get("task_class") or "").strip()
+                verification_result = (body.get("verification_result") or "").strip()
+                rating = (body.get("rating") or "").strip() or None
+                from orchestrator.db import record_run_evaluation
+                record_run_evaluation(rid, task_class, verification_result, rating)
+                self._json({
+                    "run_id": rid,
+                    "task_class": task_class,
+                    "verification_result": verification_result,
+                    "rating": rating,
+                })
+            except (TypeError, ValueError) as exc:
+                self._json({"error": str(exc)}, 400)
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
             return
@@ -1537,4 +1560,3 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
     except KeyboardInterrupt:
         server.shutdown()
         _console.print("\n[dim]Dashboard detenido.[/dim]")
-

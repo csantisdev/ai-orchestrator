@@ -10,6 +10,22 @@ from orchestrator import index as index_module
 from orchestrator.egress import EgressBlocked
 from orchestrator.router import decide_with_local_router
 
+_VALID_TASK_CLASSES = frozenset({
+    "unit",
+    "integration",
+    "regression",
+    "schema",
+    "edge_case",
+})
+_EVALUATED_PROVIDERS = (
+    "claude",
+    "claude-code",
+    "codex",
+    "deepseek",
+    "gemini",
+    "openai",
+)
+
 
 def offline_router_eval(
     config: dict,
@@ -88,4 +104,56 @@ def offline_router_eval(
         ),
         "router_cost_observed_runs": len(observed_router_costs),
         "router_cost_missing_runs": evaluated_runs - len(observed_router_costs),
+    }
+
+
+def local_model_eval(
+    project: str | None = None,
+    task_class: str | None = None,
+) -> dict[str, Any]:
+    """Resume evaluaciones locales sin leer tareas, respuestas ni proyectos."""
+    if task_class is not None and task_class not in _VALID_TASK_CLASSES:
+        raise ValueError(f"task_class inválido: {task_class!r}")
+
+    from orchestrator.db import _conn
+
+    conditions = [
+        "status='done'",
+        f"provider IN ({', '.join('?' for _ in _EVALUATED_PROVIDERS)})",
+        "model != ''",
+        "task_class IS NOT NULL",
+        "verification_result IS NOT NULL",
+    ]
+    params: list[Any] = list(_EVALUATED_PROVIDERS)
+    if project is not None:
+        conditions.append("project=?")
+        params.append(project)
+    if task_class is not None:
+        conditions.append("task_class=?")
+        params.append(task_class)
+
+    rows = _conn().execute(
+        f"""SELECT provider, model, task_class, verification_result,
+                   COUNT(*) AS runs,
+                   SUM(rating IS NOT NULL) AS rated_runs,
+                   SUM(rating='useful') AS useful_runs,
+                   SUM(rating='partial') AS partial_runs,
+                   SUM(rating='wrong') AS wrong_runs,
+                   COALESCE(SUM(cost_usd), 0) AS cost_usd,
+                   AVG(duration_ms) AS avg_duration_ms
+            FROM runs
+            WHERE {' AND '.join(conditions)}
+            GROUP BY provider, model, task_class, verification_result
+            ORDER BY provider, model, task_class, verification_result""",
+        params,
+    ).fetchall()
+    groups = [dict(row) for row in rows]
+    evaluated_runs = sum(group["runs"] for group in groups)
+    rated_runs = sum(group["rated_runs"] for group in groups)
+
+    return {
+        "evaluated_runs": evaluated_runs,
+        "rated_runs": rated_runs,
+        "rating_coverage": rated_runs / evaluated_runs if evaluated_runs else 0.0,
+        "groups": groups,
     }
