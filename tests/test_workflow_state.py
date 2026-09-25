@@ -111,3 +111,45 @@ def test_server_instructions_are_project_agnostic_and_require_stopping_on_denial
     assert "project='ai-orchestrator'" not in SERVER_INSTRUCTIONS
     assert "workflow_state.warnings" in SERVER_INSTRUCTIONS
     assert "hint" in SERVER_INSTRUCTIONS
+
+
+def test_get_context_authorizes_owner_of_context_id_not_claimed_project(isolated_db, monkeypatch):
+    import orchestrator.mcp as mcp
+
+    monkeypatch.setenv("ORCHESTRATOR_MCP_PROFILE", "readonly")
+    monkeypatch.setenv("ORCHESTRATOR_MCP_PROJECTS", "allowed")
+    private = isolated_db.insert_context("private", "Secret title")
+
+    result, is_error = mcp._governed_tool_call(
+        "get_context", {"project": "allowed", "context_id": private}, "r-1"
+    )
+
+    assert is_error is True
+    assert result["reason_code"] == "project_out_of_scope"
+    assert "Secret title" not in str(result)
+
+
+def test_explicit_context_id_does_not_claim_newest_was_returned(isolated_db):
+    import orchestrator.mcp as mcp
+
+    older = isolated_db.insert_context("backend", "Backlog")
+    isolated_db.insert_context("backend", "Current")
+
+    result = mcp._tool_get_context({"context_id": older})
+
+    assert result["id"] == older
+    assert "multiple_active_contexts" not in _codes(result)
+    assert result["workflow_state"]["other_active_context_ids"] != []
+
+
+def test_skip_does_not_report_completion_for_non_active_context(isolated_db):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("backend", "Planned", status="programado")
+    step = isolated_db.insert_step(context_id, 1, "Only")
+
+    result = mcp._tool_skip_step({"step_id": step})
+
+    assert result["context_done"] is False
+    status = isolated_db._conn().execute("SELECT status FROM contexts WHERE id=?", (context_id,)).fetchone()[0]
+    assert status == "programado"

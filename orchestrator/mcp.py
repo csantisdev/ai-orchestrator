@@ -312,10 +312,10 @@ def _tool_get_context(args: dict) -> dict:
         ).fetchone()
     if row is None:
         return {"error": "no active context found"}
-    return {**dict(row), "workflow_state": _workflow_state(conn, row)}
+    return {**dict(row), "workflow_state": _workflow_state(conn, row, implicit=not context_id)}
 
 
-def _workflow_state(conn: Any, context: Any) -> dict:
+def _workflow_state(conn: Any, context: Any, implicit: bool) -> dict:
     """Surface ambiguous or stalled workflow state instead of letting agents guess."""
     other_active = [
         r["id"] for r in conn.execute(
@@ -331,7 +331,7 @@ def _workflow_state(conn: Any, context: Any) -> dict:
         "SELECT COUNT(*) FROM steps WHERE context_id=? AND status='pending'", (context["id"],)
     ).fetchone()[0]
     warnings = []
-    if other_active:
+    if other_active and implicit:
         warnings.append({
             "code": "multiple_active_contexts",
             "message": (
@@ -462,11 +462,10 @@ def _tool_skip_step(args: dict) -> dict:
                    WHERE context_id=? AND id!=? AND status IN ('pending','in_progress')""",
                 (context_id, step_id),
             ).fetchone()[0] == 0:
-                conn.execute(
+                context_done = conn.execute(
                     "UPDATE contexts SET status='completed', updated_at=? WHERE id=? AND status='active'",
                     (ts, context_id),
-                )
-                context_done = True
+                ).rowcount == 1
             commit_if_not_atomic(conn)
         except Exception:
             conn.rollback()
@@ -639,11 +638,10 @@ def _tool_advance_step(args: dict) -> dict:
                     (context_id, step_id),
                 ).fetchone()[0]
                 if unresolved == 0:
-                    conn.execute(
+                    context_done = conn.execute(
                         "UPDATE contexts SET status='completed', updated_at=? WHERE id=? AND status='active'",
                         (ts, context_id),
-                    )
-                    context_done = True
+                    ).rowcount == 1
             commit_if_not_atomic(conn)
         except Exception:
             conn.rollback()
