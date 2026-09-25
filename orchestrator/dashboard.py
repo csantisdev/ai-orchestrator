@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import html
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from orchestrator.dashboard_css import _build_css
 from orchestrator.dashboard_js import _build_js
+from orchestrator.timeutil import local_date_from_ts as _local_date_from_ts
 
 
 PROVIDER_COLORS = {
@@ -375,11 +376,11 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     else:
         tokens_display = str(total_tokens)
     now_dt = datetime.now().astimezone()
-    _today = now_dt.date().isoformat()
+    _today = now_dt.date()
     cost_today = sum(
         (_float_or_none(r.get("cost_usd")) or 0)
         for r in filtered
-        if _text(r.get("ts", "")).startswith(_today)
+        if _local_date_from_ts(_text(r.get("ts", ""))) == _today
     )
     if cost_today <= 0:
         cost_display = "—"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from orchestrator.providers.base import CompletionResult
@@ -156,6 +156,53 @@ def update_run(
         conn.commit()
 
 
+VALID_TASK_CLASSES = frozenset({
+    "unit",
+    "integration",
+    "regression",
+    "schema",
+    "edge_case",
+})
+VALID_VERIFICATION_RESULTS = frozenset({
+    "passed",
+    "failed",
+    "manual_review",
+})
+VALID_RATINGS = frozenset({
+    "useful",
+    "partial",
+    "wrong",
+})
+
+
+def record_run_evaluation(
+    run_id: int,
+    task_class: str,
+    verification_result: str,
+    rating: str | None = None,
+) -> None:
+    """Registra etiquetas de evaluación estructuradas sin guardar payloads."""
+    if task_class not in VALID_TASK_CLASSES:
+        raise ValueError(f"task_class inválido: {task_class!r}")
+    if verification_result not in VALID_VERIFICATION_RESULTS:
+        raise ValueError(f"verification_result inválido: {verification_result!r}")
+    if rating is not None and rating not in VALID_RATINGS:
+        raise ValueError(f"rating inválido: {rating!r}")
+
+    conn = _conn()
+    with _write_lock:
+        cur = conn.execute(
+            """UPDATE runs
+               SET task_class=?, verification_result=?, rating=COALESCE(?, rating)
+               WHERE id=?""",
+            (task_class, verification_result, rating, run_id),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            raise ValueError(f"run inexistente: {run_id}")
+        conn.commit()
+
+
 def delete_imported_runs(project: str, provider: Optional[str] = None) -> list[int]:
     """Elimina runs importados de un proyecto. Si provider se especifica, filtra por él.
     Retorna lista de run_ids eliminados (para limpiar ChromaDB)."""
@@ -292,13 +339,28 @@ def fts_search(query: str, limit: int = 10) -> list[sqlite3.Row]:
 
 
 def daily_cost(project: str) -> float:
+    """Costo acumulado del dia LOCAL para `project`.
+
+    `ts` se guarda en UTC; convertir cada `ts` a fecha local con
+    `local_date_from_ts` (en vez de comparar el string UTC directamente)
+    evita que el corte de "dia" ocurra en la medianoche UTC en lugar de la
+    medianoche del usuario - ver orchestrator/timeutil.py.
+    """
+    from orchestrator.timeutil import local_date_from_ts
+
     conn = _conn()
-    today = datetime.now(timezone.utc).date().isoformat()
-    row = conn.execute(
-        "SELECT COALESCE(SUM(cost_usd), 0.0) FROM runs WHERE project=? AND date(ts)=?",
-        (project, today),
-    ).fetchone()
-    return float(row[0]) if row else 0.0
+    today_local = datetime.now().astimezone().date()
+    # Ventana de 2 dias UTC alcanza cualquier offset de zona horaria real.
+    window_start = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    rows = conn.execute(
+        "SELECT ts, cost_usd FROM runs WHERE project=? AND ts >= ? AND cost_usd IS NOT NULL",
+        (project, window_start),
+    ).fetchall()
+    total = 0.0
+    for row in rows:
+        if local_date_from_ts(row["ts"]) == today_local:
+            total += row["cost_usd"] or 0.0
+    return total
 
 
 def projects_list() -> list[str]:

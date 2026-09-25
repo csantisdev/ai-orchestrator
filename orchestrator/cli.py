@@ -15,6 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from orchestrator import benchmark as benchmark_module
 from orchestrator import context as context_module
 from orchestrator import egress
 from orchestrator import eval as eval_module
@@ -692,6 +693,95 @@ def router_eval_command(
         )
 
 
+@app.command(name="model-eval")
+def model_eval_command(
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Filtrar localmente por proyecto."),
+    task_class: Optional[str] = typer.Option(
+        None,
+        "--task-class",
+        help="Filtrar por: unit, integration, regression, schema o edge_case.",
+    ),
+):
+    """Muestra métricas agregadas de evaluación local sin exponer payloads."""
+    _ensure_db()
+    try:
+        report = eval_module.local_model_eval(project=project, task_class=task_class)
+    except ValueError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    table = Table(title="Evaluación local de modelos (agregada)")
+    table.add_column("Proveedor")
+    table.add_column("Modelo")
+    table.add_column("Clase")
+    table.add_column("Verificación")
+    table.add_column("Runs", justify="right")
+    table.add_column("Útil/P./Err.", justify="right")
+    table.add_column("Costo", justify="right")
+    table.add_column("Dur. media", justify="right")
+    for group in report["groups"]:
+        avg_ms = group["avg_duration_ms"]
+        table.add_row(
+            group["provider"],
+            group["model"],
+            group["task_class"],
+            group["verification_result"],
+            str(group["runs"]),
+            f"{group['useful_runs']}/{group['partial_runs']}/{group['wrong_runs']}",
+            f"USD {group['cost_usd']:.6f}",
+            f"{avg_ms:.0f} ms" if avg_ms is not None else "sin datos",
+        )
+    console.print(table)
+    console.print(
+        "Runs evaluados: "
+        f"{report['evaluated_runs']} | Cobertura de rating: {report['rating_coverage']:.1%}"
+    )
+
+
+@app.command(name="benchmark-validate")
+def benchmark_validate_command(
+    manifest: Path = typer.Option(..., "--manifest", exists=True, dir_okay=False),
+    model: list[str] = typer.Option(..., "--model", help="Modelo candidato; repetir por brazo."),
+    seed: str = typer.Option("pilot-v1", "--seed", help="Seed estable de asignación."),
+    execute: bool = typer.Option(
+        False,
+        "--execute",
+        help="Ejecuta localmente los comandos del manifest; sin esta opción solo valida el plan.",
+    ),
+):
+    """Valida localmente un corpus y mide detección de mutaciones agregada."""
+    try:
+        report = benchmark_module.run_benchmark(manifest, model, seed, execute)
+    except benchmark_module.BenchmarkManifestError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    table = Table(title="Benchmark local de validación")
+    table.add_column("Modelo")
+    table.add_column("Clase")
+    table.add_column("Plan", justify="right")
+    table.add_column("Base ok", justify="right")
+    table.add_column("Mut. detect./no", justify="right")
+    table.add_column("Timeouts", justify="right")
+    table.add_column("Detección", justify="right")
+    for group in report["groups"]:
+        rate = group["mutation_detection_rate"]
+        table.add_row(
+            group["model"],
+            group["task_class"],
+            str(group["planned"]),
+            str(group["baseline_passed"]),
+            f"{group['mutation_detected']}/{group['mutation_missed']}",
+            str(group["timeouts"]),
+            f"{rate:.1%}" if rate is not None else "sin datos",
+        )
+    console.print(table)
+    if not report["executed"]:
+        console.print(
+            "[yellow]Plan validado: no se ejecutaron comandos. "
+            "Usá --execute solo sobre un corpus local confiable.[/yellow]"
+        )
+
 
 @app.command()
 def serve(
@@ -978,7 +1068,126 @@ def doctor(
                 if resp_count > 0:
                     info(f"  RAG responses: {resp_count} vectores")
 
-    # ── 5. Resumen ─────────────────────────────────────────────────────────
+    # ── 5. Ingesta y pricing ────────────────────────────────────────────────
+    console.print("\n[bold cyan]Ingesta y pricing[/bold cyan]")
+
+    try:
+        from orchestrator.catalog import list_used_models_without_price
+        _gaps = list_used_models_without_price(config)
+    except Exception as exc:
+        _gaps = []
+        info(f"No se pudo evaluar pricing: {exc}")
+
+    # 'git' registra el autor del commit en el campo modelo, no un modelo real.
+    _real_gaps = [g for g in _gaps if g["provider"] != "git"]
+    if _real_gaps:
+        _modelos = ", ".join(f"{g['provider']}/{g['model']}" for g in _real_gaps[:8])
+        _extra = f" (+{len(_real_gaps) - 8} más)" if len(_real_gaps) > 8 else ""
+        warn(f"{len(_real_gaps)} modelo(s) usados sin precio: {_modelos}{_extra}",
+             "Agregá el precio en config.yaml → pricing, o corré 'ai-orchestrator pricing validate'")
+    else:
+        ok("Todos los modelos usados tienen precio registrado")
+
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from orchestrator.db import _conn as _doctor_conn
+    _now = _dt.now(_tz.utc)
+    _STALE_HOURS = 24
+    # Tolerancia para el gap residual entre mtime del archivo / updated_at_ms
+    # y el "fin" reconstruido (ts_start + duration_ms): son magnitudes
+    # equivalentes pero no bit-a-bit identicas (el archivo se flushea despues
+    # del ultimo evento parseado). Sin esto, sesiones YA sincronizadas con un
+    # gap de fracciones de segundo terminaban en falso-stale permanente en
+    # cuanto esa actividad envejecia mas de _STALE_HOURS.
+    _STALENESS_TOLERANCE = _td(minutes=5)
+
+    def _parse_dt(raw: Optional[str]):
+        if not raw:
+            return None
+        try:
+            parsed = _dt.fromisoformat(raw)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=_tz.utc)
+
+    def _newest_imported_end(provider: str, reason_prefix: str):
+        """Fin de actividad mas reciente ya importado por el watcher AUTOMATICO
+        de `provider` (no cualquier run con ese provider).
+
+        `runs.ts` guarda el INICIO de la sesion/thread (`ts_start`), pero lo
+        disponible en disco para Claude Code y Codex se mide por actividad
+        (mtime del archivo / `updated_at_ms`), que refleja el FIN. Comparar
+        inicio contra fin subestima lo importado y puede quedar en falso-stale
+        permanente para sesiones largas, sin que un resync lo corrija. Se
+        aproxima el fin real como `ts_start + duration_ms` (clamped a >=0 -
+        un duration_ms negativo de un import manual/MCP no debe restar tiempo).
+
+        Se filtra ademas por el prefijo de `routing_reason` que usan
+        watcher.py/codex_watcher.py (`"Claude Code session · "` /
+        `"Codex thread · "`) y NO solo por `provider`: un import manual
+        (`import-context --agent claude-code`) comparte el mismo provider
+        pero no es evidencia de que el sync automatico este al dia - podia
+        enmascarar staleness real si su ts era mas reciente.
+        """
+        rows = _doctor_conn().execute(
+            "SELECT ts, duration_ms FROM runs WHERE provider=? AND routing_reason LIKE ?",
+            (provider, f"{reason_prefix}%"),
+        ).fetchall()
+        latest = None
+        for row in rows:
+            start = _parse_dt(row["ts"])
+            if start is None:
+                continue
+            end = start + _td(milliseconds=max(row["duration_ms"] or 0, 0))
+            if latest is None or end > latest:
+                latest = end
+        return latest
+
+    def _check_staleness(label: str, available, imported, hint: str) -> None:
+        if available is None:
+            return  # nada en disco para esta fuente todavía
+        if imported is None or available > imported + _STALENESS_TOLERANCE:
+            gap_h = (_now - available).total_seconds() / 3600
+            if gap_h > _STALE_HOURS:
+                warn(f"{label}: hay actividad de hace {gap_h / 24:.1f} día(s) sin sincronizar", hint)
+            else:
+                info(f"{label}: actividad reciente ya cubierta por el próximo sync ({gap_h:.1f}h)")
+        else:
+            info(f"{label}: sincronizado")
+
+    try:
+        from orchestrator.watcher import newest_available_mtime as _cc_avail
+        _check_staleness("Claude Code", _cc_avail(),
+                          _newest_imported_end("claude-code", "Claude Code session · "),
+                          "Ejecutá: ai-orchestrator sync-cc")
+    except Exception as exc:
+        info(f"No se pudo evaluar staleness de Claude Code: {exc}")
+
+    try:
+        from orchestrator.codex_watcher import newest_available_ts as _codex_avail
+        _check_staleness("Codex", _codex_avail(),
+                          _newest_imported_end("codex", "Codex thread · "),
+                          "Ejecutá: ai-orchestrator sync-codex")
+    except Exception as exc:
+        info(f"No se pudo evaluar staleness de Codex: {exc}")
+
+    if projects:
+        try:
+            from orchestrator.git_scanner import newest_local_commit_date, _newest_imported_commit_date
+            _conn_git = _doctor_conn()
+            for alias, path in sorted(projects.items()):
+                if project and alias != project:
+                    continue
+                proj_path = _Path(path)
+                if not proj_path.exists():
+                    continue
+                local_dt = _parse_dt(newest_local_commit_date(proj_path))
+                imported_dt = _parse_dt(_newest_imported_commit_date(_conn_git, alias))
+                _check_staleness(f"Git · {alias}", local_dt, imported_dt,
+                                  "Ejecutá: ai-orchestrator sync-git")
+        except Exception as exc:
+            info(f"No se pudo evaluar staleness de git: {exc}")
+
+    # ── 6. Resumen ─────────────────────────────────────────────────────────
     console.print()
     if not issues and not warnings:
         console.print("[bold green]✓ Todo en orden — el orquestador está listo para usar.[/bold green]")

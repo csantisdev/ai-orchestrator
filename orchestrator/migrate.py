@@ -361,3 +361,23 @@ def run_migrations() -> None:
                     pass
                 _mark_applied(conn, "add_routing_source_to_runs")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_evaluation_fields_to_runs"):
+                try:
+                    conn.execute("ALTER TABLE runs ADD COLUMN task_class TEXT")
+                except Exception:
+                    pass
+                try:
+                    conn.execute(
+                        "ALTER TABLE runs ADD COLUMN verification_result TEXT"
+                    )
+                except Exception:
+                    pass
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_runs_evaluation
+                    ON runs(task_class, verification_result)
+                    WHERE task_class IS NOT NULL
+                """)
+                _mark_applied(conn, "add_evaluation_fields_to_runs")
+                conn.commit()

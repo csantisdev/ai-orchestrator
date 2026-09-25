@@ -24,6 +24,26 @@ def _find_state_db() -> Optional[Path]:
     return candidates[0] if candidates else None
 
 
+def newest_available_ts() -> Optional[datetime]:
+    """`updated_at` mas reciente entre los threads del state_N.sqlite mas nuevo
+    (chequeo de staleness en `doctor`, no dispara ningun parseo/import)."""
+    db_path = _find_state_db()
+    if db_path is None:
+        return None
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute("SELECT MAX(updated_at_ms) FROM threads").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    if not row or row[0] is None:
+        return None
+    return datetime.fromtimestamp(row[0] / 1000, tz=timezone.utc)
+
+
 def _strip_cwd_prefix(cwd: str) -> str:
     """Elimina el prefijo de long paths de Windows (\\\\?\\)."""
     if cwd.startswith("\\\\?\\"):
@@ -257,9 +277,18 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                         thread_id,
                     ),
                 )
+                if cur.rowcount:
+                    run_id = cur.lastrowid
+                else:
+                    # Otro proceso ya importo este thread entre el chequeo
+                    # inicial y este INSERT - lastrowid de esta conexion
+                    # apuntaria a una fila ajena.
+                    existing_row = conn.execute(
+                        "SELECT id FROM runs WHERE session_id=?", (thread_id,)
+                    ).fetchone()
+                    run_id = existing_row[0] if existing_row else None
                 conn.commit()
 
-            run_id = cur.lastrowid
             if run_id:
                 try:
                     from orchestrator.db import get_active_step_id

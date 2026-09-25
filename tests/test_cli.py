@@ -94,3 +94,35 @@ def test_router_eval_offline_warns_below_two_hundred_runs():
     assert result.exit_code == 0, result.output
     normalized_output = " ".join(result.output.split())
     assert "se requieren al menos 200 runs evaluados" in normalized_output
+
+
+def test_model_eval_prints_only_aggregated_metrics():
+    runner = CliRunner()
+    report = {
+        "evaluated_runs": 2,
+        "rated_runs": 1,
+        "rating_coverage": 0.5,
+        "groups": [{
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "task_class": "unit",
+            "verification_result": "passed",
+            "runs": 2,
+            "useful_runs": 1,
+            "partial_runs": 0,
+            "wrong_runs": 0,
+            "cost_usd": 0.02,
+            "avg_duration_ms": 1200,
+        }],
+    }
+
+    with patch("orchestrator.cli._ensure_db"), \
+         patch(
+             "orchestrator.cli.eval_module.local_model_eval",
+             return_value=report,
+         ) as local_eval:
+        result = runner.invoke(app, ["model-eval", "--task-class", "unit"])
+
+    assert result.exit_code == 0, result.output
+    local_eval.assert_called_once_with(project=None, task_class="unit")
+    assert "Runs evaluados: 2" in result.output
