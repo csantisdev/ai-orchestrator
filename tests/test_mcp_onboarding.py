@@ -304,14 +304,49 @@ def test_fix_aborts_before_writing_when_scope_is_empty(tmp_path, monkeypatch):
 
 def test_codex_env_is_not_written_inside_multiline_string(tmp_path):
     path = tmp_path / "config.toml"
-    original = (
+    path.write_text(
         '[mcp_servers.ai_orchestrator]\ncommand = "py"\nnote = """\n'
-        '[mcp_servers.ai_orchestrator.tools.fake]\n"""\n'
+        '[mcp_servers.ai_orchestrator.tools.fake]\n"""\n',
+        encoding="utf-8",
     )
+    calls, did, skip, fail = _recorder()
+
+    _apply_codex_mcp(path, _entry(surface="codex_cli"), did, skip, fail)
+
+    server = tomllib.loads(path.read_text(encoding="utf-8"))["mcp_servers"]["ai_orchestrator"]
+    assert server["env"]["ORCHESTRATOR_MCP_PROJECTS"] == "allowed"
+    assert server["note"] == "[mcp_servers.ai_orchestrator.tools.fake]\n"
+    assert len(calls["did"]) == 1
+
+
+def test_codex_env_insertion_fails_closed_when_no_candidate_verifies(tmp_path, monkeypatch):
+    import orchestrator.cli as cli
+
+    path = tmp_path / "config.toml"
+    original = '[mcp_servers.ai_orchestrator]\ncommand = "py"\n'
     path.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(cli, "_codex_env_inserted_exactly", lambda *a: False)
     calls, did, skip, fail = _recorder()
 
     _apply_codex_mcp(path, _entry(surface="codex_cli"), did, skip, fail)
 
     assert path.read_text(encoding="utf-8") == original
     assert calls["did"] == [] and len(calls["fail"]) == 1
+
+
+def test_codex_env_skips_fake_header_and_uses_real_tool_table(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[mcp_servers.ai_orchestrator]\ncommand = "py"\nnote = """\n'
+        '[mcp_servers.ai_orchestrator.tools.fake]\n"""\n\n'
+        '[mcp_servers.ai_orchestrator.tools.get_context]\napproval_mode = "approve"\n',
+        encoding="utf-8",
+    )
+    calls, did, skip, fail = _recorder()
+
+    _apply_codex_mcp(path, _entry(surface="codex_cli"), did, skip, fail)
+
+    server = tomllib.loads(path.read_text(encoding="utf-8"))["mcp_servers"]["ai_orchestrator"]
+    assert server["env"]["ORCHESTRATOR_MCP_PROJECTS"] == "allowed"
+    assert server["note"] == "[mcp_servers.ai_orchestrator.tools.fake]\n"
+    assert len(calls["did"]) == 1

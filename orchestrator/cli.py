@@ -1449,12 +1449,13 @@ def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail) -> None:
             skip(".codex/config.toml ya declara perfil y alcance MCP")
         return
     import re as _re
-    header = _re.search(r"^[ \t]*\[mcp_servers\.ai_orchestrator\.tools\.", text, _re.MULTILINE)
-    if header:
-        candidate = text[:header.start()] + env_block + text[header.start():]
-    else:
-        candidate = text.rstrip("\n") + "\n\n" + env_block
-    if not _codex_env_inserted_exactly(text, candidate, entry["env"]):
+    headers = _re.finditer(r"^[ \t]*\[mcp_servers\.ai_orchestrator\.tools\.", text, _re.MULTILINE)
+    candidates = [text[:h.start()] + env_block + text[h.start():] for h in headers]
+    candidates.append(text.rstrip("\n") + "\n\n" + env_block)
+    candidate = next(
+        (c for c in candidates if _codex_env_inserted_exactly(text, c, entry["env"])), None
+    )
+    if candidate is None:
         fail(".codex/config.toml: no se pudo insertar el env MCP de forma segura — agregá "
              "[mcp_servers.ai_orchestrator.env] a mano (ver 'doctor')")
         return
