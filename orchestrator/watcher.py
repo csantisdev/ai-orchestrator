@@ -36,17 +36,27 @@ class CCSession:
 
 def newest_available_mtime() -> Optional[datetime]:
     """mtime mas reciente entre los archivos de sesion en disco (chequeo de
-    staleness en `doctor`, no dispara ningun parseo/import)."""
+    staleness en `doctor`, no dispara ningun parseo/import completo).
+
+    Salta archivos de 0 bytes: `scan_and_import` nunca los importa (sin
+    contenido no hay tokens, `session.input_tokens + output_tokens == 0`),
+    asi que contarlos solo puede producir staleness que ningun sync resuelve.
+    No detecta el resto de motivos de skip (proyecto no registrado, sesion
+    sin tokens pero con contenido) porque requieren parsear el archivo
+    completo - eso es exactamente el costo que esta funcion evita a proposito.
+    """
     if not CLAUDE_PROJECTS_DIR.exists():
         return None
     newest: Optional[float] = None
     for jsonl_path in CLAUDE_PROJECTS_DIR.glob("*/*.jsonl"):
         try:
-            mtime = jsonl_path.stat().st_mtime
+            st = jsonl_path.stat()
         except OSError:
             continue
-        if newest is None or mtime > newest:
-            newest = mtime
+        if st.st_size == 0:
+            continue
+        if newest is None or st.st_mtime > newest:
+            newest = st.st_mtime
     return datetime.fromtimestamp(newest, tz=timezone.utc) if newest is not None else None
 
 
@@ -246,31 +256,42 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
             _task_label = (session.task_preview or session.session_id[:8])[:60]
             with _tspan(f"CC · {project_alias}", detail=_task_label):
                 existing = conn.execute(
-                    "SELECT id, response, task FROM runs WHERE session_id=?",
+                    "SELECT id, response, task, duration_ms FROM runs WHERE session_id=?",
                     (session.session_id,),
                 ).fetchone()
 
                 run_id: Optional[int] = None
 
                 if existing:
-                    # Sesión ya importada — actualizar campos vacíos si ahora los tenemos
-                    needs_update = (
-                        (not existing["response"] and session.response_text) or
-                        (not existing["task"] and session.task_preview)
+                    # Sesion ya importada - actualizar si quedaron campos
+                    # vacios O si la sesion siguio activa despues del primer
+                    # import (duration_ms crecio: hay mas mensajes/tokens que
+                    # antes no se reflejaban nunca, porque solo se llenaban
+                    # campos vacios).
+                    stale_fields = (
+                        (not existing["response"] and bool(session.response_text)) or
+                        (not existing["task"] and bool(session.task_preview))
                     )
+                    grew = session.duration_ms > (existing["duration_ms"] or 0)
+                    needs_update = stale_fields or grew
                     if needs_update:
                         with _write_lock:
                             conn.execute(
                                 """UPDATE runs SET
-                                   response     = CASE WHEN response = '' OR response IS NULL
-                                                  THEN ? ELSE response END,
-                                   task         = CASE WHEN task = '' OR task IS NULL
-                                                  THEN ? ELSE task END,
-                                   task_preview = CASE WHEN task_preview = '' OR task_preview IS NULL
-                                                  THEN ? ELSE task_preview END
+                                   response     = CASE WHEN ? != '' THEN ? ELSE response END,
+                                   task         = CASE WHEN ? != '' THEN ? ELSE task END,
+                                   task_preview = CASE WHEN ? != '' THEN ? ELSE task_preview END,
+                                   duration_ms = ?, input_tokens = ?, output_tokens = ?,
+                                   cache_creation_tokens = ?, cache_read_tokens = ?, cost_usd = ?
                                    WHERE id=?""",
-                                (session.response_text, session.task_preview,
-                                 session.task_preview, existing["id"]),
+                                (
+                                    session.response_text, session.response_text,
+                                    session.task_preview, session.task_preview,
+                                    session.task_preview, session.task_preview,
+                                    session.duration_ms, session.input_tokens, session.output_tokens,
+                                    session.cache_creation_tokens, session.cache_read_tokens,
+                                    cost_usd, existing["id"],
+                                ),
                             )
                             conn.commit()
                         run_id = existing["id"]

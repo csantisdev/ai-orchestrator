@@ -104,9 +104,8 @@ def test_first_sync_uses_max_commits_window(synthetic_repo, monkeypatch):
 
 def test_backdated_commit_not_lost_on_incremental_sync(synthetic_repo):
     """Regresion: un commit nuevo con fecha ANTERIOR al ultimo importado
-    (rebase, cherry-pick, metadata reescrita) no debe perderse. Con --since
-    como cursor de fecha, git lo excluiria para siempre; el sync incremental
-    ahora trae el historial completo y dedupea por hash real."""
+    (rebase, cherry-pick, metadata reescrita) no debe perderse dentro del
+    margen de _SINCE_SAFETY_BUFFER - sin el buffer, --since lo excluiria."""
     alias, repo = synthetic_repo
     base = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -121,6 +120,57 @@ def test_backdated_commit_not_lost_on_incremental_sync(synthetic_repo):
 
     imported_2 = git_scanner.scan_and_import({}, quiet=True)
     assert [c["subject"] for c in imported_2] == ["c3-backdated"]
+
+
+def test_implausible_future_cursor_does_not_block_sync_forever(synthetic_repo, monkeypatch):
+    """Regresion (ronda 3 de auditoria): una fila historica con un cursor a
+    futuro (ej: importada con el bug %ai en vez de %ci de una version
+    anterior, o cualquier otra corrupcion) no debe dejar el alias bloqueado
+    para siempre - restarle el buffer a un cursor futuro seguiria dejando el
+    cutoff en el futuro. El sync debe detectarlo y forzar un rescan
+    completo esa vez."""
+    alias, repo = synthetic_repo
+    monkeypatch.setattr("orchestrator.rag.index_response", lambda *a, **kw: None)
+
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    _commit(repo, "normal.txt", "commit-normal", base)
+
+    # Simula una fila heredada con cursor corrupto a futuro (sin pasar por
+    # scan_and_import, para no depender del bug ya corregido).
+    conn = _conn()
+    conn.execute(
+        """INSERT INTO runs (ts, project, provider, model, status, session_id)
+           VALUES (?, ?, 'git', 'legacy-author', 'done', ?)""",
+        ("2030-01-01T00:00:00+00:00", alias, git_scanner._session_id(alias, "0" * 40)),
+    )
+    conn.commit()
+
+    recorded_since: list[str | None] = []
+    real_get_commits = git_scanner._get_commits
+
+    def record_get_commits(path, max_commits=None, since=None):
+        recorded_since.append(since)
+        return real_get_commits(path, max_commits=max_commits, since=since)
+
+    monkeypatch.setattr(git_scanner, "_get_commits", record_get_commits)
+
+    imported = git_scanner.scan_and_import({}, quiet=True)
+    assert [c["subject"] for c in imported] == ["commit-normal"]
+    assert recorded_since == ["1970-01-01T00:00:00+00:00"]
+    assert _newest_git_timestamp(alias) == "2026-01-01T00:00:00+00:00"
+
+    imported_2 = git_scanner.scan_and_import({}, quiet=True)
+    assert imported_2 == []
+    assert recorded_since[-1] != "1970-01-01T00:00:00+00:00"
+
+
+def _newest_git_timestamp(alias: str) -> str | None:
+    row = _conn().execute(
+        """SELECT MAX(ts) FROM runs
+           WHERE provider=? AND session_id LIKE ? ESCAPE '\\'""",
+        (git_scanner.PROVIDER_NAME, f"git::{git_scanner._escape_like(alias)}::%"),
+    ).fetchone()
+    return row[0] if row else None
 
 
 def test_alias_with_sql_wildcard_does_not_leak_cursor(monkeypatch, tmp_path, request):
