@@ -381,3 +381,23 @@ def run_migrations() -> None:
                 """)
                 _mark_applied(conn, "add_evaluation_fields_to_runs")
                 conn.commit()
+
+        with _write_lock:
+            if not _already_applied(conn, "add_mcp_idempotency_results"):
+                columns = {
+                    row[1] for row in conn.execute(
+                        "PRAGMA table_info(mcp_invocations)"
+                    ).fetchall()
+                }
+                for name, definition in (
+                    ("result_json", "TEXT"),
+                    ("is_error", "INTEGER NOT NULL DEFAULT 0"),
+                    ("request_source", "TEXT NOT NULL DEFAULT 'generated'"),
+                    ("replay_safe", "INTEGER NOT NULL DEFAULT 0"),
+                ):
+                    if name not in columns:
+                        conn.execute(
+                            f"ALTER TABLE mcp_invocations ADD COLUMN {name} {definition}"
+                        )
+                _mark_applied(conn, "add_mcp_idempotency_results")
+                conn.commit()

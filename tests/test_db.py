@@ -1,3 +1,5 @@
+import sqlite3
+import threading
 from datetime import datetime, timedelta, timezone
 
 from orchestrator.db import _conn, _write_lock, daily_cost
@@ -116,3 +118,72 @@ def test_insert_or_ignore_race_lastrowid_points_elsewhere(request):
             "SELECT id FROM runs WHERE session_id=?", (sid,)
         ).fetchone()
         assert resolved["id"] == real_id
+
+
+def test_migration_adds_mcp_idempotency_results_to_existing_database(
+    tmp_path, monkeypatch
+):
+    import orchestrator.db as db_module
+    import orchestrator.paths as paths_module
+
+    legacy_db_path = tmp_path / "legacy-runs.db"
+    legacy_conn = sqlite3.connect(legacy_db_path)
+    legacy_conn.executescript("""
+        CREATE TABLE mcp_invocations (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts                  TEXT NOT NULL,
+            request_id          TEXT NOT NULL UNIQUE,
+            correlation_id      TEXT,
+            server_instance_id  TEXT NOT NULL,
+            client_surface      TEXT NOT NULL,
+            transport           TEXT NOT NULL,
+            actor_id            TEXT,
+            capability_profile  TEXT NOT NULL,
+            tool_name           TEXT NOT NULL,
+            tool_category       TEXT NOT NULL,
+            project             TEXT,
+            input_hash          TEXT NOT NULL,
+            output_hash         TEXT NOT NULL,
+            status              TEXT NOT NULL,
+            reason_code         TEXT,
+            duration_ms         INTEGER,
+            error_code          TEXT,
+            created_at          TEXT NOT NULL
+        );
+        INSERT INTO mcp_invocations (
+            ts, request_id, server_instance_id, client_surface, transport,
+            capability_profile, tool_name, tool_category, input_hash,
+            output_hash, status, created_at
+        ) VALUES (
+            '2026-01-01T00:00:00+00:00', 'legacy-request', 'server',
+            'client', 'stdio', 'workflow_operator', 'create_context',
+            'mutation', 'input-hash', 'output-hash', 'success',
+            '2026-01-01T00:00:00+00:00'
+        );
+    """)
+    legacy_conn.close()
+
+    monkeypatch.setattr(paths_module, "HOME_DIR", tmp_path)
+    monkeypatch.setattr(paths_module, "DB_PATH", legacy_db_path)
+    monkeypatch.setattr(db_module, "_local", threading.local())
+
+    db_module.init_db()
+    conn = db_module._conn()
+    try:
+        columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mcp_invocations)")
+        }
+        assert {"result_json", "is_error", "request_source", "replay_safe"} <= columns
+
+        row = conn.execute(
+            """SELECT result_json, is_error, request_source, replay_safe
+               FROM mcp_invocations WHERE request_id = 'legacy-request'"""
+        ).fetchone()
+        assert dict(row) == {
+            "result_json": None,
+            "is_error": 0,
+            "request_source": "generated",
+            "replay_safe": 0,
+        }
+    finally:
+        conn.close()
