@@ -637,6 +637,44 @@ def delete_context(context_id: int) -> dict:
     }
 
 
+def start_step(step_id: int) -> dict:
+    """Activate a specific pending step when its context has no step in progress."""
+    conn = _conn()
+    ts = datetime.now(timezone.utc).isoformat()
+    with _write_lock:
+        try:
+            if not conn.in_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            step = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
+            if step is None:
+                raise ValueError(f"step {step_id} not found")
+            if step["status"] != "pending":
+                raise ValueError(f"step {step_id} está en '{step['status']}' — solo se pueden iniciar pasos pending")
+            active = conn.execute(
+                "SELECT id FROM steps WHERE context_id=? AND status='in_progress' LIMIT 1",
+                (step["context_id"],),
+            ).fetchone()
+            if active is not None:
+                raise ValueError(f"el contexto ya tiene el paso {active['id']} in_progress")
+            skipped_ahead = conn.execute(
+                "SELECT COUNT(*) FROM steps WHERE context_id=? AND order_idx < ? AND status='pending'",
+                (step["context_id"], step["order_idx"]),
+            ).fetchone()[0]
+            conn.execute(
+                "UPDATE steps SET status='in_progress', started_at=? WHERE id=? AND status='pending'",
+                (ts, step_id),
+            )
+            commit_if_not_atomic(conn)
+        except Exception:
+            conn.rollback()
+            raise
+    return {
+        "started_step_id": step_id,
+        "context_id": step["context_id"],
+        "earlier_pending_steps": skipped_ahead,
+    }
+
+
 def activate_first_step(context_id: int) -> bool:
     """Marca el primer paso pendiente del contexto como in_progress.
 

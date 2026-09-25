@@ -482,6 +482,61 @@ def list_contexts_cmd(
             console.print(f"  [{sc2}]{s['order_idx']}.[/{sc2}]{badge} {s['title']} — [{sc2}]{s['status']}[/{sc2}]")
 
 
+step_app = typer.Typer(help="Corrige el estado de pasos desde la CLI, sin depender del MCP.")
+app.add_typer(step_app, name="step")
+
+
+def _run_step_transition(action, args: dict) -> dict:
+    _ensure_db()
+    try:
+        return action(args)
+    except ValueError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1)
+
+
+@step_app.command(name="start")
+def step_start_cmd(step_id: int = typer.Argument(..., help="ID del paso pending a activar.")):
+    """Activa un paso pending cuando su contexto no tiene ninguno in_progress."""
+    from orchestrator.db import start_step
+    result = _run_step_transition(lambda args: start_step(args["step_id"]), {"step_id": step_id})
+    console.print(f"[green]✓[/green] paso #{step_id} marcado como [bold]in_progress[/bold]")
+    if result["earlier_pending_steps"]:
+        console.print(f"  [yellow]⚠[/yellow] quedan {result['earlier_pending_steps']} paso(s) pending anteriores en el contexto #{result['context_id']}")
+
+
+@step_app.command(name="done")
+def step_done_cmd(
+    step_id: int = typer.Argument(..., help="ID del paso in_progress a completar."),
+    notes: str = typer.Option("", "--notes", "-n", help="Notas de cierre."),
+):
+    """Completa un paso in_progress y activa el siguiente pending (equivale a advance_step)."""
+    from orchestrator.mcp import _tool_advance_step
+    result = _run_step_transition(_tool_advance_step, {"step_id": step_id, "notes": notes})
+    console.print(f"[green]✓[/green] paso #{step_id} completado")
+    _print_step_followup(result)
+
+
+@step_app.command(name="skip")
+def step_skip_cmd(
+    step_id: int = typer.Argument(..., help="ID del paso pending o in_progress a omitir."),
+    reason: str = typer.Option("", "--reason", "-r", help="Motivo de la omisión."),
+):
+    """Omite un paso pending o in_progress (equivale a skip_step)."""
+    from orchestrator.mcp import _tool_skip_step
+    result = _run_step_transition(_tool_skip_step, {"step_id": step_id, "reason": reason})
+    console.print(f"[green]✓[/green] paso #{step_id} omitido")
+    _print_step_followup(result)
+
+
+def _print_step_followup(result: dict) -> None:
+    if result.get("next_step"):
+        nxt = result["next_step"]
+        console.print(f"  [yellow]▶[/yellow] siguiente: #{nxt['id']} {nxt['title']} → [bold]in_progress[/bold]")
+    if result.get("context_done"):
+        console.print("  [green]contexto completado[/green]")
+
+
 @app.command(name="index-docs")
 def index_docs(
     project: str = typer.Option(..., "--project", "-p", help="Alias del proyecto a indexar."),
@@ -943,7 +998,7 @@ def doctor(
         ok(f".mcp.json presente → MCP activo al abrir desde {project_root.name}/")
     else:
         fail(".mcp.json no existe",
-             "Ejecutá: ai-orchestrator fix  (lo crea automáticamente desde .mcp.json.example)")
+             "Ejecutá: ai-orchestrator fix  (lo crea con perfil y alcance MCP)")
 
     codex_config = project_root / ".codex" / "config.toml"
     if codex_config.exists():
@@ -1025,6 +1080,19 @@ def doctor(
     else:
         warn("Gemini: ~/.gemini/settings.json no existe",
              "Ejecutá: ai-orchestrator fix para crearlo con mcpServers.ai-orchestrator")
+
+    console.print("\n[bold cyan]Gobernanza MCP (perfil y alcance)[/bold cyan]")
+    from orchestrator.mcp_governance import governance_env_issues
+    for label, env in _mcp_client_envs(project_root, gemini_settings):
+        issues = governance_env_issues(env, set(projects))
+        if issues:
+            fixable = label in {".mcp.json", ".codex/config.toml", "~/.claude/settings.json", "~/.gemini/settings.json"}
+            fail(f"{label}: " + "; ".join(issues),
+                 "Ejecutá: ai-orchestrator fix --mcp-profile <perfil> --mcp-projects <alias,...>" if fixable
+                 else "Agregá ORCHESTRATOR_MCP_PROFILE y ORCHESTRATOR_MCP_PROJECTS al env de ai-orchestrator en ese archivo")
+        else:
+            ok(f"{label}: perfil {env['ORCHESTRATOR_MCP_PROFILE']}, "
+               f"{len([p for p in env['ORCHESTRATOR_MCP_PROJECTS'].split(',') if p.strip()])} proyecto(s) en alcance")
 
     # ── 4. Proyectos ──────────────────────────────────────────────────────
     console.print("\n[bold cyan]Proyectos registrados[/bold cyan]")
@@ -1207,12 +1275,163 @@ def doctor(
         fix_command()
 
 
+def _mcp_client_envs(project_root: Path, gemini_settings: Path) -> list[tuple[str, dict]]:
+    """Return the ai-orchestrator env of every known client config that registers it."""
+    import json as _json
+    import tomllib as _tomllib
+
+    found: list[tuple[str, dict]] = []
+    home = Path.home()
+    json_sources = (
+        (".mcp.json", project_root / ".mcp.json", "mcpServers"),
+        (".vscode/mcp.json", project_root / ".vscode" / "mcp.json", "servers"),
+        ("~/.claude.json", home / ".claude.json", "mcpServers"),
+        ("~/.claude/settings.json", home / ".claude" / "settings.json", "mcpServers"),
+        ("~/.copilot/mcp-config.json", home / ".copilot" / "mcp-config.json", "mcpServers"),
+        ("~/.gemini/settings.json", gemini_settings, "mcpServers"),
+    )
+    for label, path, key in json_sources:
+        try:
+            server = _json.loads(path.read_text(encoding="utf-8")).get(key, {}).get("ai-orchestrator")
+        except Exception:
+            continue
+        if isinstance(server, dict):
+            found.append((label, server.get("env") or {}))
+    for label, path in (
+        (".codex/config.toml", project_root / ".codex" / "config.toml"),
+        ("~/.codex/config.toml", home / ".codex" / "config.toml"),
+    ):
+        try:
+            server = _tomllib.loads(path.read_text(encoding="utf-8")).get("mcp_servers", {}).get("ai_orchestrator")
+        except Exception:
+            continue
+        if isinstance(server, dict):
+            found.append((label, server.get("env") or {}))
+    return found
+
+
+_CODEX_APPROVED_TOOLS = (
+    "get_context", "list_steps", "confirm_alignment", "record_tool_call",
+    "advance_step", "skip_step", "create_context", "add_step",
+    "update_context", "import_agent_context", "update_step",
+)
+
+
+def _mcp_default_scope(project_root: Path) -> list[str]:
+    root = project_root.resolve()
+    try:
+        projects = index_module.list_projects()
+    except Exception:
+        return []
+    return [alias for alias, path in projects.items() if Path(path).resolve() == root]
+
+
+def _mcp_entry(project_root: Path, profile: str, scope: list[str], surface: str) -> dict:
+    from orchestrator.mcp_governance import governance_env
+    return {
+        "command": str((project_root / ".venv" / "Scripts" / "python.exe").resolve()),
+        "args": ["-u", "-m", "orchestrator.mcp"],
+        "cwd": str(project_root.resolve()),
+        "env": governance_env(profile, scope, surface),
+    }
+
+
+def _merge_governance_env(existing: dict, wanted: dict) -> tuple[dict, bool]:
+    """Fill missing governance keys without overriding an operator's explicit choice."""
+    merged = dict(existing or {})
+    changed = False
+    for key, value in wanted.items():
+        if not str(merged.get(key, "")).strip():
+            merged[key] = value
+            changed = True
+    return merged, changed
+
+
+def _apply_json_mcp(path: Path, key: str, name: str, entry: dict, label: str, did, skip) -> None:
+    import json as _json
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        data = {}
+    servers = data.setdefault(key, {})
+    current = servers.get(name)
+    if not isinstance(current, dict):
+        servers[name] = entry
+        message = f"{label}: ai-orchestrator registrado con perfil y alcance MCP (reiniciá el cliente)"
+    else:
+        current["env"], changed = _merge_governance_env(current.get("env", {}), entry["env"])
+        if not changed:
+            skip(f"{label}: ai-orchestrator ya declara perfil y alcance MCP")
+            return
+        message = f"{label}: perfil y alcance MCP agregados al env (reiniciá el cliente)"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    did(message)
+
+
+def _toml_string(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail) -> None:
+    import tomllib
+    env_block = "[mcp_servers.ai_orchestrator.env]\n" + "".join(
+        f"{key} = {_toml_string(value)}\n" for key, value in entry["env"].items()
+    ) + "\n"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tools = "\n".join(
+            f'[mcp_servers.ai_orchestrator.tools.{tool}]\napproval_mode = "approve"\n'
+            for tool in _CODEX_APPROVED_TOOLS
+        )
+        path.write_text(
+            "[mcp_servers.ai_orchestrator]\n"
+            f"command = {_toml_string(entry['command'])}\n"
+            'args = ["-u", "-m", "orchestrator.mcp"]\n'
+            f"cwd = {_toml_string(entry['cwd'])}\n"
+            "startup_timeout_sec = 15\n"
+            "tool_timeout_sec = 60\n"
+            "enabled = true\n"
+            "required = true\n"
+            'default_tools_approval_mode = "auto"\n\n'
+            + env_block + tools,
+            encoding="utf-8",
+        )
+        did(".codex/config.toml creado con perfil y alcance MCP (abrí una sesión nueva de Codex)")
+        return
+    text = path.read_text(encoding="utf-8")
+    try:
+        server = tomllib.loads(text).get("mcp_servers", {}).get("ai_orchestrator")
+    except tomllib.TOMLDecodeError as exc:
+        fail(f".codex/config.toml no es TOML válido: {exc}")
+        return
+    if server is None:
+        skip(".codex/config.toml no define mcp_servers.ai_orchestrator — no se modifica")
+        return
+    if "env" in server:
+        _, changed = _merge_governance_env(server["env"], entry["env"])
+        if changed:
+            fail(".codex/config.toml tiene un env MCP incompleto — completalo a mano (ver 'doctor')")
+        else:
+            skip(".codex/config.toml ya declara perfil y alcance MCP")
+        return
+    anchor = "[mcp_servers.ai_orchestrator.tools."
+    if anchor in text:
+        text = text.replace(anchor, env_block + anchor, 1)
+    else:
+        text = text.rstrip("\n") + "\n\n" + env_block
+    path.write_text(text, encoding="utf-8")
+    did(".codex/config.toml: perfil y alcance MCP agregados (abrí una sesión nueva de Codex)")
+
+
 @app.command(name="fix")
 def fix_command(
     global_mcp: bool = typer.Option(False, "--global-mcp", help="Registrar el MCP en ~/.claude/settings.json global."),
     sync: bool = typer.Option(False, "--sync", help="Ejecutar sync-cc y sync-git después de corregir."),
     index: bool = typer.Option(False, "--index", help="Indexar en ChromaDB los proyectos sin chunks."),
     all_fixes: bool = typer.Option(False, "--all", help="Aplicar todas las mejoras automáticas disponibles."),
+    mcp_profile: str = typer.Option("readonly", "--mcp-profile", help="Perfil MCP a declarar en las configs de cliente (readonly, observability, workflow_operator, memory_curator, admin)."),
+    mcp_projects: Optional[str] = typer.Option(None, "--mcp-projects", help="Alias permitidos, separados por coma. Por defecto: el alias registrado para este repo."),
 ):
     """Aplica mejoras automáticas detectadas por 'doctor'."""
     _ensure_db()
@@ -1236,81 +1455,33 @@ def fix_command(
     # ── 1. .mcp.json ──────────────────────────────────────────────────────
     console.print("\n[bold cyan]MCP[/bold cyan]")
     project_root = _Path(__file__).parent.parent
-    mcp_json = project_root / ".mcp.json"
-    mcp_example = project_root / ".mcp.json.example"
+    from orchestrator.mcp_governance import PROFILE_CAPABILITIES
+    if mcp_profile not in PROFILE_CAPABILITIES:
+        fail(f"--mcp-profile inválido: {mcp_profile}")
+        raise typer.Exit(code=1)
+    scope = _mcp_default_scope(project_root) if mcp_projects is None else [
+        p.strip() for p in mcp_projects.split(",") if p.strip()
+    ]
+    if not scope:
+        fail("Sin alias para ORCHESTRATOR_MCP_PROJECTS: registrá el repo o pasá --mcp-projects")
 
-    if mcp_json.exists():
-        skip(".mcp.json ya existe")
-    elif mcp_example.exists():
-        import shutil
-        shutil.copy(mcp_example, mcp_json)
-        did(f".mcp.json creado desde .mcp.json.example (reiniciá Claude Code para activarlo)")
-    else:
-        mcp_json.write_text(
-            '{\n  "mcpServers": {\n    "ai-orchestrator": {\n'
-            '      "command": ".venv/Scripts/python.exe",\n'
-            '      "args": ["-u", "-m", "orchestrator.mcp"],\n'
-            '      "cwd": "."\n'
-            '    }\n  }\n}\n',
-            encoding="utf-8",
-        )
-        did(".mcp.json creado (reiniciá Claude Code para activarlo)")
-
-    codex_config = project_root / ".codex" / "config.toml"
-    if codex_config.exists():
-        skip(".codex/config.toml ya existe")
-    else:
-        codex_config.parent.mkdir(parents=True, exist_ok=True)
-        abs_python = str((project_root / ".venv" / "Scripts" / "python.exe").resolve())
-        codex_config.write_text(
-            '[mcp_servers.ai_orchestrator]\n'
-            f'command = "{abs_python.replace("\\", "\\\\")}"\n'
-            'args = ["-u", "-m", "orchestrator.mcp"]\n'
-            f'cwd = "{str(project_root.resolve()).replace("\\", "\\\\")}"\n'
-            'startup_timeout_sec = 15\n'
-            'tool_timeout_sec = 60\n'
-            'enabled = true\n'
-            'required = true\n'
-            'default_tools_approval_mode = "auto"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.get_context]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.list_steps]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.confirm_alignment]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.record_tool_call]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.advance_step]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.skip_step]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.create_context]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.add_step]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.update_context]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.import_agent_context]\napproval_mode = "approve"\n\n'
-            '[mcp_servers.ai_orchestrator.tools.update_step]\napproval_mode = "approve"\n',
-            encoding="utf-8",
-        )
-        did(".codex/config.toml creado (abrí una sesión nueva de Codex para activarlo)")
+    _apply_json_mcp(
+        project_root / ".mcp.json", "mcpServers", "ai-orchestrator",
+        _mcp_entry(project_root, mcp_profile, scope, "claude_code"), ".mcp.json", did, skip,
+    )
+    _apply_codex_mcp(
+        project_root / ".codex" / "config.toml",
+        _mcp_entry(project_root, mcp_profile, scope, "codex_cli"), did, skip, fail,
+    )
 
     # ── 2. MCP global en ~/.claude/settings.json ──────────────────────────
     if global_mcp or all_fixes:
         console.print("\n[bold cyan]MCP global[/bold cyan]")
-        global_settings = _Path.home() / ".claude" / "settings.json"
-        abs_python = str((project_root / ".venv" / "Scripts" / "python.exe").resolve())
-        mcp_entry = {
-            "command": abs_python,
-            "args": ["-u", "-m", "orchestrator.mcp"],
-            "cwd": str(project_root.resolve()),
-        }
-        if global_settings.exists():
-            try:
-                gs = _json.loads(global_settings.read_text(encoding="utf-8"))
-            except Exception:
-                gs = {}
-        else:
-            gs = {}
-        servers = gs.setdefault("mcpServers", {})
-        if "ai-orchestrator" in servers:
-            skip("MCP ya registrado en ~/.claude/settings.json global")
-        else:
-            servers["ai-orchestrator"] = mcp_entry
-            global_settings.write_text(_json.dumps(gs, indent=2, ensure_ascii=False), encoding="utf-8")
-            did("MCP registrado en ~/.claude/settings.json global (disponible en todos los proyectos)")
+        _apply_json_mcp(
+            _Path.home() / ".claude" / "settings.json", "mcpServers", "ai-orchestrator",
+            _mcp_entry(project_root, mcp_profile, scope, "claude_code"),
+            "~/.claude/settings.json global", did, skip,
+        )
 
     console.print("\n[bold cyan]Gemini MCP[/bold cyan]")
     import os as _os
@@ -1336,27 +1507,11 @@ def fix_command(
                 fail(f"No se pudo definir HOME para Gemini: {exc}")
 
     gemini_base = _Path(_os.environ.get("HOME") or _os.environ.get("USERPROFILE") or str(_Path.home()))
-    gemini_settings = gemini_base / ".gemini" / "settings.json"
-    gemini_settings.parent.mkdir(parents=True, exist_ok=True)
-    gemini_entry = {
-        "command": str((project_root / ".venv" / "Scripts" / "python.exe").resolve()),
-        "args": ["-u", "-m", "orchestrator.mcp"],
-        "cwd": str(project_root.resolve()),
-    }
-    if gemini_settings.exists():
-        try:
-            gd = _json.loads(gemini_settings.read_text(encoding="utf-8"))
-        except Exception:
-            gd = {}
-    else:
-        gd = {}
-    gemini_servers = gd.setdefault("mcpServers", {})
-    if gemini_servers.get("ai-orchestrator") == gemini_entry:
-        skip("Gemini: ~/.gemini/settings.json ya tiene ai-orchestrator")
-    else:
-        gemini_servers["ai-orchestrator"] = gemini_entry
-        gemini_settings.write_text(_json.dumps(gd, indent=2, ensure_ascii=False), encoding="utf-8")
-        did("Gemini: ai-orchestrator registrado en ~/.gemini/settings.json")
+    _apply_json_mcp(
+        gemini_base / ".gemini" / "settings.json", "mcpServers", "ai-orchestrator",
+        _mcp_entry(project_root, mcp_profile, scope, "other"),
+        "Gemini: ~/.gemini/settings.json", did, skip,
+    )
 
     # ── 3. context.yaml para proyectos sin él ─────────────────────────────
     console.print("\n[bold cyan]Proyectos[/bold cyan]")
