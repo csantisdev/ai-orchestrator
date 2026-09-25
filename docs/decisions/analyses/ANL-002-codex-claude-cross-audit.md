@@ -14,9 +14,10 @@ related: [ANL-001, RFC-006, RFC-007, RFC-008]
 
 Auditar de forma independiente el estado de seguridad, privacidad,
 idempotencia y medición local de `ai-orchestrator`. Codex produce primero
-evidencia verificable sobre el código; Claude después intenta refutar sus
-hallazgos y detectar omisiones. Ningún auditor modifica código, configuración,
-base local ni datos de proveedores.
+evidencia verificable sobre el código; Claude realiza una pasada ciega propia
+antes de leer ese informe y recién después intenta refutar sus hallazgos.
+Ningún auditor modifica código, configuración, base local ni datos de
+proveedores.
 
 ## Formato y método de comunicación
 
@@ -26,11 +27,24 @@ Se usa un paquete Markdown versionado, no una conversación libre:
 2. Entregar el prompt de Codex de este documento.
 3. Guardar su resultado sanitizado como
    `docs/decisions/evidence/ANL-002/codex-findings.md`.
-4. Entregar a Claude el mismo SHA, este documento y el informe de Codex.
-5. Guardar su resultado como
+4. Entregar a Claude el mismo SHA y este documento, **sin** el informe de
+   Codex. Claude ejecuta la fase A (pasada ciega) del prompt.
+5. Guardar ese resultado como
+   `docs/decisions/evidence/ANL-002/claude-blind-pass.md` y commitearlo antes
+   de continuar, para que el orden quede demostrado por el historial git.
+6. Entregar a Claude el informe de Codex **y** el `claude-blind-pass.md` ya
+   commiteado, y ejecutar la fase B (refutación). La fase B puede correr en una
+   sesión nueva: no se asume que Claude conserve el contexto de la fase A.
+7. Guardar su resultado como
    `docs/decisions/evidence/ANL-002/claude-verification.md`.
-6. Un responsable humano clasifica los hallazgos confirmados en:
+8. Un responsable humano clasifica los hallazgos confirmados en:
    `accepted`, `false-positive`, `needs-reproduction` o `deferred`.
+
+La restricción de solo lectura aplica al checkout auditado. Los auditores
+entregan su informe como texto; el responsable humano es quien lo guarda y
+commitea bajo `docs/decisions/evidence/ANL-002/`. Si un auditor escribe el
+archivo directamente, solo puede tocar ese directorio y en una rama distinta
+del SHA auditado.
 
 Markdown es el formato canónico porque permite citar archivo/línea, comandos,
 salidas agregadas y decisiones humanas sin serializar payloads. Cada hallazgo
@@ -101,11 +115,37 @@ revisaste y por qué no encontraste uno. No incluyas payloads ni datos locales.
 
 ## Prompt para Claude
 
+El prompt tiene dos fases. La fase A se entrega sola; la fase B solo después
+de que el resultado de la fase A esté commiteado.
+
+### Fase A - pasada ciega
+
 ```text
-Actuá como verificador adversarial de solo lectura. Auditá el mismo SHA
-4815fc1c75f94c7c37ddc58d97314390167bc850 y recibís el informe de Codex
-generado bajo ANL-002. No modifiques archivos, no llames servicios externos y
-no leas/imprimas configuración, prompts, respuestas ni datos de proyectos.
+Actuá como auditor adversarial de solo lectura. Auditá ai-orchestrator en el
+SHA 4815fc1c75f94c7c37ddc58d97314390167bc850. Todavía no recibís ningún otro
+informe y no debés buscarlo. No modifiques el checkout, no llames servicios
+externos y no leas/imprimas configuración, prompts, respuestas ni datos de
+proyectos.
+
+Revisá las mismas cuatro superficies del prompt de Codex de ANL-002 (MCP,
+egress, evaluación de modelos, ingesta) y reportá hasta seis defectos de alta
+confianza, priorizando: bypass de autorización/egress, corrupción
+cross-project, idempotencia bajo crash/retry, payload retention, migraciones
+SQLite y métricas de modelo que puedan inducir decisiones falsas.
+
+Usá la tabla de ANL-002 con IDs `CLA-A-n`, archivo:línea y reproducción
+mínima. Si una superficie no tiene hallazgos, indicá qué revisaste.
+No afirmes que un test/CI pasó sin ejecutar o citar una evidencia concreta.
+```
+
+### Fase B - refutación
+
+```text
+Ahora recibís el informe de Codex generado bajo ANL-002 para el mismo SHA
+4815fc1c75f94c7c37ddc58d97314390167bc850 y tu propio informe de la fase A
+(`claude-blind-pass.md`, ya commiteado). Usá ese archivo como fuente de tus
+hallazgos `CLA-A-n`; no los reconstruyas de memoria. Mantené las mismas
+restricciones de solo lectura y privacidad de la fase A.
 
 Tu objetivo NO es resumir ni aceptar el informe: intentá falsar cada hallazgo
 de Codex contra código y pruebas reales. Para cada ID clasificá:
@@ -114,10 +154,10 @@ de Codex contra código y pruebas reales. Para cada ID clasificá:
 - needs-reproduction: evidencia insuficiente;
 - incomplete: el hallazgo es real, pero falta vector, invariante o impacto.
 
-Después buscá hasta tres defectos de alta confianza que Codex haya omitido,
-priorizando: bypass de autorización/egress, corrupción cross-project,
-idempotencia bajo crash/retry, payload retention, migraciones SQLite y métricas
-de modelo que puedan inducir decisiones falsas.
+Después cruzá tus hallazgos `CLA-A-n` con los de Codex: marcá cuáles coinciden
+(misma causa raíz) y cuáles solo encontró uno de los dos. No agregues
+hallazgos nuevos en esta fase salvo que la refutación revele uno; en ese caso
+usá IDs `CLA-B-n` y explicá qué hallazgo de Codex te llevó a él.
 
 Usá la misma tabla de ANL-002 e incluí archivo:línea y reproducción mínima.
 No afirmes que un test/CI pasó sin ejecutar o citar una evidencia concreta.
@@ -127,8 +167,15 @@ No afirmes que un test/CI pasó sin ejecutar o citar una evidencia concreta.
 
 La auditoría cruzada queda cerrada solo si:
 
-- los dos informes citan el mismo SHA;
+- los tres informes citan el mismo SHA;
+- `claude-blind-pass.md` fue commiteado antes que `claude-verification.md`;
 - todos los hallazgos tienen clasificación humana;
-- cada `confirmed` crea una tarea/issue con prueba de regresión esperada;
+- ningún hallazgo queda en `needs-reproduction` ni en `incomplete`: cada
+  `needs-reproduction` se reproduce y pasa a `accepted`, o se reclasifica como
+  `false-positive` o `deferred`; cada `incomplete` se completa (vector,
+  invariante o impacto) y pasa a `accepted`, o se reclasifica como
+  `false-positive` o `deferred`. Toda reclasificación lleva justificación
+  escrita;
+- cada `accepted` crea una tarea/issue con prueba de regresión esperada;
 - el informe no contiene payloads, identificadores de proyectos ni secretos;
 - los cambios correctivos pasan `pytest tests -q` y el validador documental.
