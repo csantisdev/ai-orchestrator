@@ -1,8 +1,21 @@
+---
+id: RFC-008
+type: rfc
+title: Acceso MCP gobernado y superficie remota del Local AI Control Plane
+status: accepted
+created: 2026-07-11
+updated: 2026-09-25
+supersedes: []
+superseded_by: null
+related: [RFC-005, RFC-006, RFC-007]
+---
+
 # RFC-008 — Acceso MCP gobernado y superficie remota del Local AI Control Plane
 
-**Estado:** Draft para validación final  
+**Estado:** Aceptado  
 **Versión:** 0.1  
 **Fecha:** 2026-07-11  
+**Implementación (2026-09-25, `production@54c0cf9`):** Fase 0 y Fase 2 completas; Fases 1, 3 y 4 parciales; Fases 5-7 sin iniciar. Entregado por los PR #9 (perfiles, categorías, scope por proyecto, `mcp_invocations`, `ExecutionIdentity`), #10 (idempotencia por `request_id`), #11 (sin retención de payloads), #14 (onboarding del scope: hints de denegación, `fix --mcp-profile/--mcp-projects`, chequeos en `doctor`) y #15 (`workflow_state` en `get_context` y autorización de `get_context` por dueño del contexto). Pendiente dentro de las fases parciales: `outputSchema` y test de pureza de stdout (Fase 1), estado explícito de indexación Chroma `rag_index_status` (Fase 3) y `policy_hash` en las denegaciones (Fase 4). §3 sigue describiendo el baseline `33ed228` auditado al redactar este RFC, no el estado actual.  
 **Repositorio de referencia:** `github.com/csantisdev/ai-orchestrator`  
 **Fuente de verdad de código:** rama `production`, commit `33ed228e0eb12664fc2dcf407c597200bd0c95c2`  
 **Documento base:** RFC-007 v0.3  
