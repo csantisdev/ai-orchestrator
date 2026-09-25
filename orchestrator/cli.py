@@ -1083,7 +1083,10 @@ def doctor(
 
     console.print("\n[bold cyan]Gobernanza MCP (perfil y alcance)[/bold cyan]")
     from orchestrator.mcp_governance import governance_env_issues
-    for label, env in _mcp_client_envs(project_root, gemini_settings):
+    for label, env, error in _mcp_client_envs(project_root, gemini_settings):
+        if error:
+            fail(f"{label}: {error}", "Corregí el archivo a mano; 'fix' no modifica configs ilegibles")
+            continue
         issues = governance_env_issues(env, set(projects))
         if issues:
             fixable = label in {".mcp.json", ".codex/config.toml", "~/.claude/settings.json", "~/.gemini/settings.json"}
@@ -1275,12 +1278,16 @@ def doctor(
         fix_command()
 
 
-def _mcp_client_envs(project_root: Path, gemini_settings: Path) -> list[tuple[str, dict]]:
-    """Return the ai-orchestrator env of every known client config that registers it."""
+def _mcp_client_envs(project_root: Path, gemini_settings: Path) -> list[tuple[str, dict | None, str | None]]:
+    """Return (label, env, error) for every known client config that exists.
+
+    A config that cannot be read or parsed is reported with an error instead of
+    being skipped, so doctor never looks healthy while fix refuses to touch it.
+    """
     import json as _json
     import tomllib as _tomllib
 
-    found: list[tuple[str, dict]] = []
+    found: list[tuple[str, dict | None, str | None]] = []
     home = Path.home()
     json_sources = (
         (".mcp.json", project_root / ".mcp.json", "mcpServers"),
@@ -1291,22 +1298,43 @@ def _mcp_client_envs(project_root: Path, gemini_settings: Path) -> list[tuple[st
         ("~/.gemini/settings.json", gemini_settings, "mcpServers"),
     )
     for label, path, key in json_sources:
-        try:
-            server = _json.loads(path.read_text(encoding="utf-8")).get(key, {}).get("ai-orchestrator")
-        except Exception:
+        if not path.exists():
             continue
-        if isinstance(server, dict):
-            found.append((label, server.get("env") or {}))
+        try:
+            data = _json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            found.append((label, None, f"no se pudo leer como JSON ({type(exc).__name__})"))
+            continue
+        servers = data.get(key, {}) if isinstance(data, dict) else None
+        if not isinstance(servers, dict):
+            found.append((label, None, f"'{key}' no es un objeto"))
+            continue
+        server = servers.get("ai-orchestrator")
+        if server is None:
+            continue
+        if not isinstance(server, dict):
+            found.append((label, None, "la entrada ai-orchestrator no es un objeto"))
+            continue
+        found.append((label, server.get("env", {}), None))
     for label, path in (
         (".codex/config.toml", project_root / ".codex" / "config.toml"),
         ("~/.codex/config.toml", home / ".codex" / "config.toml"),
     ):
-        try:
-            server = _tomllib.loads(path.read_text(encoding="utf-8")).get("mcp_servers", {}).get("ai_orchestrator")
-        except Exception:
+        if not path.exists():
             continue
-        if isinstance(server, dict):
-            found.append((label, server.get("env") or {}))
+        try:
+            data = _tomllib.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            found.append((label, None, f"no se pudo leer como TOML ({type(exc).__name__})"))
+            continue
+        servers = data.get("mcp_servers", {})
+        server = servers.get("ai_orchestrator") if isinstance(servers, dict) else None
+        if server is None:
+            continue
+        if not isinstance(server, dict):
+            found.append((label, None, "mcp_servers.ai_orchestrator no es una tabla"))
+            continue
+        found.append((label, server.get("env", {}), None))
     return found
 
 
@@ -1440,6 +1468,9 @@ def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail) -> None:
         return
     if server is None:
         skip(".codex/config.toml no define mcp_servers.ai_orchestrator — no se modifica")
+        return
+    if "env" in server and not isinstance(server["env"], dict):
+        fail(".codex/config.toml: mcp_servers.ai_orchestrator.env no es una tabla — corregilo a mano")
         return
     if "env" in server:
         _, changed = _merge_governance_env(server["env"], entry["env"])

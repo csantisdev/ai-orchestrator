@@ -170,10 +170,10 @@ def test_client_env_discovery_reads_project_json_and_codex(tmp_path, monkeypatch
         '[mcp_servers.ai_orchestrator.env]\nORCHESTRATOR_MCP_PROFILE = "readonly"\n', encoding="utf-8"
     )
 
-    found = dict(_mcp_client_envs(tmp_path, tmp_path / "missing.json"))
+    found = {label: (env, error) for label, env, error in _mcp_client_envs(tmp_path, tmp_path / "missing.json")}
 
-    assert found[".mcp.json"] == {}
-    assert found[".codex/config.toml"] == {"ORCHESTRATOR_MCP_PROFILE": "readonly"}
+    assert found[".mcp.json"] == ({}, None)
+    assert found[".codex/config.toml"] == ({"ORCHESTRATOR_MCP_PROFILE": "readonly"}, None)
 
 
 def test_start_step_activates_out_of_order_step_and_reports_backlog(isolated_db):
@@ -350,3 +350,27 @@ def test_codex_env_skips_fake_header_and_uses_real_tool_table(tmp_path):
     assert server["env"]["ORCHESTRATOR_MCP_PROJECTS"] == "allowed"
     assert server["note"] == "[mcp_servers.ai_orchestrator.tools.fake]\n"
     assert len(calls["did"]) == 1
+
+
+def test_client_env_discovery_reports_unreadable_configs(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {', encoding="utf-8")
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text("[mcp_servers\n", encoding="utf-8")
+
+    found = {label: error for label, _, error in _mcp_client_envs(tmp_path, tmp_path / "missing.json")}
+
+    assert "JSON" in found[".mcp.json"]
+    assert "TOML" in found[".codex/config.toml"]
+
+
+def test_codex_scalar_env_fails_closed_without_rewriting(tmp_path):
+    path = tmp_path / "config.toml"
+    original = '[mcp_servers.ai_orchestrator]\ncommand = "py"\nenv = "broken"\n'
+    path.write_text(original, encoding="utf-8")
+    calls, did, skip, fail = _recorder()
+
+    _apply_codex_mcp(path, _entry(surface="codex_cli"), did, skip, fail)
+
+    assert path.read_text(encoding="utf-8") == original
+    assert len(calls["fail"]) == 1 and calls["did"] == []
