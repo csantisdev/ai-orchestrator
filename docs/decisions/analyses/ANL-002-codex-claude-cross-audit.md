@@ -32,7 +32,9 @@ Se usa un paquete Markdown versionado, no una conversación libre:
 5. Guardar ese resultado como
    `docs/decisions/evidence/ANL-002/claude-blind-pass.md` y commitearlo antes
    de continuar, para que el orden quede demostrado por el historial git.
-6. Entregar a Claude el informe de Codex y ejecutar la fase B (refutación).
+6. Entregar a Claude el informe de Codex **y** el `claude-blind-pass.md` ya
+   commiteado, y ejecutar la fase B (refutación). La fase B puede correr en una
+   sesión nueva: no se asume que Claude conserve el contexto de la fase A.
 7. Guardar su resultado como
    `docs/decisions/evidence/ANL-002/claude-verification.md`.
 8. Un responsable humano clasifica los hallazgos confirmados en:
@@ -140,8 +142,10 @@ No afirmes que un test/CI pasó sin ejecutar o citar una evidencia concreta.
 
 ```text
 Ahora recibís el informe de Codex generado bajo ANL-002 para el mismo SHA
-4815fc1c75f94c7c37ddc58d97314390167bc850. Mantené las mismas restricciones de
-solo lectura y privacidad de la fase A.
+4815fc1c75f94c7c37ddc58d97314390167bc850 y tu propio informe de la fase A
+(`claude-blind-pass.md`, ya commiteado). Usá ese archivo como fuente de tus
+hallazgos `CLA-A-n`; no los reconstruyas de memoria. Mantené las mismas
+restricciones de solo lectura y privacidad de la fase A.
 
 Tu objetivo NO es resumir ni aceptar el informe: intentá falsar cada hallazgo
 de Codex contra código y pruebas reales. Para cada ID clasificá:
@@ -166,9 +170,12 @@ La auditoría cruzada queda cerrada solo si:
 - los tres informes citan el mismo SHA;
 - `claude-blind-pass.md` fue commiteado antes que `claude-verification.md`;
 - todos los hallazgos tienen clasificación humana;
-- ningún hallazgo queda en `needs-reproduction`: cada uno se reproduce y pasa
-  a `accepted`, o se reclasifica como `false-positive` o `deferred` con
-  justificación escrita;
+- ningún hallazgo queda en `needs-reproduction` ni en `incomplete`: cada
+  `needs-reproduction` se reproduce y pasa a `accepted`, o se reclasifica como
+  `false-positive` o `deferred`; cada `incomplete` se completa (vector,
+  invariante o impacto) y pasa a `accepted`, o se reclasifica como
+  `false-positive` o `deferred`. Toda reclasificación lleva justificación
+  escrita;
 - cada `accepted` crea una tarea/issue con prueba de regresión esperada;
 - el informe no contiene payloads, identificadores de proyectos ni secretos;
 - los cambios correctivos pasan `pytest tests -q` y el validador documental.
