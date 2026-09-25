@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
+import secrets
 import time
 import uuid
 from dataclasses import dataclass
@@ -35,6 +37,8 @@ PROFILE_CAPABILITIES = {
 _SURFACES = frozenset({"chatgpt_desktop", "codex_cli", "codex_ide", "claude_code", "ssh_client", "other"})
 _TRANSPORTS = frozenset({"stdio", "ssh_stdio"})
 SERVER_INSTANCE_ID = str(uuid.uuid4())
+_commitment_key: bytes | None = None
+_commitment_key_path = None
 
 
 @dataclass(frozen=True)
@@ -199,7 +203,7 @@ def audit_invocation(
     replay_safe: bool = False,
     is_error: bool = False,
 ) -> None:
-    """Write observed MCP evidence; deliberately never persists raw tool input."""
+    """Write observed MCP evidence; deliberately never persists tool payloads."""
     from datetime import datetime, timezone
     from orchestrator.db import _conn, _write_lock
 
@@ -211,15 +215,15 @@ def audit_invocation(
             """INSERT INTO mcp_invocations
                (ts, request_id, correlation_id, server_instance_id, client_surface, transport,
                 actor_id, capability_profile, tool_name, tool_category, project, input_hash,
-                output_hash, result_json, is_error, request_source, replay_safe, status,
+                output_hash, is_error, request_source, replay_safe, status,
                 reason_code, duration_ms, error_code, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 now, request_id, correlation_id, SERVER_INSTANCE_ID, identity.client_surface,
                 identity.transport, identity.actor_id, identity.capability_profile, tool_name,
                 TOOL_CATEGORIES.get(tool_name, "unknown"), project,
-                _hash(canonical_input), _hash(canonical_output), canonical_output,
-                int(is_error), request_source, int(replay_safe), status, reason_code,
+                _hash(canonical_input), _commitment(canonical_output), int(is_error),
+                request_source, int(replay_safe), status, reason_code,
                 round((time.monotonic() - started_at) * 1000), error_code, now,
             ),
         )
@@ -280,12 +284,12 @@ def claim_mutation(
                 """INSERT INTO mcp_invocations
                    (ts, request_id, correlation_id, server_instance_id, client_surface, transport,
                     actor_id, capability_profile, tool_name, tool_category, project, input_hash,
-                    output_hash, result_json, is_error, request_source, replay_safe, status, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, 'in_progress', ?)""",
+                    output_hash, is_error, request_source, replay_safe, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'in_progress', ?)""",
                 (
                     now, request_id, correlation_id, SERVER_INSTANCE_ID, identity.client_surface,
                     identity.transport, identity.actor_id, identity.capability_profile, tool_name,
-                    TOOL_CATEGORIES[tool_name], project, _hash(canonical_input), _hash("null"),
+                    TOOL_CATEGORIES[tool_name], project, _hash(canonical_input), _commitment("null"),
                     request_source, int(replay_safe), now,
                 ),
             )
@@ -296,7 +300,7 @@ def claim_mutation(
             if not in_atomic_mutation:
                 conn.rollback()
             row = conn.execute(
-                """SELECT tool_name, input_hash, status, result_json, is_error
+                """SELECT tool_name, input_hash, status, output_hash, is_error
                    FROM mcp_invocations WHERE request_id=?""",
                 (request_id,),
             ).fetchone()
@@ -306,14 +310,18 @@ def claim_mutation(
                 return "mismatch", None, True
             if row["status"] == "in_progress":
                 return "in_progress", None, True
-            return "replay", json.loads(row["result_json"]), bool(row["is_error"])
+            return "replay", {
+                "request_id": request_id,
+                "status": row["status"],
+                "replayed": True,
+            }, bool(row["is_error"])
 
 
 def complete_mutation(
     request_id: str, result: Any, is_error: bool, started_at: float,
     reason_code: str | None = None, error_code: str | None = None,
 ) -> None:
-    """Persist a terminal result after a reserved mutation; retries replay it verbatim."""
+    """Persist terminal outcome metadata without retaining the MCP result payload."""
     from orchestrator.db import _conn, _write_lock
 
     canonical_output = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
@@ -321,11 +329,11 @@ def complete_mutation(
         conn = _conn()
         conn.execute(
             """UPDATE mcp_invocations
-               SET output_hash=?, result_json=?, is_error=?, status=?, reason_code=?,
+               SET output_hash=?, is_error=?, status=?, reason_code=?,
                    duration_ms=?, error_code=?
                WHERE request_id=? AND status='in_progress'""",
             (
-                _hash(canonical_output), canonical_output, int(is_error),
+                _commitment(canonical_output), int(is_error),
                 "error" if is_error else "success", reason_code,
                 round((time.monotonic() - started_at) * 1000), error_code, request_id,
             ),
@@ -336,3 +344,27 @@ def complete_mutation(
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _commitment(value: str) -> str:
+    """Return an opaque, server-local commitment without exposing its key."""
+    global _commitment_key, _commitment_key_path
+    from orchestrator.paths import HOME_DIR
+
+    key_path = HOME_DIR / "mcp-commitment.key"
+    if _commitment_key is None or _commitment_key_path != key_path:
+        HOME_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            descriptor = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            with os.fdopen(descriptor, "wb") as key_file:
+                key_file.write(secrets.token_bytes(32))
+            try:
+                os.chmod(key_path, 0o600)
+            except OSError:
+                pass
+        _commitment_key = key_path.read_bytes()
+        _commitment_key_path = key_path
+    return hmac.new(_commitment_key, value.encode("utf-8"), hashlib.sha256).hexdigest()

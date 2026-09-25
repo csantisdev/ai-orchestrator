@@ -120,7 +120,7 @@ def test_insert_or_ignore_race_lastrowid_points_elsewhere(request):
         assert resolved["id"] == real_id
 
 
-def test_migration_adds_mcp_idempotency_results_to_existing_database(
+def test_migration_removes_mcp_result_payloads_from_existing_database(
     tmp_path, monkeypatch
 ):
     import orchestrator.db as db_module
@@ -144,6 +144,7 @@ def test_migration_adds_mcp_idempotency_results_to_existing_database(
             project             TEXT,
             input_hash          TEXT NOT NULL,
             output_hash         TEXT NOT NULL,
+            result_json         TEXT,
             status              TEXT NOT NULL,
             reason_code         TEXT,
             duration_ms         INTEGER,
@@ -153,11 +154,11 @@ def test_migration_adds_mcp_idempotency_results_to_existing_database(
         INSERT INTO mcp_invocations (
             ts, request_id, server_instance_id, client_surface, transport,
             capability_profile, tool_name, tool_category, input_hash,
-            output_hash, status, created_at
+            output_hash, result_json, status, created_at
         ) VALUES (
             '2026-01-01T00:00:00+00:00', 'legacy-request', 'server',
             'client', 'stdio', 'workflow_operator', 'create_context',
-            'mutation', 'input-hash', 'output-hash', 'success',
+            'mutation', 'input-hash', 'output-hash', '{"secret":"MCP_OUTPUT_SECRET_do_not_retain"}', 'success',
             '2026-01-01T00:00:00+00:00'
         );
     """)
@@ -173,17 +174,84 @@ def test_migration_adds_mcp_idempotency_results_to_existing_database(
         columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(mcp_invocations)")
         }
-        assert {"result_json", "is_error", "request_source", "replay_safe"} <= columns
+        assert "result_json" not in columns
+        assert {"is_error", "request_source", "replay_safe"} <= columns
 
         row = conn.execute(
-            """SELECT result_json, is_error, request_source, replay_safe
+            """SELECT is_error, request_source, replay_safe
                FROM mcp_invocations WHERE request_id = 'legacy-request'"""
         ).fetchone()
         assert dict(row) == {
-            "result_json": None,
             "is_error": 0,
             "request_source": "generated",
             "replay_safe": 0,
         }
+        assert "MCP_OUTPUT_SECRET_do_not_retain" not in "\n".join(
+            str(value) for value in conn.execute(
+                "SELECT * FROM mcp_invocations WHERE request_id = 'legacy-request'"
+            ).fetchone()
+        )
+        assert conn.execute(
+            "SELECT output_hash FROM mcp_invocations WHERE request_id = 'legacy-request'"
+        ).fetchone()["output_hash"] == "redacted"
+    finally:
+        conn.close()
+
+
+def test_migration_recovers_interrupted_mcp_payload_rebuild(tmp_path, monkeypatch):
+    import orchestrator.db as db_module
+    import orchestrator.paths as paths_module
+
+    legacy_db_path = tmp_path / "interrupted-runs.db"
+    legacy_conn = sqlite3.connect(legacy_db_path)
+    legacy_conn.executescript("""
+        CREATE TABLE _migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
+        CREATE TABLE mcp_invocations_without_payload (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
+            request_id TEXT NOT NULL UNIQUE, correlation_id TEXT,
+            server_instance_id TEXT NOT NULL, client_surface TEXT NOT NULL,
+            transport TEXT NOT NULL, actor_id TEXT, capability_profile TEXT NOT NULL,
+            tool_name TEXT NOT NULL, tool_category TEXT NOT NULL, project TEXT,
+            input_hash TEXT NOT NULL, output_hash TEXT NOT NULL,
+            is_error INTEGER NOT NULL DEFAULT 0,
+            request_source TEXT NOT NULL DEFAULT 'generated',
+            replay_safe INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL,
+            reason_code TEXT, duration_ms INTEGER, error_code TEXT, created_at TEXT NOT NULL
+        );
+        INSERT INTO mcp_invocations_without_payload (
+            ts, request_id, server_instance_id, client_surface, transport,
+            capability_profile, tool_name, tool_category, input_hash, output_hash,
+            status, created_at
+        ) VALUES (
+            '2026-01-01T00:00:00+00:00', 'interrupted-request', 'server',
+            'client', 'stdio', 'workflow_operator', 'create_context',
+            'mutation', 'input-hash', 'legacy-plain-output-hash', 'success',
+            '2026-01-01T00:00:00+00:00'
+        );
+    """)
+    legacy_conn.close()
+
+    monkeypatch.setattr(paths_module, "HOME_DIR", tmp_path)
+    monkeypatch.setattr(paths_module, "DB_PATH", legacy_db_path)
+    monkeypatch.setattr(db_module, "_local", threading.local())
+
+    db_module.init_db()
+    conn = db_module._conn()
+    try:
+        assert conn.execute(
+            "SELECT request_id FROM mcp_invocations"
+        ).fetchone()["request_id"] == "interrupted-request"
+        assert conn.execute(
+            "SELECT output_hash FROM mcp_invocations"
+        ).fetchone()["output_hash"] == "redacted"
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_invocations_without_payload'"
+        ).fetchone() is None
+        assert conn.execute(
+            "SELECT 1 FROM _migrations WHERE name='remove_mcp_result_payloads'"
+        ).fetchone() is not None
+        assert conn.execute(
+            "SELECT 1 FROM _migrations WHERE name='redact_legacy_mcp_output_hashes'"
+        ).fetchone() is not None
     finally:
         conn.close()

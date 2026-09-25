@@ -3,6 +3,9 @@
 Llama las funciones _tool_* directamente (no hace falta simular transporte
 JSON-RPC) — no existia ningun test de mcp.py antes de esta fase.
 """
+import hashlib
+import hmac
+import json
 import tempfile
 import threading
 from pathlib import Path
@@ -281,7 +284,7 @@ def test_invalid_arguments_are_rejected_before_handler_and_audited(isolated_db, 
     assert dict(row) == {"status": "error", "reason_code": "invalid_arguments"}
 
 
-def test_mutation_request_id_replays_durable_result_without_duplicate(isolated_db, workflow_env):
+def test_mutation_request_id_replays_payload_free_receipt_without_duplicate(isolated_db, workflow_env):
     import orchestrator.mcp as mcp
 
     args = {
@@ -293,15 +296,58 @@ def test_mutation_request_id_replays_durable_result_without_duplicate(isolated_d
     replay, replay_error = mcp._governed_tool_call("create_context", args, "rpc-2")
 
     assert (first_error, replay_error) == (False, False)
-    assert replay == first
     assert isolated_db._conn().execute("SELECT COUNT(*) FROM contexts").fetchone()[0] == 1
     row = isolated_db._conn().execute(
-        "SELECT status, request_source, replay_safe, result_json FROM mcp_invocations"
+        "SELECT request_id, status, request_source, replay_safe, output_hash FROM mcp_invocations"
     ).fetchone()
     assert row["status"] == "success"
     assert row["request_source"] == "client"
     assert row["replay_safe"] == 1
-    assert '"context_id":' in row["result_json"]
+    assert replay == {
+        "request_id": row["request_id"],
+        "status": "success",
+        "replayed": True,
+    }
+    assert row["output_hash"] != hashlib.sha256(
+        json.dumps(first, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+    from orchestrator.paths import HOME_DIR
+    assert row["output_hash"] == hmac.new(
+        (HOME_DIR / "mcp-commitment.key").read_bytes(),
+        json.dumps(first, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    assert "result_json" not in {
+        column["name"] for column in isolated_db._conn().execute("PRAGMA table_info(mcp_invocations)")
+    }
+
+
+def test_mcp_invocations_never_retains_result_payload_secret(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    secret = "MCP_OUTPUT_SECRET_do_not_retain"
+    args = {
+        "project": "allowed",
+        "title": secret,
+        "request_id": "payload-free-idempotency",
+    }
+    first, first_error = mcp._governed_tool_call("create_context", args, "rpc-1")
+    replay, replay_error = mcp._governed_tool_call("create_context", args, "rpc-2")
+
+    assert (first_error, replay_error) == (False, False)
+    assert first["title"] == secret
+    assert replay["replayed"] is True
+    assert isolated_db._conn().execute("SELECT COUNT(*) FROM contexts").fetchone()[0] == 1
+    invocation = isolated_db._conn().execute(
+        "SELECT * FROM mcp_invocations"
+    ).fetchone()
+    assert secret not in "\n".join(
+        str(value) for value in dict(invocation).values() if value is not None
+    )
+    assert invocation["output_hash"] != hashlib.sha256(
+        json.dumps(first, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+    assert "output_hash" not in replay
 
 
 def test_reused_jsonrpc_id_without_request_id_executes_distinct_mutations(isolated_db, workflow_env):
@@ -347,10 +393,15 @@ def test_sqlite_mutation_and_terminal_idempotency_record_rollback_together(
     assert result["reason_code"] == "execution_error"
     assert isolated_db._conn().execute("SELECT COUNT(*) FROM contexts").fetchone()[0] == 0
     invocation = isolated_db._conn().execute(
-        "SELECT status, result_json FROM mcp_invocations"
+        "SELECT status, output_hash FROM mcp_invocations"
     ).fetchone()
     assert invocation["status"] == "error"
-    assert "simulated process failure" in invocation["result_json"]
+    assert invocation["output_hash"] != hashlib.sha256(
+        json.dumps(
+            {"error": "simulated process failure before terminal result", "reason_code": "execution_error"},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode()
+    ).hexdigest()
 
 
 def test_request_id_cannot_be_reused_for_another_mutation(isolated_db, workflow_env):
@@ -391,7 +442,9 @@ def test_transition_retry_and_competitor_do_not_activate_two_steps(isolated_db, 
     )
 
     assert (completed_error, replay_error, competitor_error) == (False, False, True)
-    assert replay == completed
+    assert replay["replayed"] is True
+    assert replay["status"] == "success"
+    assert "output_hash" not in replay
     assert competitor["reason_code"] == "execution_error"
     statuses = isolated_db._conn().execute(
         "SELECT id, status FROM steps WHERE context_id=? ORDER BY order_idx", (context_id,)
