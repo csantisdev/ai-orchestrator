@@ -521,6 +521,20 @@ def test_start_and_reset_steps_are_governed_and_idempotent(isolated_db, workflow
     assert dict(row) == {"status": "pending", "started_at": None, "notes": "paused"}
 
 
+def test_start_step_rejects_programmed_context_via_mcp(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Later", status="programado")
+    step_id = isolated_db.insert_step(context_id, 1, "Step")
+    result, is_error = mcp._governed_tool_call(
+        "start_step", {"step_id": step_id, "request_id": "programmed-start"}, "rpc-programmed"
+    )
+
+    assert is_error is True
+    assert result["reason_code"] == "context_not_active"
+    assert isolated_db._conn().execute("SELECT status FROM steps WHERE id=?", (step_id,)).fetchone()[0] == "pending"
+
+
 def test_start_step_checks_project_ownership_and_add_start_advance_flow(isolated_db, workflow_env):
     import orchestrator.mcp as mcp
 

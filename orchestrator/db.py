@@ -659,6 +659,16 @@ def start_step(step_id: int) -> dict:
                     "step_not_pending",
                     f"step {step_id} está en '{step['status']}' — solo se pueden iniciar pasos pending",
                 )
+            context = conn.execute(
+                "SELECT status FROM contexts WHERE id=?", (step["context_id"],)
+            ).fetchone()
+            if context is None or context["status"] != "active":
+                status = context["status"] if context else "missing"
+                hint = " Usá update_context(status='active') antes de iniciarlo." if status == "programado" else ""
+                raise StepTransitionError(
+                    "context_not_active",
+                    f"el contexto está en '{status}' y no admite iniciar pasos.{hint}",
+                )
             active = conn.execute(
                 "SELECT id FROM steps WHERE context_id=? AND status='in_progress' LIMIT 1",
                 (step["context_id"],),
