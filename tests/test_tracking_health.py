@@ -30,6 +30,23 @@ def _codes(warnings):
     return [warning["code"] for warning in warnings]
 
 
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ({"stale_in_progress_days": 0}, (7, 60)),
+        ({"stale_in_progress_days": "5"}, (7, 60)),
+        ({"stale_in_progress_days": True}, (7, 60)),
+        ({"stale_scheduled_days": -1}, (7, 60)),
+        ({}, (7, 60)),
+        ({"stale_in_progress_days": 5, "stale_scheduled_days": 30}, (5, 30)),
+    ],
+)
+def test_tracking_thresholds_sanitize_invalid_values(config, expected):
+    from orchestrator.tracking_health import tracking_thresholds
+
+    assert tracking_thresholds(config) == expected
+
+
 def test_tracking_health_reports_multiple_active_contexts(isolated_db):
     isolated_db.insert_context("demo", "First")
     isolated_db.insert_context("demo", "Second")

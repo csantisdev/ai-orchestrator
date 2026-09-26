@@ -420,3 +420,13 @@ def test_client_env_discovery_reports_scalar_codex_servers(tmp_path, monkeypatch
     found = {label: error for label, _, error in _mcp_client_envs(tmp_path, tmp_path / "missing.json")}
 
     assert "mcp_servers" in found[".codex/config.toml"]
+
+
+def test_codex_approved_tools_cover_every_mcp_tool():
+    from orchestrator.cli import _CODEX_APPROVED_TOOLS
+    from orchestrator.mcp import TOOLS
+
+    template = tomllib.loads((Path(__file__).resolve().parents[1] / ".codex" / "config.toml.example").read_text(encoding="utf-8"))
+    published = {tool["name"] for tool in TOOLS}
+    assert set(_CODEX_APPROVED_TOOLS) == published
+    assert set(template["mcp_servers"]["ai_orchestrator"]["tools"]) == published

@@ -15,6 +15,10 @@ from typing import Any
 TOOL_CATEGORIES = {
     "get_context": "read",
     "list_steps": "read",
+    "get_step": "read",
+    "list_contexts": "read",
+    "tracking_health": "read",
+    "suggest_step_commits": "read",
     "list_agents": "read",
     "confirm_alignment": "append",
     "record_tool_call": "append",
@@ -196,6 +200,15 @@ def validate_arguments(schema: dict[str, Any], args: Any, tool_name: str | None 
 
 
 def _validate_value(schema: dict[str, Any], value: Any, path: str) -> None:
+    if "anyOf" in schema:
+        errors = []
+        for alternative in schema["anyOf"]:
+            try:
+                _validate_value(alternative, value, path)
+                return
+            except ValueError as exc:
+                errors.append(str(exc))
+        raise ValueError(f"{path} must match at least one allowed schema ({'; '.join(errors)})")
     expected = schema.get("type")
     checks = {
         "string": lambda item: isinstance(item, str),
@@ -205,14 +218,21 @@ def _validate_value(schema: dict[str, Any], value: Any, path: str) -> None:
         "object": lambda item: isinstance(item, dict),
         "array": lambda item: isinstance(item, list),
     }
-    if expected and not checks[expected](value):
-        raise ValueError(f"{path} must be a {expected}")
+    expected_types = expected if isinstance(expected, list) else [expected]
+    if expected and not any(checks[item](value) for item in expected_types):
+        raise ValueError(f"{path} must be a {' or '.join(expected_types)}")
     if "enum" in schema and value not in schema["enum"]:
         raise ValueError(f"{path} must be one of {schema['enum']}")
-    if expected == "array":
+    if "minimum" in schema and value < schema["minimum"]:
+        raise ValueError(f"{path} must be at least {schema['minimum']}")
+    if "maximum" in schema and value > schema["maximum"]:
+        raise ValueError(f"{path} must be at most {schema['maximum']}")
+    if "minItems" in schema and isinstance(value, list) and len(value) < schema["minItems"]:
+        raise ValueError(f"{path} must contain at least {schema['minItems']} item(s)")
+    if "array" in expected_types and isinstance(value, list):
         for index, item in enumerate(value):
             _validate_value(schema.get("items", {}), item, f"{path}[{index}]")
-    elif expected == "object":
+    elif "object" in expected_types and isinstance(value, dict):
         _validate_object(schema, value, path)
 
 
@@ -233,12 +253,12 @@ def _validate_object(schema: dict[str, Any], value: dict[str, Any], path: str) -
 
 def resolve_project(tool_name: str, args: dict[str, Any]) -> str | None:
     """Resolve resource ownership before a handler executes."""
-    if tool_name in {"create_context", "import_agent_context"}:
+    if tool_name in {"create_context", "import_agent_context", "list_contexts", "tracking_health", "suggest_step_commits"}:
         return str(args.get("project", "")).strip() or None
     if tool_name == "get_context" and args.get("project") and not args.get("context_id"):
         return str(args["project"]).strip()
     resource_id = args.get("context_id")
-    if tool_name in {"advance_step", "skip_step", "start_step", "reset_step", "update_step"}:
+    if tool_name in {"advance_step", "skip_step", "start_step", "reset_step", "update_step", "get_step"}:
         resource_id = args.get("step_id")
         query = """SELECT c.project FROM steps s JOIN contexts c ON c.id=s.context_id WHERE s.id=?"""
     elif resource_id:

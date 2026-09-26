@@ -6,6 +6,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 
+def tracking_thresholds(config: dict[str, Any]) -> tuple[int, int]:
+    """Return valid tracking thresholds, using the documented defaults otherwise."""
+    def threshold(name: str, default: int) -> int:
+        value = config.get(name, default)
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 1 else default
+
+    return threshold("stale_in_progress_days", 7), threshold("stale_scheduled_days", 60)
+
+
 def _parse_datetime(raw: str | None) -> datetime | None:
     if not raw:
         return None

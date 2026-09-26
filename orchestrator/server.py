@@ -1243,6 +1243,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 if codex_f.exists():
                     _skip2(".codex/config.toml ya existe")
                 else:
+                    from orchestrator.cli import _CODEX_APPROVED_TOOLS
                     project_root2 = _P(__file__).parent.parent
                     codex_f.parent.mkdir(parents=True, exist_ok=True)
                     abs_py2 = str((project_root2 / ".venv" / "Scripts" / "python.exe").resolve()).replace("\\", "\\\\")
@@ -1257,17 +1258,10 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                         'enabled = true\n'
                         'required = true\n'
                         'default_tools_approval_mode = "auto"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.get_context]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.list_steps]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.confirm_alignment]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.record_tool_call]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.advance_step]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.skip_step]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.create_context]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.add_step]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.update_context]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.import_agent_context]\napproval_mode = "approve"\n\n'
-                        '[mcp_servers.ai_orchestrator.tools.update_step]\napproval_mode = "approve"\n',
+                        + "\n".join(
+                            f'[mcp_servers.ai_orchestrator.tools.{tool}]\napproval_mode = "approve"\n'
+                            for tool in _CODEX_APPROVED_TOOLS
+                        ),
                         encoding="utf-8",
                     )
                     _ok2(".codex/config.toml creado — abrí una sesión nueva de Codex")

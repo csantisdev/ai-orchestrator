@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import sys
 import time
+import base64
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from orchestrator.mcp_governance import MAX_RECORD_TOOL_CALL_INPUT_BYTES
+from orchestrator.mcp_governance import MAX_RECORD_TOOL_CALL_INPUT_BYTES, ArgumentValidationError
 
 _HANDLERS: dict[str, Callable[[dict], Any]] = {}
 
@@ -70,6 +71,63 @@ TOOLS = [
             "required": ["context_id"],
             "properties": {
                 "context_id": {"type": "integer"},
+                "status": {
+                    "anyOf": [
+                        {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked", "skipped"]},
+                        {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked", "skipped"]},
+                            "minItems": 1,
+                        },
+                    ],
+                },
+                "agent_preset": {"type": "string"},
+                "fields": {"type": "string", "enum": ["full", "summary"], "default": "full"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                "cursor": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "get_step",
+        "description": "Retorna un paso, su contexto y opcionalmente sus últimos alineamientos y tool calls.",
+        "inputSchema": {
+            "type": "object", "required": ["step_id"],
+            "properties": {
+                "step_id": {"type": "integer"},
+                "include_alignments": {"type": "boolean", "default": False},
+                "include_tool_calls": {"type": "boolean", "default": False},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+            },
+        },
+    },
+    {
+        "name": "list_contexts",
+        "description": "Lista contextos de un proyecto, más recientes primero, con resúmenes de pasos opcionales.",
+        "inputSchema": {
+            "type": "object", "required": ["project"],
+            "properties": {
+                "project": {"type": "string"},
+                "status": {"type": "string", "enum": ["active", "programado", "completed", "abandoned"]},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+                "cursor": {"type": "string"},
+                "include_steps": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "tracking_health",
+        "description": "Devuelve advertencias de salud del tracking para un proyecto sin modificar registros.",
+        "inputSchema": {"type": "object", "required": ["project"], "properties": {"project": {"type": "string"}}},
+    },
+    {
+        "name": "suggest_step_commits",
+        "description": "Sugiere commits importados que podrían corresponder a pasos abiertos, sin modificar tracking.",
+        "inputSchema": {
+            "type": "object", "required": ["project"],
+            "properties": {
+                "project": {"type": "string"}, "since": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
             },
         },
     },
@@ -396,13 +454,162 @@ def _workflow_state(conn: Any, context: Any, implicit: bool) -> dict:
     }
 
 
+def _encode_cursor(*parts: Any) -> str:
+    return base64.urlsafe_b64encode(json.dumps(parts, separators=(",", ":")).encode()).decode().rstrip("=")
+
+
+def _decode_cursor(value: str, expected_items: int) -> list[Any]:
+    try:
+        decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+        parts = json.loads(decoded)
+        if not isinstance(parts, list) or len(parts) != expected_items:
+            raise ValueError
+        return parts
+    except Exception as exc:
+        raise ArgumentValidationError("invalid cursor") from exc
+
+
 def _tool_list_steps(args: dict) -> dict:
     from orchestrator.db import _conn
-    rows = _conn().execute(
-        "SELECT * FROM steps WHERE context_id=? ORDER BY order_idx, id",
-        (args["context_id"],),
-    ).fetchall()
-    return {"steps": [dict(r) for r in rows]}
+    where, params = ["context_id=?"], [args["context_id"]]
+    statuses = args.get("status")
+    if isinstance(statuses, str):
+        statuses = [statuses]
+    if statuses:
+        where.append(f"status IN ({','.join('?' for _ in statuses)})")
+        params.extend(statuses)
+    if "agent_preset" in args:
+        where.append("agent_preset=?")
+        params.append(args["agent_preset"])
+    if args.get("cursor"):
+        order_idx, step_id = _decode_cursor(args["cursor"], 2)
+        if not all(isinstance(part, int) and not isinstance(part, bool) for part in (order_idx, step_id)):
+            raise ArgumentValidationError("invalid cursor")
+        where.append("(order_idx > ? OR (order_idx = ? AND id > ?))")
+        params.extend([order_idx, order_idx, step_id])
+    limited = "limit" in args or bool(args.get("cursor"))
+    limit = args.get("limit", 200)
+    summary_columns = ("id", "context_id", "order_idx", "title", "status", "provider", "agent_preset", "started_at", "completed_at")
+    selected = "*"
+    if args.get("fields", "full") == "summary":
+        selected = ", ".join(summary_columns) + ", LENGTH(COALESCE(notes, '')) AS notes_chars"
+    query = f"SELECT {selected} FROM steps WHERE {' AND '.join(where)} ORDER BY order_idx, id"
+    if limited:
+        query += " LIMIT ?"
+        params.append(limit + 1)
+    rows = _conn().execute(query, params).fetchall()
+    has_more = limited and len(rows) > limit
+    if has_more:
+        rows = rows[:limit]
+    result = {"steps": [dict(row) for row in rows]}
+    if limited:
+        result["next_cursor"] = _encode_cursor(rows[-1]["order_idx"], rows[-1]["id"]) if has_more else None
+    return result
+
+
+def _tool_get_step(args: dict) -> dict:
+    from orchestrator.db import _conn
+    conn = _conn()
+    row = conn.execute("SELECT s.*, c.project, c.title AS context_title, c.status AS context_status FROM steps s JOIN contexts c ON c.id=s.context_id WHERE s.id=?", (args["step_id"],)).fetchone()
+    if row is None:
+        raise ValueError(f"step {args['step_id']} not found")
+    step = dict(row)
+    context = {"id": step["context_id"], "project": step.pop("project"), "title": step.pop("context_title"), "status": step.pop("context_status")}
+    result = {"step": step, "context": context}
+    limit = args.get("limit", 50)
+    if args.get("include_alignments", False):
+        result["alignments"] = [dict(item) for item in conn.execute("SELECT * FROM alignments WHERE step_id=? ORDER BY ts DESC, id DESC LIMIT ?", (args["step_id"], limit)).fetchall()]
+    if args.get("include_tool_calls", False):
+        result["tool_calls"] = [dict(item) for item in conn.execute("SELECT * FROM tool_calls WHERE step_id=? ORDER BY ts DESC, id DESC LIMIT ?", (args["step_id"], limit)).fetchall()]
+    return result
+
+
+def _tool_list_contexts(args: dict) -> dict:
+    from orchestrator.db import _conn
+    conn = _conn()
+    project = str(args["project"]).strip()
+    where, params = ["project=?"], [project]
+    if "status" in args:
+        where.append("status=?")
+        params.append(args["status"])
+    if args.get("cursor"):
+        ts, context_id = _decode_cursor(args["cursor"], 2)
+        if not isinstance(ts, str) or not isinstance(context_id, int) or isinstance(context_id, bool):
+            raise ArgumentValidationError("invalid cursor")
+        where.append("(ts < ? OR (ts = ? AND id < ?))")
+        params.extend([ts, ts, context_id])
+    limit = args.get("limit", 50)
+    rows = conn.execute(f"SELECT * FROM contexts WHERE {' AND '.join(where)} ORDER BY ts DESC, id DESC LIMIT ?", [*params, limit + 1]).fetchall()
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    contexts = [dict(row) for row in rows]
+    if args.get("include_steps", False):
+        context_ids = [context["id"] for context in contexts]
+        placeholders = ",".join("?" for _ in context_ids)
+        counts_by_context = {
+            context_id: {status: 0 for status in ("pending", "in_progress", "completed", "blocked", "skipped")}
+            for context_id in context_ids
+        }
+        count_rows = conn.execute(
+            f"SELECT context_id, status, COUNT(*) AS count FROM steps WHERE context_id IN ({placeholders}) GROUP BY context_id, status",
+            context_ids,
+        ) if context_ids else ()
+        for row in count_rows:
+            counts_by_context[row["context_id"]][row["status"]] = row["count"]
+        active_rows = conn.execute(
+            f"""SELECT context_id, id, order_idx, title, status FROM (
+                    SELECT context_id, id, order_idx, title, status,
+                           ROW_NUMBER() OVER (PARTITION BY context_id ORDER BY order_idx, id) AS row_number
+                    FROM steps WHERE context_id IN ({placeholders}) AND status='in_progress'
+                ) WHERE row_number=1""",
+            context_ids,
+        ) if context_ids else ()
+        active_by_context = {
+            row["context_id"]: {key: row[key] for key in ("id", "order_idx", "title", "status")}
+            for row in active_rows
+        }
+        for context in contexts:
+            context["steps_summary"] = {
+                "counts": counts_by_context[context["id"]],
+                "in_progress": active_by_context.get(context["id"]),
+            }
+    return {"contexts": contexts, "next_cursor": _encode_cursor(rows[-1]["ts"], rows[-1]["id"]) if has_more else None}
+
+
+def _tool_tracking_health(args: dict) -> dict:
+    from orchestrator import index as index_module
+    from orchestrator.config import ConfigError, load_config
+    from orchestrator.db import _conn
+    from orchestrator.tracking_health import tracking_health_warnings, tracking_thresholds
+    try:
+        registered = index_module.list_projects()
+    except Exception:
+        registered = {}
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+    tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
+    stale_in_progress_days, stale_scheduled_days = tracking_thresholds(tracking)
+    project = str(args["project"]).strip()
+    return {"project": project, "warnings": tracking_health_warnings(_conn(), registered, project=project, stale_in_progress_days=stale_in_progress_days, stale_scheduled_days=stale_scheduled_days)}
+
+
+def _tool_suggest_step_commits(args: dict) -> dict:
+    from orchestrator.config import ConfigError, load_config
+    from orchestrator.db import _conn
+    from orchestrator.step_suggestions import suggest_step_commits
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+    tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
+    project = str(args["project"]).strip()
+    suggestions = suggest_step_commits(
+        _conn(), project, args.get("since"), tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"),
+        limit=args.get("limit", 50),
+    )
+    return {"project": project, "suggestions": suggestions}
 
 
 def _validate_step_context(conn: Any, step_id: int, context_id: int) -> None:
@@ -758,6 +965,10 @@ def _tool_list_agents(args: dict) -> dict:
 _HANDLERS.update({
     "get_context":            _tool_get_context,
     "list_steps":             _tool_list_steps,
+    "get_step":               _tool_get_step,
+    "list_contexts":          _tool_list_contexts,
+    "tracking_health":        _tool_tracking_health,
+    "suggest_step_commits":   _tool_suggest_step_commits,
     "confirm_alignment":      _tool_confirm_alignment,
     "record_tool_call":       _tool_record_tool_call,
     "advance_step":           _tool_advance_step,
