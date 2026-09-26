@@ -519,6 +519,32 @@ def step_reset_cmd(
     console.print(f"[green]✓[/green] paso #{step_id} devuelto a [bold]pending[/bold]")
 
 
+@step_app.command(name="suggest")
+def step_suggest_cmd(
+    project: str = typer.Option(..., "--project", help="Alias del proyecto."),
+    since: Optional[str] = typer.Option(None, "--since", help="Fecha ISO mínima del commit."),
+):
+    """Sugiere commits candidatos para pasos abiertos, sin modificar el tracking."""
+    _ensure_db()
+    from orchestrator.db import _conn
+    from orchestrator.step_suggestions import suggest_step_commits
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+    tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
+    suggestions = suggest_step_commits(
+        _conn(), project, since, tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"),
+    )
+    if not suggestions:
+        console.print("No se encontraron sugerencias.")
+        return
+    for suggestion in suggestions:
+        console.print(f"[bold]Paso #{suggestion['step_id']}[/bold] {suggestion['title']}")
+        for commit in suggestion["commits"]:
+            console.print(f"  {commit['sha']}  {commit['date']}  {commit['subject']}  [dim]({commit['reason']})[/dim]")
+
+
 @step_app.command(name="done")
 def step_done_cmd(
     step_id: int = typer.Argument(..., help="ID del paso in_progress a completar."),
