@@ -9,6 +9,22 @@ import yaml
 
 from orchestrator.paths import PROJECT_CONTEXT_DIRNAME, PROJECT_CONTEXT_FILENAME
 
+TEMPLATE_STACK = "(completar: ej. PHP/Laravel, Java Spring Boot, React/Next.js)"
+TEMPLATE_DESCRIPTION = "(completar: breve descripción del proyecto)"
+TEMPLATE_CONVENTION = "(ej. PSR-12, usar Form Requests para validación)"
+TEMPLATE_PREFERRED_MODELS_NOTES = (
+    "Texto libre para el router: cuándo preferir otro modelo. "
+    "Ej: 'Tareas de seguridad o arquitectura -> siempre Claude. "
+    "Tareas repetitivas de tests o boilerplate -> DeepSeek.'"
+)
+
+TEMPLATE_CONTEXT_FIELDS = {
+    "stack": TEMPLATE_STACK,
+    "description": TEMPLATE_DESCRIPTION,
+    "conventions": TEMPLATE_CONVENTION,
+    "preferred_models.notes": TEMPLATE_PREFERRED_MODELS_NOTES,
+}
+
 
 class ContextNotFoundError(Exception):
     """El proyecto no tiene context.yaml y no se pudo crear uno por defecto."""
@@ -41,6 +57,22 @@ def _context_file_path(project_path: Path) -> Path:
 
 def context_exists(project_path: Path) -> bool:
     return _context_file_path(project_path).exists()
+
+
+def template_fields(raw: dict) -> list[str]:
+    """Return context.yaml fields that still contain generated placeholder text."""
+    found: list[str] = []
+    for field, placeholder in TEMPLATE_CONTEXT_FIELDS.items():
+        if field == "conventions":
+            matches = placeholder in (raw.get(field) or [])
+        elif "." in field:
+            parent, child = field.split(".", 1)
+            matches = (raw.get(parent) or {}).get(child) == placeholder
+        else:
+            matches = raw.get(field) == placeholder
+        if matches:
+            found.append(field)
+    return found
 
 
 def load_context(project_path: Path) -> ProjectContext:
@@ -90,18 +122,14 @@ def create_default_context(
 
     template = {
         "name": name,
-        "stack": stack or "(completar: ej. PHP/Laravel, Java Spring Boot, React/Next.js)",
-        "description": description or "(completar: breve descripción del proyecto)",
+        "stack": stack or TEMPLATE_STACK,
+        "description": description or TEMPLATE_DESCRIPTION,
         "conventions": [
-            "(ej. PSR-12, usar Form Requests para validación)",
+            TEMPLATE_CONVENTION,
         ],
         "preferred_models": {
             "default": default_provider,
-            "notes": (
-                "Texto libre para el router: cuándo preferir otro modelo. "
-                "Ej: 'Tareas de seguridad o arquitectura -> siempre Claude. "
-                "Tareas repetitivas de tests o boilerplate -> DeepSeek.'"
-            ),
+            "notes": TEMPLATE_PREFERRED_MODELS_NOTES,
         },
         "keyword_hints": [
             {"match": "seguridad", "provider": "claude", "weight": 3},

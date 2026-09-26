@@ -7,7 +7,7 @@ Instrucciones para agentes de código (Claude Code, Codex, Copilot, Gemini) que 
 - Alias del proyecto: `ai-orchestrator`.
 - Al iniciar una tarea no trivial, llamá `get_context(project="ai-orchestrator")` en el servidor MCP `ai-orchestrator`.
 - Si `workflow_state.warnings` no está vacío (varios contextos activos, ningún paso `in_progress`), avisá al usuario antes de trabajar.
-- Trabajá sobre el paso `in_progress` de `list_steps`. Usá `confirm_alignment` antes de cambios significativos y `advance_step` solo cuando la implementación esté hecha y verificada.
+- Trabajá sobre el paso `in_progress` de `list_steps`. Usá `start_step` para activar un pending, `reset_step` para devolver trabajo abandonado a pending y `skip_step` solo para trabajo descartado o reemplazado. Usá `confirm_alignment` antes de cambios significativos y `advance_step` solo cuando la implementación esté hecha y verificada.
 - Si una llamada MCP se deniega, reportá `reason_code` y `hint` y detenete; no sigas sin tracking.
 - Creá un contexto nuevo solo si no existe uno activo adecuado. No saltes ni completes pasos solo para limpiar el tracking.
 

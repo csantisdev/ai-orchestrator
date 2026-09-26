@@ -200,6 +200,28 @@ def test_start_step_refuses_second_active_step_and_non_pending(isolated_db):
         isolated_db.start_step(first)
 
 
+@pytest.mark.parametrize("status", ["completed", "abandoned", "programado"])
+def test_start_step_refuses_non_active_contexts_without_mutation(isolated_db, status):
+    context_id = isolated_db.insert_context("allowed", "Title", status=status)
+    step_id = isolated_db.insert_step(context_id, 1, "Step")
+
+    with pytest.raises(ValueError, match="no admite iniciar") as exc:
+        isolated_db.start_step(step_id)
+
+    assert exc.value.reason_code == "context_not_active"
+    assert isolated_db._conn().execute("SELECT status FROM steps WHERE id=?", (step_id,)).fetchone()[0] == "pending"
+
+
+def test_cli_step_start_refuses_programmed_context(isolated_db):
+    context_id = isolated_db.insert_context("allowed", "Title", status="programado")
+    step_id = isolated_db.insert_step(context_id, 1, "Step")
+
+    result = CliRunner().invoke(app, ["step", "start", str(step_id)])
+
+    assert result.exit_code == 1
+    assert "update_context(status='active')" in result.output
+
+
 def test_cli_step_commands_reconcile_context_without_mcp(isolated_db):
     runner = CliRunner()
     context_id = isolated_db.insert_context("allowed", "Title")
@@ -226,6 +248,20 @@ def test_cli_step_done_rejects_pending_step_with_exit_code(isolated_db):
 
     assert result.exit_code == 1
     assert "in_progress" in result.output
+
+
+def test_cli_step_reset_returns_active_step_to_pending_and_keeps_notes(isolated_db):
+    context_id = isolated_db.insert_context("allowed", "Title")
+    step_id = isolated_db.insert_step(context_id, 1, "Only")
+    isolated_db.start_step(step_id)
+    isolated_db._conn().execute("UPDATE steps SET notes='existing' WHERE id=?", (step_id,))
+    isolated_db._conn().commit()
+
+    result = CliRunner().invoke(app, ["step", "reset", str(step_id), "-n", "paused"])
+
+    assert result.exit_code == 0
+    row = isolated_db._conn().execute("SELECT status, started_at, notes FROM steps WHERE id=?", (step_id,)).fetchone()
+    assert dict(row) == {"status": "pending", "started_at": None, "notes": "existing\npaused"}
 
 
 def test_malformed_json_config_is_never_overwritten(tmp_path):

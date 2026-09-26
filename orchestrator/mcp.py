@@ -16,7 +16,9 @@ SERVER_INSTRUCTIONS = (
     "repository you are changing (the repo's CLAUDE.md or AGENTS.md names it). "
     "If workflow_state.warnings is not empty, tell the user before working: "
     "several active contexts or no in_progress step mean the plan is ambiguous. "
-    "Otherwise call list_steps and work on the in_progress step. Use "
+    "Otherwise call list_steps and work on the in_progress step. Use start_step "
+    "to activate a pending step; use reset_step to return abandoned work to pending; "
+    "use skip_step only for discarded or replaced work. Use "
     "confirm_alignment before significant changes and advance_step only after "
     "implementation and verification are complete. If a call is denied, report "
     "its reason_code and hint to the user and stop instead of continuing "
@@ -133,6 +135,31 @@ TOOLS = [
             "properties": {
                 "step_id": {"type": "integer"},
                 "reason":  {"type": "string", "default": "", "description": "Motivo por el que se omite el paso."},
+            },
+        },
+    },
+    {
+        "name": "start_step",
+        "description": (
+            "Activa un paso pending si su contexto no tiene otro paso in_progress."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["step_id"],
+            "properties": {"step_id": {"type": "integer"}},
+        },
+    },
+    {
+        "name": "reset_step",
+        "description": (
+            "Devuelve un paso in_progress a pending y conserva sus notas."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["step_id"],
+            "properties": {
+                "step_id": {"type": "integer"},
+                "notes": {"type": "string", "default": ""},
             },
         },
     },
@@ -283,7 +310,7 @@ TOOLS = [
 
 _MUTATING_TOOLS = {
     "confirm_alignment", "record_tool_call", "create_context", "add_step",
-    "update_context", "update_step", "advance_step", "skip_step",
+    "update_context", "update_step", "advance_step", "skip_step", "start_step", "reset_step",
     "import_agent_context",
 }
 for _tool in TOOLS:
@@ -476,6 +503,16 @@ def _tool_skip_step(args: dict) -> dict:
         "next_step": {**dict(next_step), "status": "in_progress", "started_at": ts} if next_step else None,
         "context_done": context_done,
     }
+
+
+def _tool_start_step(args: dict) -> dict:
+    from orchestrator.db import start_step
+    return start_step(args["step_id"])
+
+
+def _tool_reset_step(args: dict) -> dict:
+    from orchestrator.db import reset_step
+    return reset_step(args["step_id"], args.get("notes", ""))
 
 
 def _tool_create_context(args: dict) -> dict:
@@ -694,6 +731,8 @@ _HANDLERS.update({
     "record_tool_call":       _tool_record_tool_call,
     "advance_step":           _tool_advance_step,
     "skip_step":              _tool_skip_step,
+    "start_step":             _tool_start_step,
+    "reset_step":             _tool_reset_step,
     "create_context":         _tool_create_context,
     "add_step":               _tool_add_step,
     "update_context":         _tool_update_context,
@@ -854,17 +893,19 @@ def _governed_tool_call(name: str, args: Any, correlation_id: str | None) -> tup
         )
         return error, True
     except Exception as exc:
-        error = {"error": str(exc), "reason_code": "execution_error"}
+        from orchestrator.db import StepTransitionError
+        reason_code = exc.reason_code if isinstance(exc, StepTransitionError) else "execution_error"
+        error = {"error": str(exc), "reason_code": reason_code}
         if is_mutation and mutation_claimed and not atomic_sqlite_mutation:
             complete_mutation(
                 request_id, error, True, started_at,
-                reason_code="execution_error", error_code="execution_error",
+                reason_code=reason_code, error_code=reason_code,
             )
         else:
             audit_invocation(
                 request_id=request_id, correlation_id=correlation_id, identity=identity,
                 tool_name=name, project=project, args=safe_args, status="error",
-                reason_code="execution_error", output=error, error_code="execution_error",
+                reason_code=reason_code, output=error, error_code=reason_code,
                 started_at=started_at, request_source=request_source,
                 replay_safe=replay_safe, is_error=True,
             )

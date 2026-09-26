@@ -505,6 +505,46 @@ def step_start_cmd(step_id: int = typer.Argument(..., help="ID del paso pending 
         console.print(f"  [yellow]⚠[/yellow] quedan {result['earlier_pending_steps']} paso(s) pending anteriores en el contexto #{result['context_id']}")
 
 
+@step_app.command(name="reset")
+def step_reset_cmd(
+    step_id: int = typer.Argument(..., help="ID del paso in_progress a devolver a pending."),
+    notes: str = typer.Option("", "--notes", "-n", help="Motivo o notas para conservar."),
+):
+    """Devuelve un paso in_progress a pending sin perder sus notas."""
+    from orchestrator.db import reset_step
+    _run_step_transition(
+        lambda args: reset_step(args["step_id"], args["notes"]),
+        {"step_id": step_id, "notes": notes},
+    )
+    console.print(f"[green]✓[/green] paso #{step_id} devuelto a [bold]pending[/bold]")
+
+
+@step_app.command(name="suggest")
+def step_suggest_cmd(
+    project: str = typer.Option(..., "--project", help="Alias del proyecto."),
+    since: Optional[str] = typer.Option(None, "--since", help="Fecha ISO mínima del commit."),
+):
+    """Sugiere commits candidatos para pasos abiertos, sin modificar el tracking."""
+    _ensure_db()
+    from orchestrator.db import _conn
+    from orchestrator.step_suggestions import suggest_step_commits
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+    tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
+    suggestions = suggest_step_commits(
+        _conn(), project, since, tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"),
+    )
+    if not suggestions:
+        console.print("No se encontraron sugerencias.")
+        return
+    for suggestion in suggestions:
+        console.print(f"[bold]Paso #{suggestion['step_id']}[/bold] {suggestion['title']}")
+        for commit in suggestion["commits"]:
+            console.print(f"  {commit['sha']}  {commit['date']}  {commit['subject']}  [dim]({commit['strength']}: {commit['reason']})[/dim]")
+
+
 @step_app.command(name="done")
 def step_done_cmd(
     step_id: int = typer.Argument(..., help="ID del paso in_progress a completar."),
@@ -1125,6 +1165,13 @@ def doctor(
             has_ctx = context_module.context_exists(proj_path)
             if has_ctx:
                 info(f"  context.yaml ✓")
+                try:
+                    raw_context = context_module.load_context(proj_path).raw
+                    for field in context_module.template_fields(raw_context):
+                        warn(f"{a}: context.yaml conserva el texto de plantilla en {field}",
+                             "Completá ese campo para que el router no lo trate como una convención real.")
+                except Exception as exc:
+                    info(f"  No se pudo revisar plantillas de context.yaml: {exc}")
             else:
                 warn(f"  {a}: sin context.yaml", "Ejecutá: ai-orchestrator fix  (o 'add' de nuevo)")
 
@@ -1139,7 +1186,33 @@ def doctor(
                 if resp_count > 0:
                     info(f"  RAG responses: {resp_count} vectores")
 
-    # ── 5. Ingesta y pricing ────────────────────────────────────────────────
+    # ── 5. Salud del tracking ───────────────────────────────────────────────
+    console.print("\n[bold cyan]Salud del tracking[/bold cyan]")
+    try:
+        from orchestrator.db import _conn as _tracking_conn
+        from orchestrator.tracking_health import tracking_health_warnings
+
+        tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
+        stale_in_progress_days = tracking.get("stale_in_progress_days", 7)
+        stale_scheduled_days = tracking.get("stale_scheduled_days", 60)
+        if not isinstance(stale_in_progress_days, int) or stale_in_progress_days < 1:
+            stale_in_progress_days = 7
+        if not isinstance(stale_scheduled_days, int) or stale_scheduled_days < 1:
+            stale_scheduled_days = 60
+        tracking_warnings = tracking_health_warnings(
+            _tracking_conn(), projects,
+            stale_in_progress_days=stale_in_progress_days,
+            stale_scheduled_days=stale_scheduled_days,
+        )
+        if tracking_warnings:
+            for finding in tracking_warnings:
+                warn(finding["message"], finding["hint"])
+        else:
+            ok("Sin advertencias de contextos ni pasos")
+    except Exception as exc:
+        info(f"No se pudo evaluar salud del tracking: {exc}")
+
+    # ── 6. Ingesta y pricing ────────────────────────────────────────────────
     console.print("\n[bold cyan]Ingesta y pricing[/bold cyan]")
 
     try:
@@ -1343,7 +1416,7 @@ def _mcp_client_envs(project_root: Path, gemini_settings: Path) -> list[tuple[st
 
 _CODEX_APPROVED_TOOLS = (
     "get_context", "list_steps", "confirm_alignment", "record_tool_call",
-    "advance_step", "skip_step", "create_context", "add_step",
+    "advance_step", "skip_step", "start_step", "reset_step", "create_context", "add_step",
     "update_context", "import_agent_context", "update_step",
 )
 
