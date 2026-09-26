@@ -436,6 +436,10 @@ ai-orchestrator sync-cc --quiet   # para hooks
 # Importar sesiones de OpenAI Codex CLI (~/.codex/state_N.sqlite)
 ai-orchestrator sync-codex
 ai-orchestrator sync-codex --quiet
+
+# Importar commits de los repos registrados como runs observables
+ai-orchestrator sync-git
+ai-orchestrator sync-git --quiet
 ```
 
 **Integración automática con Claude Code** — agregar en `~/.claude/settings.json`:
@@ -453,6 +457,27 @@ ai-orchestrator sync-codex --quiet
   }
 }
 ```
+
+---
+
+### Evaluación de modelos y del router
+
+Comandos locales que solo leen `runs.db` o un manifest local y no envían nada a proveedores externos. El protocolo y los umbrales están en [ANL-001](docs/decisions/analyses/ANL-001-local-model-evaluation.md).
+
+```powershell
+# Métricas agregadas de runs evaluados (sin tareas, respuestas ni rutas)
+ai-orchestrator model-eval
+ai-orchestrator model-eval --project mi-proyecto --task-class regression
+
+# Compara el router local con las decisiones históricas del router LLM (requiere --offline)
+ai-orchestrator router-eval --offline --limit 200
+
+# Valida un corpus sintético de casos baseline/mutación; sin --execute solo valida el plan
+ai-orchestrator benchmark-validate --manifest .\benchmark\manifest.yaml --model modelo-a --model modelo-b
+ai-orchestrator benchmark-validate --manifest .\benchmark\manifest.yaml --model modelo-a --model modelo-b --seed pilot-v1 --execute
+```
+
+`model-eval` filtra por `--task-class` (`unit`, `integration`, `regression`, `schema`, `edge_case`). `router-eval` avisa que el resultado no es concluyente con menos de 200 runs evaluados. `benchmark-validate` asigna los casos a cada `--model` por hash de `--seed`, `task_class` y `case_id`, y reporta `mutation_detection_rate` por modelo y clase.
 
 ---
 
