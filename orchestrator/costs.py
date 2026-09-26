@@ -9,14 +9,24 @@ from orchestrator.providers.base import CompletionResult
 _log = logging.getLogger(__name__)
 
 DEFAULT_PRICING: dict[str, dict[str, float]] = {
+    "claude-fable-5":     {"input": 10.00, "output": 50.00, "cache_write": 12.50, "cache_read": 1.00},
+    "claude-opus-5-5":    {"input": 4.00,  "output": 20.00, "cache_write": 5.00,  "cache_read": 0.20},
+    "claude-opus-5":      {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
+    "claude-sonnet-5":    {"input": 2.00,  "output": 10.00, "cache_write": 2.50,  "cache_read": 0.20},
     "claude-sonnet-4-6":  {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
-    "claude-opus-4-8":    {"input": 15.00, "output": 75.00, "cache_write": 18.75, "cache_read": 1.50},
-    "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.00, "cache_write": 1.00, "cache_read": 0.08},
-    "gpt-4o":             {"input": 5.00,  "output": 15.00, "cache_read": 1.25},
+    "claude-opus-4-8":    {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
+    "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00, "cache_write": 1.25, "cache_read": 0.10},
+    "gpt-4o":             {"input": 2.50,  "output": 10.00, "cache_read": 1.25},
     "gpt-4o-mini":        {"input": 0.15,  "output": 0.60,  "cache_read": 0.075},
-    # gpt-5.x (Codex CLI): exact pricing varies by version — verificar en platform.openai.com/pricing
-    "gpt-5.4-mini":       {"input": 1.50,  "output": 6.00,  "cache_read": 0.375},
-    "gpt-5":              {"input": 3.00,  "output": 15.00, "cache_read": 0.75},
+    "gpt-5.4-mini":       {"input": 0.75,  "output": 4.50,  "cache_read": 0.075},
+    "gpt-5":              {"input": 1.25,  "output": 10.00, "cache_read": 0.125},
+    "gpt-5.6-sol":        {"input": 4.00,  "output": 20.00, "cache_write": 5.00,  "cache_read": 0.40},
+    "gpt-5.6-terra":      {"input": 2.00,  "output": 12.00, "cache_write": 2.50,  "cache_read": 0.20},
+    "gpt-5.6-luna":       {"input": 0.20,  "output": 1.20,  "cache_write": 0.25,  "cache_read": 0.02},
+    "gpt-5.5":            {"input": 5.00,  "output": 30.00, "cache_read": 0.50},
+    "gpt-5.4":            {"input": 2.50,  "output": 15.00, "cache_read": 0.25},
+    "gpt-5.3-codex":      {"input": 1.75,  "output": 14.00, "cache_read": 0.175},
+    "gpt-5.1-codex-max":  {"input": 1.25,  "output": 10.00, "cache_read": 0.125},
     "deepseek-v4-flash":  {"input": 0.14,  "output": 0.28},
     "deepseek-chat":      {"input": 0.14,  "output": 0.28},
     # verificar precio vigente en platform.deepseek.com/api-docs
