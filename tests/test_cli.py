@@ -126,3 +126,18 @@ def test_model_eval_prints_only_aggregated_metrics():
     assert result.exit_code == 0, result.output
     local_eval.assert_called_once_with(project=None, task_class="unit")
     assert "Runs evaluados: 2" in result.output
+
+
+def test_doctor_masks_api_key_prefix(tmp_path):
+    runner = CliRunner()
+    key = "sk-proj-SECRETPREFIX-0123456789WXYZ"
+    config = {"providers": {"openai": {"model": "gpt-4o", "api_key": key}}}
+
+    with patch("orchestrator.cli._ensure_db"), \
+         patch("orchestrator.cli.HOME_DIR", tmp_path), \
+         patch("orchestrator.cli.load_config", return_value=config):
+        result = runner.invoke(app, ["doctor"])
+
+    assert "API key configurada […WXYZ]" in result.output
+    assert "sk-proj" not in result.output
+    assert "SECRETPREFIX" not in result.output

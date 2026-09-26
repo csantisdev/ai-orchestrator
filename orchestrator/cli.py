@@ -995,8 +995,9 @@ def doctor(
             if not key or key.startswith("<"):
                 fail(f"Provider '{pname}': api_key vacía o placeholder", f"Completá config.yaml → providers.{pname}.api_key")
             else:
-                masked = key[:8] + "…" + key[-4:]
-                ok(f"Provider '{pname}': API key configurada [{masked}]")
+                from rich.markup import escape as _esc_key
+                masked = "…" + key[-4:] if len(key) > 8 else "…"
+                ok(_esc_key(f"Provider '{pname}': API key configurada [{masked}]"))
                 info(f"  modelo: {pcfg.get('model', '—')}")
     except ConfigError as exc:
         fail(f"config.yaml: {exc}", "Copiá config.example.yaml → ~/.ai-orchestrator/config.yaml")
