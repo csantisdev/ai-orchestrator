@@ -542,7 +542,7 @@ def step_suggest_cmd(
     for suggestion in suggestions:
         console.print(f"[bold]Paso #{suggestion['step_id']}[/bold] {suggestion['title']}")
         for commit in suggestion["commits"]:
-            console.print(f"  {commit['sha']}  {commit['date']}  {commit['subject']}  [dim]({commit['reason']})[/dim]")
+            console.print(f"  {commit['sha']}  {commit['date']}  {commit['subject']}  [dim]({commit['strength']}: {commit['reason']})[/dim]")
 
 
 @step_app.command(name="done")

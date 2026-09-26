@@ -21,22 +21,23 @@ def suggest_step_commits(conn: Any, project: str, since: str | None = None, tick
     ticket_pattern = re.compile(ticket_regex)
     results = []
     for step in steps:
-        step_text = f"{step['title']}\n{step['description']}"
-        tickets = set(ticket_pattern.findall(step_text))
+        tickets = set(ticket_pattern.findall(step["title"]))
         candidates = []
         for commit in commits:
             task = commit["task"]
-            explicit = re.search(rf"(?:\bstep\s*|\bs){step['id']}\b|#{step['id']}\b", task, re.I)
+            explicit = re.search(rf"\b(?:step|paso)\s*#?{step['id']}\b|\bs{step['id']}\b", task, re.I)
             shared = tickets & set(ticket_pattern.findall(task))
             if explicit:
                 reason = f"referencia explícita al paso #{step['id']}"
+                strength = "fuerte"
             elif shared:
                 reason = f"ticket compartido: {', '.join(sorted(shared))}"
+                strength = "fuerte"
             else:
                 continue
             candidates.append({
                 "sha": (commit["session_id"] or "").rsplit("::", 1)[-1][:8],
-                "date": commit["ts"], "subject": task.splitlines()[0], "reason": reason,
+                "date": commit["ts"], "subject": task.splitlines()[0], "reason": reason, "strength": strength,
             })
         if candidates:
             results.append({"step_id": step["id"], "title": step["title"], "commits": candidates})
