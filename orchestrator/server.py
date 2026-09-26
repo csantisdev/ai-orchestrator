@@ -331,7 +331,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 self._json({"error": "not found"}, 404)
                 return
             ctx_payload = dict(row2)
-            steps2 = conn2.execute("SELECT * FROM steps WHERE context_id=? ORDER BY order_idx", (ctx_id,)).fetchall()
+            steps2 = conn2.execute("SELECT * FROM steps WHERE context_id=? ORDER BY order_idx, id", (ctx_id,)).fetchall()
             ctx_payload["steps"] = []
             for s in steps2:
                 sd = dict(s)

@@ -41,6 +41,10 @@ _TRANSPORTS = frozenset({"stdio", "ssh_stdio"})
 SERVER_INSTANCE_ID = str(uuid.uuid4())
 _commitment_key: bytes | None = None
 _commitment_key_path = None
+MAX_RECORD_TOOL_CALL_INPUT_BYTES = 8192
+_ARGUMENT_MAX_UTF8_BYTES = {
+    ("record_tool_call", "input"): MAX_RECORD_TOOL_CALL_INPUT_BYTES,
+}
 
 
 @dataclass(frozen=True)
@@ -175,20 +179,18 @@ def visible_tools(tools: list[dict[str, Any]], identity: ExecutionIdentity) -> l
     ]
 
 
-def validate_arguments(schema: dict[str, Any], args: Any) -> None:
+def validate_arguments(schema: dict[str, Any], args: Any, tool_name: str | None = None) -> None:
     """Small dependency-free JSON-schema subset used by the MCP tool contracts."""
     try:
         if not isinstance(args, dict):
             raise ValueError("arguments must be an object")
-        properties = schema.get("properties", {})
-        for required in schema.get("required", []):
-            if required not in args:
-                raise ValueError(f"missing required argument: {required}")
-        unknown = set(args) - set(properties)
-        if unknown:
-            raise ValueError(f"unexpected argument: {sorted(unknown)[0]}")
-        for name, value in args.items():
-            _validate_value(properties[name], value, name)
+        _validate_object(schema, args, "")
+        if tool_name:
+            for (limited_tool, argument), limit in _ARGUMENT_MAX_UTF8_BYTES.items():
+                if tool_name == limited_tool and argument in args:
+                    encoded = json.dumps(args[argument], ensure_ascii=False).encode("utf-8")
+                    if len(encoded) > limit:
+                        raise ValueError(f"{argument} exceeds {limit} UTF-8 bytes")
     except ValueError as exc:
         raise ArgumentValidationError(str(exc)) from exc
 
@@ -211,15 +213,22 @@ def _validate_value(schema: dict[str, Any], value: Any, path: str) -> None:
         for index, item in enumerate(value):
             _validate_value(schema.get("items", {}), item, f"{path}[{index}]")
     elif expected == "object":
-        properties = schema.get("properties", {})
-        for required in schema.get("required", []):
-            if required not in value:
-                raise ValueError(f"missing required argument: {path}.{required}")
-        unknown = set(value) - set(properties)
-        if unknown:
-            raise ValueError(f"unexpected argument: {path}.{sorted(unknown)[0]}")
-        for name, item in value.items():
-            _validate_value(properties[name], item, f"{path}.{name}")
+        _validate_object(schema, value, path)
+
+
+def _validate_object(schema: dict[str, Any], value: dict[str, Any], path: str) -> None:
+    """Validate object fields consistently at the root and nested levels."""
+    properties = schema.get("properties", {})
+    prefix = f"{path}." if path else ""
+    for required in schema.get("required", []):
+        if required not in value:
+            raise ValueError(f"missing required argument: {prefix}{required}")
+    unknown = set(value) - set(properties)
+    if unknown and schema.get("additionalProperties") is not True:
+        raise ValueError(f"unexpected argument: {prefix}{sorted(unknown)[0]}")
+    for name, item in value.items():
+        if name in properties:
+            _validate_value(properties[name], item, f"{prefix}{name}")
 
 
 def resolve_project(tool_name: str, args: dict[str, Any]) -> str | None:
