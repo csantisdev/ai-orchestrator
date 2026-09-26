@@ -23,15 +23,23 @@ def tracking_health_warnings(
     now: datetime | None = None,
     stale_in_progress_days: int = 7,
     stale_scheduled_days: int = 60,
+    project: str | None = None,
 ) -> list[dict[str, str]]:
-    """Return actionable warnings without changing tracking records."""
+    """Return actionable warnings without changing tracking records.
+
+    ``project`` limits the diagnosis to one alias; ``registered_projects`` must
+    still list every registered alias so the registration check stays accurate.
+    """
     now = now or datetime.now(timezone.utc)
     registered = set(registered_projects)
     warnings: list[dict[str, str]] = []
+    project_filter = " AND project=?" if project else ""
+    project_params: tuple[str, ...] = (project,) if project else ()
 
     active_projects = conn.execute(
-        """SELECT project, COUNT(*) AS count FROM contexts
-           WHERE status='active' GROUP BY project HAVING COUNT(*) > 1"""
+        f"""SELECT project, COUNT(*) AS count FROM contexts
+           WHERE status='active'{project_filter} GROUP BY project HAVING COUNT(*) > 1""",
+        project_params,
     ).fetchall()
     for row in active_projects:
         warnings.append({
@@ -41,8 +49,9 @@ def tracking_health_warnings(
         })
 
     contexts = conn.execute(
-        """SELECT * FROM contexts WHERE status IN ('active', 'programado')
-           ORDER BY id"""
+        f"""SELECT * FROM contexts WHERE status IN ('active', 'programado'){project_filter}
+           ORDER BY id""",
+        project_params,
     ).fetchall()
     for context in contexts:
         context_id = context["id"]
@@ -80,6 +89,13 @@ def tracking_health_warnings(
                         f"SELECT MAX(ts) AS ts FROM {table} WHERE step_id=?", (step["id"],)
                     ).fetchone()
                     timestamps.append(_parse_datetime(row["ts"]))
+                # runs.ts marks the start; long sessions stay active until ts + duration_ms.
+                for run in conn.execute(
+                    "SELECT ts, duration_ms FROM runs WHERE step_id=?", (step["id"],)
+                ).fetchall():
+                    started = _parse_datetime(run["ts"])
+                    if started is not None:
+                        timestamps.append(started + timedelta(milliseconds=run["duration_ms"] or 0))
                 activity = max((item for item in timestamps if item is not None), default=None)
                 if activity and now - activity > timedelta(days=stale_in_progress_days):
                     age = (now - activity).days

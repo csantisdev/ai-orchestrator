@@ -1203,6 +1203,7 @@ def doctor(
             _tracking_conn(), projects,
             stale_in_progress_days=stale_in_progress_days,
             stale_scheduled_days=stale_scheduled_days,
+            project=project,
         )
         if tracking_warnings:
             for finding in tracking_warnings:

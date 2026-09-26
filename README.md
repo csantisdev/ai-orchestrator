@@ -109,7 +109,7 @@ ai-orchestrator serve                  # abre http://127.0.0.1:8080
 | **Barra de actividad** | Spans en tiempo real: Router → RAG → API → Index. Duración de cada operación visible mientras corre |
 | **Sync Claude Code** | Importa sesiones de `~/.claude/projects/` al historial. Ejecutable vía hook `Stop` automáticamente |
 | **Sync Codex** | Importa sesiones de OpenAI Codex CLI (`~/.codex/state_N.sqlite`) al historial, incluyendo tokens, costo y respuesta completa |
-| **Doctor / Fix** | `doctor` diagnostica el estado completo en 4 secciones (config, MCP Claude/Codex, proyectos, DB). `fix` aplica correcciones automáticas: crea `.mcp.json`, `.codex/config.toml`, `context.yaml`, registra MCP global, sincroniza e indexa |
+| **Doctor / Fix** | `doctor` diagnostica el estado completo en 7 secciones (entorno, config, MCP, gobernanza MCP, proyectos, salud del tracking, ingesta y pricing). `fix` aplica correcciones automáticas: crea `.mcp.json`, `.codex/config.toml`, `context.yaml`, registra MCP global, sincroniza e indexa |
 | **Menú de acciones** | Botones `doctor`, `fix`, `sync`, `index` en la barra de actividad del dashboard. Ejecutan las mismas acciones que la CLI y trazan resultados en tiempo real en el log de actividad |
 
 **Fuera del alcance:** no es un proxy de API (el proceso corre localmente), no orquesta agentes en paralelo, no mantiene historial de conversación entre runs.
@@ -386,15 +386,17 @@ ai-orchestrator fix --index             # + indexa proyectos sin chunks en Chrom
 ai-orchestrator fix --all               # aplica todas las mejoras anteriores juntas
 ```
 
-`doctor` verifica cinco secciones y muestra ✓ / ⚠ / ✗ por cada ítem:
+`doctor` verifica siete secciones y muestra ✓ / ⚠ / ✗ por cada ítem:
 
 | Sección | Qué revisa |
 |---|---|
 | **Entorno** | Python version, `.venv` activo |
 | **Configuración global** | `config.yaml` cargable, API keys de los 3 providers, `index.yaml`, `runs.db`, ChromaDB |
 | **MCP / Claude Code / Codex** | `.mcp.json` en el proyecto, `.codex/config.toml`, MCP en `~/.claude/settings.json` global |
-| **Proyectos** | Ruta existe, `context.yaml` generado, indexado en ChromaDB |
-| **Salud del tracking** | Contextos duplicados, proyectos no registrados, pasos sin activar o inactivos y contextos programados vencidos; solo advierte, nunca modifica datos |
+| **Gobernanza MCP** | Cada config de cliente MCP define `ORCHESTRATOR_MCP_PROFILE` y `ORCHESTRATOR_MCP_PROJECTS` con alias registrados |
+| **Proyectos** | Ruta existe, `context.yaml` generado, indexado en ChromaDB, sin texto de plantilla en `context.yaml` |
+| **Salud del tracking** | Contextos duplicados, proyectos no registrados, pasos sin activar o inactivos y contextos programados vencidos; respeta `--project`; solo advierte, nunca modifica datos |
+| **Ingesta y pricing** | Todos los modelos usados en `runs.db` tienen precio registrado en el catálogo |
 
 `fix` aplica mejoras en orden determinista: `.mcp.json` → `.codex/config.toml` → `context.yaml` → MCP global → sync → index. Salta automáticamente lo que ya está en orden y reporta cada acción tomada.
 
