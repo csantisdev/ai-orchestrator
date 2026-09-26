@@ -160,7 +160,7 @@ Perfiles disponibles: `readonly`, `observability`, `workflow_operator`,
 y `workflow_operator` no concede ingestión RAG. Un alcance vacío falla cerrado
 para las tools vinculadas a un proyecto.
 
-El servidor MCP expone 12 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, Gemini Code Assist, etc.) puede invocar directamente sin usar la CLI:
+El servidor MCP expone 14 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, Gemini Code Assist, etc.) puede invocar directamente sin usar la CLI:
 
 | Tool | Propósito |
 |---|---|
@@ -170,6 +170,8 @@ El servidor MCP expone 12 herramientas que cualquier agente compatible (Claude C
 | `record_tool_call` | Registra cada herramienta invocada durante un paso |
 | `advance_step` | Marca el paso actual como completado y activa el siguiente |
 | `skip_step` | Marca un paso como omitido sin ejecutarlo |
+| `start_step` | Activa un paso `pending` cuando no hay otro `in_progress` |
+| `reset_step` | Devuelve un paso `in_progress` a `pending` sin perder sus notas |
 | `create_context` | Crea un nuevo contexto de trabajo con pasos opcionales |
 | `add_step` | Agrega un paso a un contexto existente durante la ejecución |
 | `update_context` | Edita título, descripción o estado de un contexto |
@@ -179,7 +181,7 @@ El servidor MCP expone 12 herramientas que cualquier agente compatible (Claude C
 
 Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto, registra Codex en `.codex/config.toml` y registra Gemini en `~/.gemini/settings.json`. Para Claude global, usá `ai-orchestrator fix --global-mcp`. Cada entrada se escribe con el bloque `env` de gobernanza: `--mcp-profile` (por defecto `readonly`) y `--mcp-projects` (por defecto, el alias registrado para este repo). En entradas existentes, `fix` solo completa las claves `ORCHESTRATOR_MCP_*` que faltan y nunca pisa las ya declaradas. `ai-orchestrator doctor` revisa el `env` de todas las configuraciones de cliente conocidas (incluidas `~/.claude.json`, `~/.copilot/mcp-config.json` y `~/.codex/config.toml`) y falla si el perfil o el alcance harían que el servidor deniegue las tools de proyecto.
 
-Si el MCP no está disponible, el estado de los pasos se puede corregir desde la CLI: `ai-orchestrator step start <id>` activa un paso `pending` cuando el contexto no tiene ninguno `in_progress` (y avisa si quedan pendientes anteriores), `step done <id> --notes ...` equivale a `advance_step` y `step skip <id> --reason ...` equivale a `skip_step`. Estas transiciones las ejecuta el operador local y no quedan registradas en `mcp_invocations`.
+Si el MCP no está disponible, el estado de los pasos se puede corregir desde la CLI: `ai-orchestrator step start <id>` activa un paso `pending`, `step reset <id> -n ...` devuelve trabajo abandonado a `pending`, `step done <id> --notes ...` equivale a `advance_step` y `step skip <id> --reason ...` equivale a `skip_step`. Usá `skip` solo para trabajo descartado o reemplazado. `ai-orchestrator step suggest --project <alias> [--since <fecha>]` muestra candidatos commit→paso sin mutar el tracking. Estas transiciones las ejecuta el operador local y no quedan registradas en `mcp_invocations`.
 
 ---
 
@@ -384,7 +386,7 @@ ai-orchestrator fix --index             # + indexa proyectos sin chunks en Chrom
 ai-orchestrator fix --all               # aplica todas las mejoras anteriores juntas
 ```
 
-`doctor` verifica cuatro secciones y muestra ✓ / ⚠ / ✗ por cada ítem:
+`doctor` verifica cinco secciones y muestra ✓ / ⚠ / ✗ por cada ítem:
 
 | Sección | Qué revisa |
 |---|---|
@@ -392,6 +394,7 @@ ai-orchestrator fix --all               # aplica todas las mejoras anteriores ju
 | **Configuración global** | `config.yaml` cargable, API keys de los 3 providers, `index.yaml`, `runs.db`, ChromaDB |
 | **MCP / Claude Code / Codex** | `.mcp.json` en el proyecto, `.codex/config.toml`, MCP en `~/.claude/settings.json` global |
 | **Proyectos** | Ruta existe, `context.yaml` generado, indexado en ChromaDB |
+| **Salud del tracking** | Contextos duplicados, proyectos no registrados, pasos sin activar o inactivos y contextos programados vencidos; solo advierte, nunca modifica datos |
 
 `fix` aplica mejoras en orden determinista: `.mcp.json` → `.codex/config.toml` → `context.yaml` → MCP global → sync → index. Salta automáticamente lo que ya está en orden y reporta cada acción tomada.
 
