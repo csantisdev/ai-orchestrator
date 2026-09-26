@@ -505,6 +505,20 @@ def step_start_cmd(step_id: int = typer.Argument(..., help="ID del paso pending 
         console.print(f"  [yellow]⚠[/yellow] quedan {result['earlier_pending_steps']} paso(s) pending anteriores en el contexto #{result['context_id']}")
 
 
+@step_app.command(name="reset")
+def step_reset_cmd(
+    step_id: int = typer.Argument(..., help="ID del paso in_progress a devolver a pending."),
+    notes: str = typer.Option("", "--notes", "-n", help="Motivo o notas para conservar."),
+):
+    """Devuelve un paso in_progress a pending sin perder sus notas."""
+    from orchestrator.db import reset_step
+    _run_step_transition(
+        lambda args: reset_step(args["step_id"], args["notes"]),
+        {"step_id": step_id, "notes": notes},
+    )
+    console.print(f"[green]✓[/green] paso #{step_id} devuelto a [bold]pending[/bold]")
+
+
 @step_app.command(name="done")
 def step_done_cmd(
     step_id: int = typer.Argument(..., help="ID del paso in_progress a completar."),

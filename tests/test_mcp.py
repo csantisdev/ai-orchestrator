@@ -221,6 +221,21 @@ def test_readonly_direct_mutation_is_denied_and_audited(isolated_db, governed_en
     assert len(audit["input_hash"]) == 64
 
 
+@pytest.mark.parametrize("tool_name", ["start_step", "reset_step"])
+def test_readonly_transition_tools_are_hidden_and_denied(isolated_db, governed_env, tool_name):
+    import orchestrator.mcp as mcp
+    from orchestrator.mcp_governance import execution_identity, visible_tools
+
+    context_id = isolated_db.insert_context("allowed", "Title")
+    step_id = isolated_db.insert_step(context_id, 1, "Step")
+    assert tool_name not in {tool["name"] for tool in visible_tools(mcp.TOOLS, execution_identity())}
+
+    result, is_error = mcp._governed_tool_call(tool_name, {"step_id": step_id}, "readonly-transition")
+
+    assert is_error is True
+    assert result["reason_code"] == "capability_denied"
+
+
 def test_project_scope_is_enforced_before_read_handler(isolated_db, governed_env):
     import orchestrator.mcp as mcp
 
@@ -471,3 +486,61 @@ def test_mutation_ownership_is_checked_before_transition(isolated_db, workflow_e
     assert isolated_db._conn().execute(
         "SELECT status FROM steps WHERE id=?", (step_id,)
     ).fetchone()["status"] == "in_progress"
+
+
+def test_start_and_reset_steps_are_governed_and_idempotent(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Workflow")
+    first_step = isolated_db.insert_step(context_id, 1, "First")
+    second_step = isolated_db.insert_step(context_id, 2, "Second")
+
+    started, started_error = mcp._governed_tool_call(
+        "start_step", {"step_id": first_step, "request_id": "start-1"}, "rpc-start-1"
+    )
+    replay, replay_error = mcp._governed_tool_call(
+        "start_step", {"step_id": first_step, "request_id": "start-1"}, "rpc-start-2"
+    )
+    conflict, conflict_error = mcp._governed_tool_call(
+        "start_step", {"step_id": second_step, "request_id": "start-2"}, "rpc-start-3"
+    )
+    reset, reset_error = mcp._governed_tool_call(
+        "reset_step", {"step_id": first_step, "notes": "paused", "request_id": "reset-1"}, "rpc-reset-1"
+    )
+    invalid_reset, invalid_reset_error = mcp._governed_tool_call(
+        "reset_step", {"step_id": first_step, "request_id": "reset-2"}, "rpc-reset-2"
+    )
+
+    assert (started_error, replay_error, conflict_error, reset_error, invalid_reset_error) == (False, False, True, False, True)
+    assert started["started_step_id"] == first_step
+    assert replay["replayed"] is True
+    assert conflict["reason_code"] == "context_has_in_progress"
+    assert reset["reset_step_id"] == first_step
+    assert invalid_reset["reason_code"] == "step_not_in_progress"
+    row = isolated_db._conn().execute("SELECT status, started_at, notes FROM steps WHERE id=?", (first_step,)).fetchone()
+    assert dict(row) == {"status": "pending", "started_at": None, "notes": "paused"}
+
+
+def test_start_step_checks_project_ownership_and_add_start_advance_flow(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    private_context = isolated_db.insert_context("other", "Private")
+    private_step = isolated_db.insert_step(private_context, 1, "Private step")
+    denied, denied_error = mcp._governed_tool_call(
+        "start_step", {"step_id": private_step, "request_id": "private-start"}, "rpc-private"
+    )
+    context_id = isolated_db.insert_context("allowed", "Workflow")
+    added, added_error = mcp._governed_tool_call(
+        "add_step", {"context_id": context_id, "title": "Added", "request_id": "add-1"}, "rpc-add"
+    )
+    started, started_error = mcp._governed_tool_call(
+        "start_step", {"step_id": added["step_id"], "request_id": "start-added"}, "rpc-start"
+    )
+    completed, completed_error = mcp._governed_tool_call(
+        "advance_step", {"step_id": added["step_id"], "request_id": "advance-added"}, "rpc-advance"
+    )
+
+    assert (denied_error, added_error, started_error, completed_error) == (True, False, False, False)
+    assert denied["reason_code"] == "project_out_of_scope"
+    assert started["started_step_id"] == added["step_id"]
+    assert completed["completed_step_id"] == added["step_id"]

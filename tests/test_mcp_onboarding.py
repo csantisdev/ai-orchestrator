@@ -228,6 +228,20 @@ def test_cli_step_done_rejects_pending_step_with_exit_code(isolated_db):
     assert "in_progress" in result.output
 
 
+def test_cli_step_reset_returns_active_step_to_pending_and_keeps_notes(isolated_db):
+    context_id = isolated_db.insert_context("allowed", "Title")
+    step_id = isolated_db.insert_step(context_id, 1, "Only")
+    isolated_db.start_step(step_id)
+    isolated_db._conn().execute("UPDATE steps SET notes='existing' WHERE id=?", (step_id,))
+    isolated_db._conn().commit()
+
+    result = CliRunner().invoke(app, ["step", "reset", str(step_id), "-n", "paused"])
+
+    assert result.exit_code == 0
+    row = isolated_db._conn().execute("SELECT status, started_at, notes FROM steps WHERE id=?", (step_id,)).fetchone()
+    assert dict(row) == {"status": "pending", "started_at": None, "notes": "existing\npaused"}
+
+
 def test_malformed_json_config_is_never_overwritten(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text('{"mcpServers": {', encoding="utf-8")

@@ -14,6 +14,12 @@ _local = threading.local()
 _write_lock = threading.RLock()
 
 
+class StepTransitionError(ValueError):
+    def __init__(self, reason_code: str, message: str):
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
 def _conn() -> sqlite3.Connection:
     import orchestrator.paths as _paths
     if not hasattr(_local, "conn") or _local.conn is None:
@@ -647,15 +653,21 @@ def start_step(step_id: int) -> dict:
                 conn.execute("BEGIN IMMEDIATE")
             step = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
             if step is None:
-                raise ValueError(f"step {step_id} not found")
+                raise StepTransitionError("step_not_found", f"step {step_id} not found")
             if step["status"] != "pending":
-                raise ValueError(f"step {step_id} está en '{step['status']}' — solo se pueden iniciar pasos pending")
+                raise StepTransitionError(
+                    "step_not_pending",
+                    f"step {step_id} está en '{step['status']}' — solo se pueden iniciar pasos pending",
+                )
             active = conn.execute(
                 "SELECT id FROM steps WHERE context_id=? AND status='in_progress' LIMIT 1",
                 (step["context_id"],),
             ).fetchone()
             if active is not None:
-                raise ValueError(f"el contexto ya tiene el paso {active['id']} in_progress")
+                raise StepTransitionError(
+                    "context_has_in_progress",
+                    f"el contexto ya tiene el paso {active['id']} in_progress",
+                )
             skipped_ahead = conn.execute(
                 "SELECT COUNT(*) FROM steps WHERE context_id=? AND order_idx < ? AND status='pending'",
                 (step["context_id"], step["order_idx"]),
@@ -673,6 +685,37 @@ def start_step(step_id: int) -> dict:
         "context_id": step["context_id"],
         "earlier_pending_steps": skipped_ahead,
     }
+
+
+def reset_step(step_id: int, notes: str = "") -> dict:
+    """Return an in-progress step to pending without discarding its notes."""
+    conn = _conn()
+    with _write_lock:
+        try:
+            if not conn.in_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            step = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
+            if step is None:
+                raise StepTransitionError("step_not_found", f"step {step_id} not found")
+            if step["status"] != "in_progress":
+                raise StepTransitionError(
+                    "step_not_in_progress",
+                    f"step {step_id} está en '{step['status']}' — solo se pueden resetear pasos in_progress",
+                )
+            existing_notes = step["notes"] or ""
+            updated_notes = "\n".join(part for part in (existing_notes, notes) if part)
+            changed = conn.execute(
+                """UPDATE steps SET status='pending', started_at=NULL, notes=?
+                   WHERE id=? AND status='in_progress'""",
+                (updated_notes, step_id),
+            )
+            if changed.rowcount != 1:
+                raise StepTransitionError("step_changed_concurrently", f"step {step_id} changed concurrently")
+            commit_if_not_atomic(conn)
+        except Exception:
+            conn.rollback()
+            raise
+    return {"reset_step_id": step_id, "context_id": step["context_id"], "notes": updated_notes}
 
 
 def activate_first_step(context_id: int) -> bool:

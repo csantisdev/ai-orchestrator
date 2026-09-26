@@ -24,6 +24,8 @@ TOOL_CATEGORIES = {
     "update_step": "workflow_mutation",
     "advance_step": "workflow_transition",
     "skip_step": "workflow_transition",
+    "start_step": "workflow_transition",
+    "reset_step": "workflow_transition",
     "import_agent_context": "memory_ingest",
 }
 
@@ -227,7 +229,7 @@ def resolve_project(tool_name: str, args: dict[str, Any]) -> str | None:
     if tool_name == "get_context" and args.get("project") and not args.get("context_id"):
         return str(args["project"]).strip()
     resource_id = args.get("context_id")
-    if tool_name in {"advance_step", "skip_step", "update_step"}:
+    if tool_name in {"advance_step", "skip_step", "start_step", "reset_step", "update_step"}:
         resource_id = args.get("step_id")
         query = """SELECT c.project FROM steps s JOIN contexts c ON c.id=s.context_id WHERE s.id=?"""
     elif resource_id:
