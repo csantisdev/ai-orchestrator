@@ -153,3 +153,18 @@ def test_tracking_health_limits_warnings_to_selected_project(isolated_db):
 
     assert _codes(warnings) == ["multiple_active_contexts"]
     assert warnings[0]["message"].startswith("demo:")
+
+
+def test_tracking_health_uses_run_end_time_as_activity(isolated_db):
+    context_id = isolated_db.insert_context("demo", "Long session")
+    step_id = isolated_db.insert_step(context_id, 1, "Work")
+    isolated_db.start_step(step_id)
+    old = (datetime(2026, 1, 30, tzinfo=timezone.utc) - timedelta(days=10)).isoformat()
+    isolated_db._conn().execute("UPDATE steps SET started_at=? WHERE id=?", (old, step_id))
+    isolated_db._conn().execute(
+        "INSERT INTO runs (ts, project, step_id, duration_ms) VALUES (?, 'demo', ?, ?)",
+        (old, step_id, int(timedelta(days=9).total_seconds() * 1000)),
+    )
+    isolated_db._conn().commit()
+
+    assert _warnings(isolated_db, {"demo"}, stale_in_progress_days=7) == []

@@ -84,11 +84,18 @@ def tracking_health_warnings(
             ).fetchall()
             for step in active_steps:
                 timestamps = [_parse_datetime(step["started_at"])]
-                for table in ("alignments", "tool_calls", "runs"):
+                for table in ("alignments", "tool_calls"):
                     row = conn.execute(
                         f"SELECT MAX(ts) AS ts FROM {table} WHERE step_id=?", (step["id"],)
                     ).fetchone()
                     timestamps.append(_parse_datetime(row["ts"]))
+                # runs.ts marks the start; long sessions stay active until ts + duration_ms.
+                for run in conn.execute(
+                    "SELECT ts, duration_ms FROM runs WHERE step_id=?", (step["id"],)
+                ).fetchall():
+                    started = _parse_datetime(run["ts"])
+                    if started is not None:
+                        timestamps.append(started + timedelta(milliseconds=run["duration_ms"] or 0))
                 activity = max((item for item in timestamps if item is not None), default=None)
                 if activity and now - activity > timedelta(days=stale_in_progress_days):
                     age = (now - activity).days
