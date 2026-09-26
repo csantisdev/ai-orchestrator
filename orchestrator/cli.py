@@ -1154,6 +1154,32 @@ def doctor(
                     info(f"  RAG responses: {resp_count} vectores")
 
     # ── 5. Ingesta y pricing ────────────────────────────────────────────────
+    console.print("\n[bold cyan]Salud del tracking[/bold cyan]")
+    try:
+        from orchestrator.db import _conn as _tracking_conn
+        from orchestrator.tracking_health import tracking_health_warnings
+
+        tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
+        stale_in_progress_days = tracking.get("stale_in_progress_days", 7)
+        stale_scheduled_days = tracking.get("stale_scheduled_days", 60)
+        if not isinstance(stale_in_progress_days, int) or stale_in_progress_days < 1:
+            stale_in_progress_days = 7
+        if not isinstance(stale_scheduled_days, int) or stale_scheduled_days < 1:
+            stale_scheduled_days = 60
+        tracking_warnings = tracking_health_warnings(
+            _tracking_conn(), projects,
+            stale_in_progress_days=stale_in_progress_days,
+            stale_scheduled_days=stale_scheduled_days,
+        )
+        if tracking_warnings:
+            for finding in tracking_warnings:
+                warn(finding["message"], finding["hint"])
+        else:
+            ok("Sin advertencias de contextos ni pasos")
+    except Exception as exc:
+        info(f"No se pudo evaluar salud del tracking: {exc}")
+
+    # ── 6. Ingesta y pricing ────────────────────────────────────────────────
     console.print("\n[bold cyan]Ingesta y pricing[/bold cyan]")
 
     try:
