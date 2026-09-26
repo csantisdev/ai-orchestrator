@@ -119,6 +119,22 @@ def test_provider_sends_system_prompt():
     assert messages[1]["content"] == "tarea"
 
 
+def test_gemini_provider_sends_key_in_header_not_url():
+    from orchestrator.providers.gemini import GeminiProvider
+    data = {
+        "candidates": [{"content": {"parts": [{"text": "respuesta gemini"}]}, "finishReason": "STOP"}],
+        "usageMetadata": {"promptTokenCount": 20, "candidatesTokenCount": 10},
+    }
+    with patch("httpx.post", return_value=_mock_response(data)) as mock_post:
+        p = GeminiProvider(api_key="AIza-secret", model="gemini-2.5-flash")
+        r = p.complete("tarea")
+    assert r.text == "respuesta gemini"
+    url = mock_post.call_args.args[0]
+    assert "AIza-secret" not in url
+    assert "key=" not in url
+    assert mock_post.call_args.kwargs["headers"] == {"x-goog-api-key": "AIza-secret"}
+
+
 # ── Secret filter expansion tests ───────────────────────────────────────────
 
 def test_secret_filter_aws():

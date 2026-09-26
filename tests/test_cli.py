@@ -128,16 +128,33 @@ def test_model_eval_prints_only_aggregated_metrics():
     assert "Runs evaluados: 2" in result.output
 
 
-def test_doctor_masks_api_key_prefix(tmp_path):
+def _doctor_output(tmp_path, key):
     runner = CliRunner()
-    key = "sk-proj-SECRETPREFIX-0123456789WXYZ"
     config = {"providers": {"openai": {"model": "gpt-4o", "api_key": key}}}
-
     with patch("orchestrator.cli._ensure_db"), \
          patch("orchestrator.cli.HOME_DIR", tmp_path), \
          patch("orchestrator.cli.load_config", return_value=config):
-        result = runner.invoke(app, ["doctor"])
+        return runner.invoke(app, ["doctor"]).output
 
-    assert "API key configurada […WXYZ]" in result.output
-    assert "sk-proj" not in result.output
-    assert "SECRETPREFIX" not in result.output
+
+def test_doctor_masks_api_key_prefix(tmp_path):
+    output = _doctor_output(tmp_path, "sk-proj-SECRETPREFIX-0123456789WXYZ")
+
+    assert "API key configurada […WXYZ]" in output
+    assert "sk-proj" not in output
+    assert "SECRETPREFIX" not in output
+
+
+def test_doctor_escapes_markup_in_key_suffix(tmp_path):
+    output = _doctor_output(tmp_path, "sk-proj-SECRETPREFIX-0123[/b]")
+
+    assert "API key configurada […[/b]]" in output
+    assert "SECRETPREFIX" not in output
+
+
+@pytest.mark.parametrize("key", ["abcd", "abcdefgh"])
+def test_doctor_hides_short_keys_entirely(tmp_path, key):
+    output = _doctor_output(tmp_path, key)
+
+    assert "API key configurada […]" in output
+    assert key[-4:] not in output

@@ -15,8 +15,11 @@ API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 class GeminiProvider(BaseProvider):
     name = "gemini"
 
+    def _headers(self) -> dict:
+        return {"x-goog-api-key": self.api_key}
+
     def _complete(self, prompt: str, system: str = "") -> CompletionResult:
-        url = f"{API_BASE}/{self.model}:generateContent?key={self.api_key}"
+        url = f"{API_BASE}/{self.model}:generateContent"
 
         body: dict = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -25,7 +28,7 @@ class GeminiProvider(BaseProvider):
         if system:
             body["system_instruction"] = {"parts": [{"text": system}]}
 
-        response = httpx.post(url, json=body, timeout=120)
+        response = httpx.post(url, json=body, headers=self._headers(), timeout=120)
         response.raise_for_status()
         data = response.json()
 
@@ -56,7 +59,7 @@ class GeminiProvider(BaseProvider):
     def _complete_stream(
         self, prompt: str, system: str = ""
     ) -> Generator[str, None, StreamResult]:
-        url = f"{API_BASE}/{self.model}:streamGenerateContent?key={self.api_key}&alt=sse"
+        url = f"{API_BASE}/{self.model}:streamGenerateContent?alt=sse"
 
         body: dict = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -67,7 +70,7 @@ class GeminiProvider(BaseProvider):
 
         sr = StreamResult(provider=self.name, model=self.model)
 
-        with httpx.stream("POST", url, json=body, timeout=120) as response:
+        with httpx.stream("POST", url, json=body, headers=self._headers(), timeout=120) as response:
             response.raise_for_status()
             for line in response.iter_lines():
                 if not line.startswith("data: "):

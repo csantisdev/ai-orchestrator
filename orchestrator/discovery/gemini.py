@@ -8,7 +8,7 @@ API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
 def list_models(api_key: str) -> list[dict]:
-    response = httpx.get(API_URL, params={"key": api_key}, timeout=10)
+    response = httpx.get(API_URL, headers={"x-goog-api-key": api_key}, timeout=10)
     response.raise_for_status()
     data = response.json()
     models = []

@@ -129,3 +129,13 @@ def test_compare_available_vs_priced(tmp_path, monkeypatch):
     by_id = {c["id"]: c["has_price"] for c in comparison}
     assert by_id["claude-sonnet-4-6"] is True
     assert by_id["claude-nuevo-modelo"] is False
+
+
+def test_gemini_adapter_sends_key_in_header_not_url():
+    from orchestrator.discovery.gemini import list_models
+    with patch("httpx.get", return_value=_mock_response({"models": []})) as mock_get:
+        list_models("AIza-secret")
+    call = mock_get.call_args
+    assert "AIza-secret" not in str(call.args)
+    assert "params" not in call.kwargs
+    assert call.kwargs["headers"] == {"x-goog-api-key": "AIza-secret"}

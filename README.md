@@ -184,7 +184,7 @@ Semántica de las transiciones de pasos:
 - `advance_step`, `skip_step` y `reset_step` **agregan** sus notas (`notes` o `reason`) a las que ya tenía el paso; si llegan vacías, las notas existentes no cambian.
 - Al completar u omitir el paso `in_progress`, se activa el primer paso `pending` que le sigue según `(order_idx, id)`; los `pending` anteriores no se tocan. Con `activate_next=false` no se activa ninguno.
 - El contexto pasa a `completed` (`context_done=true`) solo cuando no le quedan pasos `pending` ni `in_progress`.
-- `start_step` exige que el contexto esté `active` y sin otro paso `in_progress`; su respuesta incluye `earlier_pending_steps`, la cantidad de pasos `pending` anteriores que quedan sin iniciar.
+- `start_step` exige que el contexto esté `active` y sin otro paso `in_progress`; su respuesta incluye `earlier_pending_steps`, la cantidad de pasos `pending` con `order_idx` menor que quedan sin iniciar.
 - En `update_step`, `notes` reemplaza las notas y `notes_append` las agrega; no se pueden enviar juntos.
 
 Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto, registra Codex en `.codex/config.toml` y registra Gemini en `~/.gemini/settings.json`. Para Claude global, usá `ai-orchestrator fix --global-mcp`. Cada entrada se escribe con el bloque `env` de gobernanza: `--mcp-profile` (por defecto `readonly`) y `--mcp-projects` (por defecto, el alias registrado para este repo). En entradas existentes, `fix` solo completa las claves `ORCHESTRATOR_MCP_*` que faltan y nunca pisa las ya declaradas. `ai-orchestrator doctor` revisa el `env` de todas las configuraciones de cliente conocidas (incluidas `~/.claude.json`, `~/.copilot/mcp-config.json` y `~/.codex/config.toml`) y falla si el perfil o el alcance harían que el servidor deniegue las tools de proyecto.
@@ -462,7 +462,7 @@ ai-orchestrator sync-git --quiet
 
 ### Evaluación de modelos y del router
 
-Comandos locales que solo leen `runs.db` o un manifest local y no envían nada a proveedores externos. El protocolo y los umbrales están en [ANL-001](docs/decisions/analyses/ANL-001-local-model-evaluation.md).
+Ninguno de estos comandos llama a proveedores de IA. `model-eval` lee solo métricas agregadas de `runs.db`; `router-eval --offline` reproduce el router local sobre runs históricos usando `config.yaml`, el índice y el `context.yaml` de cada proyecto; `benchmark-validate` sin `--execute` solo valida el manifest y el plan de asignación, y con `--execute` corre localmente los comandos del manifest, así que solo debe usarse con manifests propios y revisados. El protocolo y los umbrales están en [ANL-001](docs/decisions/analyses/ANL-001-local-model-evaluation.md).
 
 ```powershell
 # Métricas agregadas de runs evaluados (sin tareas, respuestas ni rutas)
@@ -478,6 +478,17 @@ ai-orchestrator benchmark-validate --manifest .\benchmark\manifest.yaml --model 
 ```
 
 `model-eval` filtra por `--task-class` (`unit`, `integration`, `regression`, `schema`, `edge_case`). `router-eval` avisa que el resultado no es concluyente con menos de 200 runs evaluados. `benchmark-validate` asigna los casos a cada `--model` por hash de `--seed`, `task_class` y `case_id`, y reporta `mutation_detection_rate` por modelo y clase.
+
+El manifest es YAML con una lista `cases`. Cada caso tiene un `case_id` único (1-64 caracteres `[a-z0-9_-]`), una `task_class` válida, `test_command` (debe terminar en 0) y `mutation_command` (debe terminar distinto de 0 para contar como detección), ambos como listas no vacías de strings que se ejecutan sin shell, y `timeout_seconds` opcional entre 1 y 600 (default 60):
+
+```yaml
+cases:
+  - case_id: parser-empty-input
+    task_class: edge_case
+    test_command: [python, -m, pytest, tests/test_parser.py, -q]
+    mutation_command: [python, scripts/run_mutant.py, parser-empty-input]
+    timeout_seconds: 120
+```
 
 ---
 

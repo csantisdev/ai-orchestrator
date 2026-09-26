@@ -13,7 +13,8 @@ related: [ANL-002]
 ## Objetivo
 
 Describir la práctica que se usa en cada cambio no trivial de
-`ai-orchestrator` desde el PR #18: un agente implementa, otro distinto audita en
+`ai-orchestrator`, documentada en `AGENTS.md` desde el commit `770956f` y
+aplicada con delegación a Codex desde el PR #18: un agente implementa, otro distinto audita en
 modo solo lectura, se corrige y se audita de nuevo lo corregido antes del merge.
 
 No reemplaza a ANL-002. ANL-002 es una auditoría puntual del repositorio
@@ -49,7 +50,9 @@ aplica a un diff concreto dentro de su PR.
 
 ## Invocación de auditores en solo lectura
 
-- Codex: `codex exec --sandbox read-only --cd <repo> -o <salida> - < <prompt>`.
+- Codex: `codex exec --sandbox read-only --cd <repo> -o <salida> -`, con el
+  prompt por stdin. En bash: `... - < prompt.md`; en PowerShell:
+  `Get-Content prompt.md -Raw | codex exec ... -`.
 - Copilot CLI: modo no interactivo con `--deny-tool=write`, prompt por stdin.
 - El prompt fija la rama o SHA auditado, pide la tabla de hallazgos de ANL-002
   y aclara que no se debe ejecutar el protocolo completo de ANL-002.
