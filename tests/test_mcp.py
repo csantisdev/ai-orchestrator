@@ -558,3 +558,144 @@ def test_start_step_checks_project_ownership_and_add_start_advance_flow(isolated
     assert denied["reason_code"] == "project_out_of_scope"
     assert started["started_step_id"] == added["step_id"]
     assert completed["completed_step_id"] == added["step_id"]
+
+
+def test_step_notes_are_preserved_or_appended_by_transitions_and_reset(isolated_db):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("mi-proyecto", "Flujo")
+    first_step = isolated_db.insert_step(context_id, 1, "Primero")
+    second_step = isolated_db.insert_step(context_id, 2, "Segundo")
+    isolated_db._conn().execute("UPDATE steps SET notes='previas' WHERE id=?", (first_step,))
+    isolated_db._conn().execute("UPDATE steps SET notes='anteriores' WHERE id=?", (second_step,))
+    isolated_db.activate_first_step(context_id)
+
+    mcp._tool_advance_step({"step_id": first_step, "notes": "finales"})
+    assert isolated_db._conn().execute("SELECT notes FROM steps WHERE id=?", (first_step,)).fetchone()[0] == "previas\nfinales"
+    mcp._tool_skip_step({"step_id": second_step, "reason": "reemplazado"})
+    assert isolated_db._conn().execute("SELECT notes FROM steps WHERE id=?", (second_step,)).fetchone()[0] == "anteriores\nreemplazado"
+
+    third_step = isolated_db.insert_step(context_id, 3, "Tercero")
+    isolated_db._conn().execute("UPDATE steps SET status='in_progress', notes='guardadas' WHERE id=?", (third_step,))
+    reset = mcp._tool_reset_step({"step_id": third_step, "notes": "pausado"})
+    assert reset["notes"] == "guardadas\npausado"
+
+
+@pytest.mark.parametrize(("tool_name", "argument"), [("_tool_advance_step", "notes"), ("_tool_skip_step", "reason")])
+def test_omitted_or_empty_transition_notes_do_not_clear_existing(isolated_db, tool_name, argument):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("mi-proyecto", "Flujo")
+    step_id = isolated_db.insert_step(context_id, 1, "Paso")
+    isolated_db._conn().execute("UPDATE steps SET status='in_progress', notes='previas' WHERE id=?", (step_id,))
+
+    getattr(mcp, tool_name)({"step_id": step_id})
+    assert isolated_db._conn().execute("SELECT notes FROM steps WHERE id=?", (step_id,)).fetchone()[0] == "previas"
+
+    next_step = isolated_db.insert_step(context_id, 2, "Otro")
+    isolated_db._conn().execute("UPDATE steps SET status='in_progress', notes='previas' WHERE id=?", (next_step,))
+    getattr(mcp, tool_name)({"step_id": next_step, argument: ""})
+    assert isolated_db._conn().execute("SELECT notes FROM steps WHERE id=?", (next_step,)).fetchone()[0] == "previas"
+
+
+def test_update_step_replaces_or_appends_notes(isolated_db):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("mi-proyecto", "Flujo")
+    step_id = isolated_db.insert_step(context_id, 1, "Paso")
+    isolated_db._conn().execute("UPDATE steps SET notes='previas' WHERE id=?", (step_id,))
+
+    assert mcp._tool_update_step({"step_id": step_id, "notes": "nuevas"})["updated"] == ["notes"]
+    assert mcp._tool_update_step({"step_id": step_id, "notes_append": "agregadas"})["updated"] == ["notes_append"]
+    assert isolated_db._conn().execute("SELECT notes FROM steps WHERE id=?", (step_id,)).fetchone()[0] == "nuevas\nagregadas"
+    with pytest.raises(ValueError, match="mutuamente excluyentes"):
+        mcp._tool_update_step({"step_id": step_id, "notes": "x", "notes_append": "y"})
+
+
+def test_advance_replay_does_not_duplicate_appended_notes(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Flujo")
+    step_id = isolated_db.insert_step(context_id, 1, "Paso")
+    isolated_db._conn().execute("UPDATE steps SET status='in_progress', notes='previas' WHERE id=?", (step_id,))
+    isolated_db._conn().commit()
+    args = {"step_id": step_id, "notes": "finales", "request_id": "append-once"}
+    mcp._governed_tool_call("advance_step", args, "rpc-1")
+    mcp._governed_tool_call("advance_step", args, "rpc-2")
+    assert isolated_db._conn().execute("SELECT notes FROM steps WHERE id=?", (step_id,)).fetchone()[0] == "previas\nfinales"
+
+
+@pytest.mark.parametrize("tool_name", ["_tool_advance_step", "_tool_skip_step"])
+def test_transition_can_leave_next_step_pending(isolated_db, tool_name):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("mi-proyecto", "Flujo")
+    first_step = isolated_db.insert_step(context_id, 1, "Primero")
+    second_step = isolated_db.insert_step(context_id, 2, "Segundo")
+    isolated_db.activate_first_step(context_id)
+    result = getattr(mcp, tool_name)({"step_id": first_step, "activate_next": False})
+
+    assert result["next_step"] is None
+    assert result["context_done"] is False
+    assert isolated_db._conn().execute("SELECT status FROM steps WHERE id=?", (second_step,)).fetchone()[0] == "pending"
+    assert isolated_db._conn().execute("SELECT status FROM contexts WHERE id=?", (context_id,)).fetchone()[0] == "active"
+
+
+@pytest.mark.parametrize("tool_name", ["_tool_advance_step", "_tool_skip_step"])
+@pytest.mark.parametrize("options", [{}, {"activate_next": True}])
+def test_transition_activates_next_by_default_or_true(isolated_db, tool_name, options):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("mi-proyecto", "Flujo")
+    first_step = isolated_db.insert_step(context_id, 1, "Primero")
+    second_step = isolated_db.insert_step(context_id, 2, "Segundo")
+    isolated_db.activate_first_step(context_id)
+    result = getattr(mcp, tool_name)({"step_id": first_step, **options})
+
+    assert result["next_step"]["id"] == second_step
+
+
+def test_transitions_ignore_blocked_steps_and_break_pending_ties_by_id(isolated_db):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("mi-proyecto", "Flujo")
+    first_step = isolated_db.insert_step(context_id, 1, "Primero")
+    blocked_step = isolated_db.insert_step(context_id, 2, "Bloqueado")
+    lower_id = isolated_db.insert_step(context_id, 3, "Pendiente A")
+    higher_id = isolated_db.insert_step(context_id, 3, "Pendiente B")
+    isolated_db._conn().execute("UPDATE steps SET status='blocked' WHERE id=?", (blocked_step,))
+    isolated_db.activate_first_step(context_id)
+
+    result = mcp._tool_advance_step({"step_id": first_step})
+    assert result["next_step"]["id"] == lower_id
+    assert isolated_db._conn().execute("SELECT status FROM steps WHERE id=?", (higher_id,)).fetchone()[0] == "pending"
+
+
+def test_record_tool_call_accepts_open_input_and_rejects_oversized_input(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Flujo")
+    step_id = isolated_db.insert_step(context_id, 1, "Paso")
+    accepted, accepted_error = mcp._governed_tool_call(
+        "record_tool_call", {"context_id": context_id, "step_id": step_id, "tool_name": "tool", "input": {"branch": "x", "n": 1}}, "rpc-ok"
+    )
+    rejected, rejected_error = mcp._governed_tool_call(
+        "record_tool_call", {"context_id": context_id, "step_id": step_id, "tool_name": "tool", "input": {"payload": "x" * 8193}}, "rpc-large"
+    )
+
+    assert accepted_error is False
+    assert accepted["id"]
+    assert json.loads(isolated_db._conn().execute("SELECT input FROM tool_calls WHERE id=?", (accepted["id"],)).fetchone()[0]) == {"branch": "x", "n": 1}
+    assert rejected_error is True
+    assert rejected["reason_code"] == "invalid_arguments"
+    assert isolated_db._conn().execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0] == 1
+
+
+def test_nested_objects_without_additional_properties_remain_strict(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    result, is_error = mcp._governed_tool_call(
+        "create_context", {"project": "allowed", "title": "Flujo", "steps": [{"title": "Paso", "extra": "no"}]}, "rpc-extra"
+    )
+    assert is_error is True
+    assert result["reason_code"] == "invalid_arguments"

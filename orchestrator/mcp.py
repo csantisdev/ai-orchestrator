@@ -32,6 +32,7 @@ SUPPORTED_PROTOCOL_VERSIONS = {
     "2025-06-18",
 }
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
+MAX_RECORD_TOOL_CALL_INPUT_BYTES = 8192
 
 TOOLS = [
     {
@@ -100,7 +101,10 @@ TOOLS = [
                 "step_id":    {"type": "integer"},
                 "context_id": {"type": "integer"},
                 "tool_name":  {"type": "string"},
-                "input":      {"type": "object", "default": {}},
+                "input": {
+                    "type": "object", "default": {}, "additionalProperties": True,
+                    "max_utf8_bytes": MAX_RECORD_TOOL_CALL_INPUT_BYTES,
+                },
                 "output":     {"type": "string", "default": ""},
                 "status":     {"type": "string", "enum": ["ok", "error"], "default": "ok"},
                 "duration_ms": {"type": "integer"},
@@ -110,7 +114,7 @@ TOOLS = [
     {
         "name": "advance_step",
         "description": (
-            "Marca el paso actual como completado y activa el siguiente pendiente del contexto. "
+            "Marca el paso actual como completado, agrega las notas a las existentes y activa el siguiente pendiente del contexto. "
             "Retorna el nuevo paso activo o indica que el contexto está completo."
         ),
         "inputSchema": {
@@ -119,13 +123,14 @@ TOOLS = [
             "properties": {
                 "step_id": {"type": "integer"},
                 "notes":   {"type": "string", "default": ""},
+                "activate_next": {"type": "boolean", "default": True},
             },
         },
     },
     {
         "name": "skip_step",
         "description": (
-            "Marca un paso como omitido (skipped) sin ejecutarlo. "
+            "Marca un paso como omitido (skipped) sin ejecutarlo y agrega el motivo a las notas existentes. "
             "Funciona sobre steps en estado pending o in_progress. "
             "Si el step estaba in_progress, activa el siguiente pending del contexto."
         ),
@@ -135,6 +140,7 @@ TOOLS = [
             "properties": {
                 "step_id": {"type": "integer"},
                 "reason":  {"type": "string", "default": "", "description": "Motivo por el que se omite el paso."},
+                "activate_next": {"type": "boolean", "default": True},
             },
         },
     },
@@ -290,7 +296,8 @@ TOOLS = [
                 "step_id":     {"type": "integer", "description": "ID del paso a editar."},
                 "title":       {"type": "string",  "description": "Nuevo título. Si se omite, no se modifica."},
                 "description": {"type": "string",  "description": "Nueva descripción. Si se omite, no se modifica."},
-                "notes":       {"type": "string",  "description": "Nuevas notas. Si se omite, no se modifica."},
+                "notes":       {"type": "string",  "description": "Nuevas notas que reemplazan las existentes. Si se omite, no se modifica."},
+                "notes_append": {"type": "string", "description": "Notas que se agregan a las existentes. No se puede usar junto con notes."},
                 "agent_preset": {
                     "type": "string",
                     "description": "Nuevo agente asignado. Pasar '' para desasignar. Si se omite, no se modifica.",
@@ -351,7 +358,7 @@ def _workflow_state(conn: Any, context: Any, implicit: bool) -> dict:
         )
     ]
     active_step = conn.execute(
-        "SELECT id, title FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx LIMIT 1",
+        "SELECT id, title FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx, id LIMIT 1",
         (context["id"],),
     ).fetchone()
     pending = conn.execute(
@@ -385,7 +392,7 @@ def _workflow_state(conn: Any, context: Any, implicit: bool) -> dict:
 def _tool_list_steps(args: dict) -> dict:
     from orchestrator.db import _conn
     rows = _conn().execute(
-        "SELECT * FROM steps WHERE context_id=? ORDER BY order_idx",
+        "SELECT * FROM steps WHERE context_id=? ORDER BY order_idx, id",
         (args["context_id"],),
     ).fetchall()
     return {"steps": [dict(r) for r in rows]}
@@ -450,7 +457,7 @@ def _tool_record_tool_call(args: dict) -> dict:
 
 
 def _tool_skip_step(args: dict) -> dict:
-    from orchestrator.db import _conn, _write_lock, commit_if_not_atomic
+    from orchestrator.db import append_step_notes, _conn, _write_lock, commit_if_not_atomic
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
     step_id = args["step_id"]
@@ -465,17 +472,18 @@ def _tool_skip_step(args: dict) -> dict:
                 raise ValueError(f"step {step_id} is '{step['status']}' — only pending/in_progress can be skipped")
             context_id = step["context_id"]
             was_active = step["status"] == "in_progress"
+            updated_notes = append_step_notes(step["notes"] or "", args.get("reason", ""))
             changed = conn.execute(
                 "UPDATE steps SET status='skipped', completed_at=?, notes=? WHERE id=? AND status=?",
-                (ts, args.get("reason", ""), step_id, step["status"]),
+                (ts, updated_notes, step_id, step["status"]),
             )
             if changed.rowcount != 1:
                 raise ValueError(f"step {step_id} changed concurrently")
             next_step = None
-            if was_active:
+            if was_active and args.get("activate_next", True):
                 next_step = conn.execute(
                     """SELECT * FROM steps WHERE context_id=? AND order_idx > ? AND status='pending'
-                       ORDER BY order_idx LIMIT 1""",
+                       ORDER BY order_idx, id LIMIT 1""",
                     (context_id, step["order_idx"]),
                 ).fetchone()
                 if next_step and conn.execute(
@@ -583,7 +591,7 @@ def _tool_update_context(args: dict) -> dict:
 
 
 def _tool_update_step(args: dict) -> dict:
-    from orchestrator.db import _conn, _write_lock, commit_if_not_atomic
+    from orchestrator.db import append_step_notes, _conn, _write_lock, commit_if_not_atomic
     step_id = args.get("step_id")
     if not step_id:
         raise ValueError("step_id es requerido")
@@ -592,11 +600,17 @@ def _tool_update_step(args: dict) -> dict:
     if row is None:
         raise ValueError(f"step {step_id} not found")
 
+    if "notes" in args and "notes_append" in args:
+        raise ValueError("notes y notes_append son mutuamente excluyentes")
+
     fields, params = [], []
     for col in ("title", "description", "notes", "agent_preset"):
         if col in args:
             fields.append(f"{col}=?")
             params.append(args[col])
+    if "notes_append" in args:
+        fields.append("notes=?")
+        params.append(append_step_notes(row["notes"] or "", args["notes_append"]))
 
     if not fields:
         return {"step_id": step_id, "updated": []}
@@ -609,7 +623,7 @@ def _tool_update_step(args: dict) -> dict:
         )
         commit_if_not_atomic(conn)
 
-    updated_fields = [f for f in ("title", "description", "notes", "agent_preset") if f in args]
+    updated_fields = [f for f in ("title", "description", "notes", "notes_append", "agent_preset") if f in args]
     return {"step_id": step_id, "updated": updated_fields}
 
 
@@ -636,7 +650,7 @@ def _tool_add_step(args: dict) -> dict:
 
 
 def _tool_advance_step(args: dict) -> dict:
-    from orchestrator.db import _conn, _write_lock, commit_if_not_atomic
+    from orchestrator.db import append_step_notes, _conn, _write_lock, commit_if_not_atomic
     conn = _conn()
     ts = datetime.now(timezone.utc).isoformat()
     step_id = args["step_id"]
@@ -648,17 +662,20 @@ def _tool_advance_step(args: dict) -> dict:
             if step is None:
                 raise ValueError(f"step {step_id} not found")
             context_id = step["context_id"]
+            updated_notes = append_step_notes(step["notes"] or "", args.get("notes", ""))
             if conn.execute(
                 """UPDATE steps SET status='completed', completed_at=?, notes=?
                    WHERE id=? AND status='in_progress'""",
-                (ts, args.get("notes", ""), step_id),
+                (ts, updated_notes, step_id),
             ).rowcount != 1:
                 raise ValueError(f"step {step_id} está en '{step['status']}' — solo se pueden avanzar pasos in_progress")
-            next_step_row = conn.execute(
-                """SELECT * FROM steps WHERE context_id=? AND order_idx > ? AND status='pending'
-                   ORDER BY order_idx LIMIT 1""",
-                (context_id, step["order_idx"]),
-            ).fetchone()
+            next_step_row = None
+            if args.get("activate_next", True):
+                next_step_row = conn.execute(
+                    """SELECT * FROM steps WHERE context_id=? AND order_idx > ? AND status='pending'
+                       ORDER BY order_idx, id LIMIT 1""",
+                    (context_id, step["order_idx"]),
+                ).fetchone()
             context_done = False
             next_step = None
             if next_step_row:

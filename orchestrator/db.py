@@ -563,7 +563,7 @@ def get_active_step_id(project: str) -> Optional[int]:
         if ctx is None:
             return None
         step = conn.execute(
-            "SELECT id FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx LIMIT 1",
+            "SELECT id FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx, id LIMIT 1",
             (ctx["id"],),
         ).fetchone()
         return step["id"] if step else None
@@ -712,8 +712,7 @@ def reset_step(step_id: int, notes: str = "") -> dict:
                     "step_not_in_progress",
                     f"step {step_id} está en '{step['status']}' — solo se pueden resetear pasos in_progress",
                 )
-            existing_notes = step["notes"] or ""
-            updated_notes = "\n".join(part for part in (existing_notes, notes) if part)
+            updated_notes = append_step_notes(step["notes"] or "", notes)
             changed = conn.execute(
                 """UPDATE steps SET status='pending', started_at=NULL, notes=?
                    WHERE id=? AND status='in_progress'""",
@@ -728,6 +727,11 @@ def reset_step(step_id: int, notes: str = "") -> dict:
     return {"reset_step_id": step_id, "context_id": step["context_id"], "notes": updated_notes}
 
 
+def append_step_notes(existing: str, new: str) -> str:
+    """Agrega notas no vacias sin descartar las existentes."""
+    return "\n".join(part for part in (existing, new) if part)
+
+
 def activate_first_step(context_id: int) -> bool:
     """Marca el primer paso pendiente del contexto como in_progress.
 
@@ -737,7 +741,7 @@ def activate_first_step(context_id: int) -> bool:
     ts = datetime.now(timezone.utc).isoformat()
     with _write_lock:
         row = conn.execute(
-            "SELECT id FROM steps WHERE context_id=? AND status='pending' ORDER BY order_idx LIMIT 1",
+            "SELECT id FROM steps WHERE context_id=? AND status='pending' ORDER BY order_idx, id LIMIT 1",
             (context_id,),
         ).fetchone()
         if not row:

@@ -216,10 +216,15 @@ def _validate_value(schema: dict[str, Any], value: Any, path: str) -> None:
             if required not in value:
                 raise ValueError(f"missing required argument: {path}.{required}")
         unknown = set(value) - set(properties)
-        if unknown:
+        if unknown and schema.get("additionalProperties") is not True:
             raise ValueError(f"unexpected argument: {path}.{sorted(unknown)[0]}")
         for name, item in value.items():
-            _validate_value(properties[name], item, f"{path}.{name}")
+            if name in properties:
+                _validate_value(properties[name], item, f"{path}.{name}")
+    if "max_utf8_bytes" in schema:
+        encoded = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > schema["max_utf8_bytes"]:
+            raise ValueError(f"{path} exceeds {schema['max_utf8_bytes']} UTF-8 bytes")
 
 
 def resolve_project(tool_name: str, args: dict[str, Any]) -> str | None:
