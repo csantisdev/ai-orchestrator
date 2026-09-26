@@ -52,6 +52,21 @@ modelo tiene precio exacto. `--include-untracked` recalcula tambien costos
 historicos con los precios vigentes, lo que cambia el gasto pasado si el precio
 del modelo cambio desde entonces.
 
+## Limitacion: precios de contexto largo
+
+Los modelos gpt-5.4, gpt-5.5 y gpt-5.6 de OpenAI tienen una tarifa de
+contexto largo: segun la ficha oficial de cada modelo, los prompts de mas de
+272K tokens de entrada se cobran a 2x input y 1.5x output durante toda la
+sesion (el `notes` de cada entrada de `models.json` lo recuerda). El catalogo
+solo modela la tarifa de contexto corto, asi que el costo de esas sesiones
+queda subestimado.
+
+No se modela porque los runs no guardan el dato que dispara la tarifa: los
+watchers de Claude Code y Codex suman los tokens de toda la sesion, sin el
+tamano maximo de un prompt individual. Modelarlo requeriria registrar ese
+maximo al importar (el rollout de Codex tiene un evento de tokens por turno) y
+una tabla de precios con umbral por modelo.
+
 ## Perfiles de proposito (`purpose`)
 
 Los modelos usados por defecto en `ROUTER_SYSTEM_PROMPT` tienen un campo
