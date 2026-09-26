@@ -104,7 +104,7 @@ TOOLS = [
                 "tool_name":  {"type": "string"},
                 "input": {
                     "type": "object", "default": {}, "additionalProperties": True,
-                    "description": "Entrada de la herramienta (hasta 8192 bytes UTF-8).",
+                    "description": f"Entrada de la herramienta (hasta {MAX_RECORD_TOOL_CALL_INPUT_BYTES} bytes UTF-8).",
                 },
                 "output":     {"type": "string", "default": ""},
                 "status":     {"type": "string", "enum": ["ok", "error"], "default": "ok"},
@@ -489,9 +489,9 @@ def _tool_skip_step(args: dict) -> dict:
             next_step = None
             if was_active and args.get("activate_next", True):
                 next_step = conn.execute(
-                    """SELECT * FROM steps WHERE context_id=? AND order_idx > ? AND status='pending'
+                    """SELECT * FROM steps WHERE context_id=? AND (order_idx > ? OR (order_idx = ? AND id > ?)) AND status='pending'
                        ORDER BY order_idx, id LIMIT 1""",
-                    (context_id, step["order_idx"]),
+                    (context_id, step["order_idx"], step["order_idx"], step["id"]),
                 ).fetchone()
                 if next_step and conn.execute(
                     "UPDATE steps SET status='in_progress', started_at=? WHERE id=? AND status='pending'",
@@ -686,9 +686,9 @@ def _tool_advance_step(args: dict) -> dict:
             next_step_row = None
             if args.get("activate_next", True):
                 next_step_row = conn.execute(
-                    """SELECT * FROM steps WHERE context_id=? AND order_idx > ? AND status='pending'
+                    """SELECT * FROM steps WHERE context_id=? AND (order_idx > ? OR (order_idx = ? AND id > ?)) AND status='pending'
                        ORDER BY order_idx, id LIMIT 1""",
-                    (context_id, step["order_idx"]),
+                    (context_id, step["order_idx"], step["order_idx"], step["id"]),
                 ).fetchone()
             context_done = False
             next_step = None

@@ -695,6 +695,25 @@ def test_transitions_ignore_blocked_steps_and_break_pending_ties_by_id(isolated_
     assert isolated_db._conn().execute("SELECT status FROM steps WHERE id=?", (higher_id,)).fetchone()[0] == "pending"
 
 
+@pytest.mark.parametrize("tool_name", ["_tool_advance_step", "_tool_skip_step"])
+def test_transition_activates_same_order_successor_by_id(isolated_db, tool_name):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("mi-proyecto", "Flujo")
+    lower_pending = isolated_db.insert_step(context_id, 1, "Pendiente anterior")
+    active_step = isolated_db.insert_step(context_id, 1, "Activo")
+    higher_pending = isolated_db.insert_step(context_id, 1, "Pendiente siguiente")
+    isolated_db._conn().execute("UPDATE steps SET status='in_progress' WHERE id=?", (active_step,))
+    isolated_db._conn().commit()
+
+    result = getattr(mcp, tool_name)({"step_id": active_step})
+
+    assert result["next_step"]["id"] == higher_pending
+    assert isolated_db._conn().execute(
+        "SELECT status FROM steps WHERE id=?", (lower_pending,)
+    ).fetchone()[0] == "pending"
+
+
 def test_record_tool_call_accepts_open_input_and_rejects_oversized_input(isolated_db, workflow_env):
     import orchestrator.mcp as mcp
 
