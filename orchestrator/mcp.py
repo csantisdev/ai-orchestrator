@@ -72,9 +72,14 @@ TOOLS = [
             "properties": {
                 "context_id": {"type": "integer"},
                 "status": {
-                    "type": ["string", "array"],
-                    "enum": ["pending", "in_progress", "completed", "blocked", "skipped"],
-                    "items": {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked", "skipped"]},
+                    "anyOf": [
+                        {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked", "skipped"]},
+                        {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked", "skipped"]},
+                            "minItems": 1,
+                        },
+                    ],
                 },
                 "agent_preset": {"type": "string"},
                 "fields": {"type": "string", "enum": ["full", "summary"], "default": "full"},
@@ -520,18 +525,11 @@ def _tool_get_step(args: dict) -> dict:
     return result
 
 
-def _steps_summary(conn: Any, context_id: int) -> dict:
-    counts = {status: 0 for status in ("pending", "in_progress", "completed", "blocked", "skipped")}
-    for row in conn.execute("SELECT status, COUNT(*) AS count FROM steps WHERE context_id=? GROUP BY status", (context_id,)):
-        counts[row["status"]] = row["count"]
-    active = conn.execute("SELECT id, order_idx, title, status FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx, id LIMIT 1", (context_id,)).fetchone()
-    return {"counts": counts, "in_progress": dict(active) if active else None}
-
-
 def _tool_list_contexts(args: dict) -> dict:
     from orchestrator.db import _conn
     conn = _conn()
-    where, params = ["project=?"], [args["project"]]
+    project = str(args["project"]).strip()
+    where, params = ["project=?"], [project]
     if "status" in args:
         where.append("status=?")
         params.append(args["status"])
@@ -547,8 +545,35 @@ def _tool_list_contexts(args: dict) -> dict:
     rows = rows[:limit]
     contexts = [dict(row) for row in rows]
     if args.get("include_steps", False):
+        context_ids = [context["id"] for context in contexts]
+        placeholders = ",".join("?" for _ in context_ids)
+        counts_by_context = {
+            context_id: {status: 0 for status in ("pending", "in_progress", "completed", "blocked", "skipped")}
+            for context_id in context_ids
+        }
+        count_rows = conn.execute(
+            f"SELECT context_id, status, COUNT(*) AS count FROM steps WHERE context_id IN ({placeholders}) GROUP BY context_id, status",
+            context_ids,
+        ) if context_ids else ()
+        for row in count_rows:
+            counts_by_context[row["context_id"]][row["status"]] = row["count"]
+        active_rows = conn.execute(
+            f"""SELECT context_id, id, order_idx, title, status FROM (
+                    SELECT context_id, id, order_idx, title, status,
+                           ROW_NUMBER() OVER (PARTITION BY context_id ORDER BY order_idx, id) AS row_number
+                    FROM steps WHERE context_id IN ({placeholders}) AND status='in_progress'
+                ) WHERE row_number=1""",
+            context_ids,
+        ) if context_ids else ()
+        active_by_context = {
+            row["context_id"]: {key: row[key] for key in ("id", "order_idx", "title", "status")}
+            for row in active_rows
+        }
         for context in contexts:
-            context["steps_summary"] = _steps_summary(conn, context["id"])
+            context["steps_summary"] = {
+                "counts": counts_by_context[context["id"]],
+                "in_progress": active_by_context.get(context["id"]),
+            }
     return {"contexts": contexts, "next_cursor": _encode_cursor(rows[-1]["ts"], rows[-1]["id"]) if has_more else None}
 
 
@@ -556,7 +581,7 @@ def _tool_tracking_health(args: dict) -> dict:
     from orchestrator import index as index_module
     from orchestrator.config import ConfigError, load_config
     from orchestrator.db import _conn
-    from orchestrator.tracking_health import tracking_health_warnings
+    from orchestrator.tracking_health import tracking_health_warnings, tracking_thresholds
     try:
         registered = index_module.list_projects()
     except Exception:
@@ -566,7 +591,9 @@ def _tool_tracking_health(args: dict) -> dict:
     except ConfigError:
         config = {}
     tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
-    return {"project": args["project"], "warnings": tracking_health_warnings(_conn(), registered, project=args["project"], stale_in_progress_days=tracking.get("stale_in_progress_days", 7), stale_scheduled_days=tracking.get("stale_scheduled_days", 60))}
+    stale_in_progress_days, stale_scheduled_days = tracking_thresholds(tracking)
+    project = str(args["project"]).strip()
+    return {"project": project, "warnings": tracking_health_warnings(_conn(), registered, project=project, stale_in_progress_days=stale_in_progress_days, stale_scheduled_days=stale_scheduled_days)}
 
 
 def _tool_suggest_step_commits(args: dict) -> dict:
@@ -578,8 +605,9 @@ def _tool_suggest_step_commits(args: dict) -> dict:
     except ConfigError:
         config = {}
     tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
-    suggestions = suggest_step_commits(_conn(), args["project"], args.get("since"), tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"))
-    return {"project": args["project"], "suggestions": suggestions[:args.get("limit", 50)]}
+    project = str(args["project"]).strip()
+    suggestions = suggest_step_commits(_conn(), project, args.get("since"), tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"))
+    return {"project": project, "suggestions": suggestions[:args.get("limit", 50)]}
 
 
 def _validate_step_context(conn: Any, step_id: int, context_id: int) -> None:

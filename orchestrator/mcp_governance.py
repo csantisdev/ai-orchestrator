@@ -200,6 +200,15 @@ def validate_arguments(schema: dict[str, Any], args: Any, tool_name: str | None 
 
 
 def _validate_value(schema: dict[str, Any], value: Any, path: str) -> None:
+    if "anyOf" in schema:
+        errors = []
+        for alternative in schema["anyOf"]:
+            try:
+                _validate_value(alternative, value, path)
+                return
+            except ValueError as exc:
+                errors.append(str(exc))
+        raise ValueError(f"{path} must match at least one allowed schema ({'; '.join(errors)})")
     expected = schema.get("type")
     checks = {
         "string": lambda item: isinstance(item, str),
@@ -212,12 +221,14 @@ def _validate_value(schema: dict[str, Any], value: Any, path: str) -> None:
     expected_types = expected if isinstance(expected, list) else [expected]
     if expected and not any(checks[item](value) for item in expected_types):
         raise ValueError(f"{path} must be a {' or '.join(expected_types)}")
-    if "enum" in schema and not isinstance(value, list) and value not in schema["enum"]:
+    if "enum" in schema and value not in schema["enum"]:
         raise ValueError(f"{path} must be one of {schema['enum']}")
     if "minimum" in schema and value < schema["minimum"]:
         raise ValueError(f"{path} must be at least {schema['minimum']}")
     if "maximum" in schema and value > schema["maximum"]:
         raise ValueError(f"{path} must be at most {schema['maximum']}")
+    if "minItems" in schema and isinstance(value, list) and len(value) < schema["minItems"]:
+        raise ValueError(f"{path} must contain at least {schema['minItems']} item(s)")
     if "array" in expected_types and isinstance(value, list):
         for index, item in enumerate(value):
             _validate_value(schema.get("items", {}), item, f"{path}[{index}]")

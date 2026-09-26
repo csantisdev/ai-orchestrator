@@ -1192,15 +1192,10 @@ def doctor(
     console.print("\n[bold cyan]Salud del tracking[/bold cyan]")
     try:
         from orchestrator.db import _conn as _tracking_conn
-        from orchestrator.tracking_health import tracking_health_warnings
+        from orchestrator.tracking_health import tracking_health_warnings, tracking_thresholds
 
         tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
-        stale_in_progress_days = tracking.get("stale_in_progress_days", 7)
-        stale_scheduled_days = tracking.get("stale_scheduled_days", 60)
-        if not isinstance(stale_in_progress_days, int) or stale_in_progress_days < 1:
-            stale_in_progress_days = 7
-        if not isinstance(stale_scheduled_days, int) or stale_scheduled_days < 1:
-            stale_scheduled_days = 60
+        stale_in_progress_days, stale_scheduled_days = tracking_thresholds(tracking)
         tracking_warnings = tracking_health_warnings(
             _tracking_conn(), projects,
             stale_in_progress_days=stale_in_progress_days,

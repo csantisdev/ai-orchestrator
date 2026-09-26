@@ -369,7 +369,7 @@
           <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
           <tbody>
             <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>ID del contexto a consultar.</td></tr>
-            <tr><td>status</td><td>string o array</td><td>Uno o más estados; se puede combinar con <code>agent_preset</code>.</td></tr>
+            <tr><td>status</td><td>string o array no vacío</td><td>Un estado o una lista de uno o más estados; se puede combinar con <code>agent_preset</code>.</td></tr>
             <tr><td>fields</td><td>string</td><td><code>full</code> (default) o <code>summary</code>, sin notas ni descripción.</td></tr>
             <tr><td>limit / cursor</td><td>integer / string</td><td>Paginación keyset estable por <code>(order_idx, id)</code>.</td></tr>
           </tbody>

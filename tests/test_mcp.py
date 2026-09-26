@@ -250,6 +250,59 @@ def test_list_steps_filters_summary_and_keyset_pagination(isolated_db, workflow_
     assert is_error and bad["reason_code"] == "invalid_arguments"
 
 
+def test_list_steps_keyset_pagination_breaks_ties_by_id(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Tied steps")
+    step_ids = [isolated_db.insert_step(context_id, 1, f"Step {number}") for number in range(3)]
+    cursor = None
+    seen = []
+    while True:
+        args = {"context_id": context_id, "limit": 1}
+        if cursor:
+            args["cursor"] = cursor
+        page = mcp._tool_list_steps(args)
+        seen.extend(step["id"] for step in page["steps"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+
+    assert seen == step_ids
+    assert len(seen) == len(set(seen))
+
+
+def test_published_schemas_validate_with_jsonschema():
+    jsonschema = pytest.importorskip("jsonschema")
+    import orchestrator.mcp as mcp
+
+    for tool in mcp.TOOLS:
+        jsonschema.Draft202012Validator.check_schema(tool["inputSchema"])
+    status_schema = next(tool for tool in mcp.TOOLS if tool["name"] == "list_steps")["inputSchema"]["properties"]["status"]
+    for value in ("pending", ["pending", "completed"]):
+        jsonschema.validate(value, status_schema)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate([], status_schema)
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "args"),
+    [
+        ("list_steps", {"context_id": 1}),
+        ("get_step", {"step_id": 1}),
+        ("list_contexts", {"project": "allowed"}),
+        ("suggest_step_commits", {"project": "allowed"}),
+    ],
+)
+@pytest.mark.parametrize("limit", [0, 201, True])
+def test_read_tools_reject_out_of_range_or_boolean_limits(isolated_db, workflow_env, tool_name, args, limit):
+    import orchestrator.mcp as mcp
+
+    result, is_error = mcp._governed_tool_call(tool_name, {**args, "limit": limit}, f"bad-limit-{tool_name}-{limit}")
+
+    assert is_error is True
+    assert result["reason_code"] == "invalid_arguments"
+
+
 def test_get_step_includes_records_and_enforces_scope(isolated_db, workflow_env):
     import orchestrator.mcp as mcp
 
@@ -293,6 +346,77 @@ def test_list_contexts_health_and_suggestions_are_scoped(isolated_db, workflow_e
     for tool_name, args in (("list_contexts", {"project": "otro-proyecto"}), ("tracking_health", {"project": "otro-proyecto"}), ("suggest_step_commits", {"project": "otro-proyecto"})):
         denied, is_error = mcp._governed_tool_call(tool_name, args, "private")
         assert is_error and denied["reason_code"] == "project_out_of_scope"
+
+
+def test_list_contexts_batches_step_summaries_and_normalizes_project(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    first = isolated_db.insert_context("allowed", "First")
+    second = isolated_db.insert_context("allowed", "Second")
+    third = isolated_db.insert_context("allowed", "Third")
+    isolated_db.insert_step(first, 1, "Pending")
+    first_active_later = isolated_db.insert_step(first, 2, "Active later")
+    first_active_first = isolated_db.insert_step(first, 1, "Active first")
+    isolated_db.insert_step(second, 1, "Complete")
+    isolated_db.insert_step(third, 1, "Blocked")
+    conn = isolated_db._conn()
+    conn.execute("UPDATE steps SET status='in_progress' WHERE id IN (?, ?)", (first_active_later, first_active_first))
+    conn.execute("UPDATE steps SET status='completed' WHERE context_id=?", (second,))
+    conn.execute("UPDATE steps SET status='blocked' WHERE context_id=?", (third,))
+    conn.commit()
+
+    result, is_error = mcp._governed_tool_call(
+        "list_contexts", {"project": " allowed ", "include_steps": True}, "batched-summaries"
+    )
+
+    assert is_error is False
+    summaries = {context["id"]: context["steps_summary"] for context in result["contexts"]}
+    assert summaries[first]["counts"] == {"pending": 1, "in_progress": 2, "completed": 0, "blocked": 0, "skipped": 0}
+    assert summaries[first]["in_progress"]["id"] == first_active_first
+    assert summaries[second]["counts"]["completed"] == 1
+    assert summaries[second]["in_progress"] is None
+    assert summaries[third]["counts"]["blocked"] == 1
+    assert summaries[third]["in_progress"] is None
+
+
+def test_project_read_handlers_normalize_project(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Flow")
+    step_id = isolated_db.insert_step(context_id, 1, "ABC-1 Implement")
+    isolated_db._conn().execute(
+        "INSERT INTO runs (ts, project, provider, task, session_id) VALUES (?, ?, 'git', ?, ?)",
+        ("2026-01-03T00:00:00+00:00", "allowed", f"step #{step_id}: ABC-1", "git::abcdef123"),
+    )
+    isolated_db._conn().commit()
+    results = []
+    for tool_name, args in (
+        ("list_contexts", {"project": " allowed "}),
+        ("tracking_health", {"project": " allowed "}),
+        ("suggest_step_commits", {"project": " allowed "}),
+    ):
+        result, is_error = mcp._governed_tool_call(tool_name, args, f"normalized-{tool_name}")
+        assert is_error is False
+        if tool_name != "list_contexts":
+            assert result["project"] == "allowed"
+        results.append(result)
+    assert results[0]["contexts"][0]["id"] == context_id
+    assert results[2]["suggestions"][0]["step_id"] == step_id
+
+
+def test_tracking_health_uses_sanitized_thresholds(isolated_db, workflow_env, monkeypatch):
+    import orchestrator.config as config_module
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Current")
+    step_id = isolated_db.insert_step(context_id, 1, "Working")
+    isolated_db.start_step(step_id)
+    monkeypatch.setattr(config_module, "load_config", lambda: {"tracking": {"stale_in_progress_days": 0}})
+
+    result, is_error = mcp._governed_tool_call("tracking_health", {"project": "allowed"}, "sanitized-threshold")
+
+    assert is_error is False
+    assert "stale_in_progress_step" not in [warning["code"] for warning in result["warnings"]]
 
 
 @pytest.mark.parametrize("tool_name", ["start_step", "reset_step"])
@@ -820,7 +944,7 @@ def test_tool_schemas_only_use_standard_keywords():
 
     standard_keywords = {
         "type", "properties", "required", "items", "enum", "default", "description",
-        "additionalProperties", "minimum", "maximum",
+        "additionalProperties", "minimum", "maximum", "minItems", "anyOf",
     }
 
     def assert_schema_keywords(schema):
@@ -829,6 +953,8 @@ def test_tool_schemas_only_use_standard_keywords():
             assert_schema_keywords(property_schema)
         if "items" in schema:
             assert_schema_keywords(schema["items"])
+        for alternative in schema.get("anyOf", []):
+            assert_schema_keywords(alternative)
 
     for tool in mcp.TOOLS:
         assert_schema_keywords(tool["inputSchema"])

@@ -355,7 +355,7 @@
     │       Cola por suscriptor (maxsize=100) — descarte sin bloqueo
     │
     ├── <span class="hl">MCP Server</span>        (mcp.py · JSON-RPC 2.0 sobre stdio)
-    │       14 tools: get_context, list_steps, advance_step, confirm_alignment…
+    │       18 tools: get_context, list_steps, advance_step, confirm_alignment…
     │       Consumible por Claude Code via CLAUDE.md auto-generado
     │
     └── <span class="hl">Dashboard</span>         (dashboard.py)
@@ -503,7 +503,7 @@ mi-proyecto\
   <h3>5.5 — Integración con agentes externos</h3>
   <table>
     <tr><th>Técnica</th><th>Dónde</th><th>Por qué</th></tr>
-    <tr><td>MCP server (JSON-RPC 2.0 stdio)</td><td><code>mcp.py · 14 tools</code></td><td>Protocolo estándar de Model Context Protocol. Claude Code puede consumir el orquestador sin configuración adicional más allá de registrar el servidor.</td></tr>
+    <tr><td>MCP server (JSON-RPC 2.0 stdio)</td><td><code>mcp.py · 18 tools</code></td><td>Protocolo estándar de Model Context Protocol. Claude Code puede consumir el orquestador sin configuración adicional más allá de registrar el servidor.</td></tr>
     <tr><td>CLAUDE.md auto-generado</td><td><code>context.py:create_claude_md()</code></td><td>Al registrar un proyecto, el orquestador escribe un CLAUDE.md con instrucciones para que Claude Code invoque las herramientas MCP al inicio de cada sesión. Reduce la fricción de onboarding a cero.</td></tr>
     <tr><td>Session importers (CC + Codex)</td><td><code>watcher.py · codex_watcher.py</code></td><td>Importan sesiones de Claude Code y Codex al historial unificado. UNIQUE constraint en session_id garantiza idempotencia. Las sesiones importadas se vinculan al paso activo del contexto de trabajo.</td></tr>
   </table>
