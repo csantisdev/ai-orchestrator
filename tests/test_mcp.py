@@ -190,11 +190,12 @@ def test_readonly_discovery_exposes_only_read_tools(governed_env):
     from orchestrator.mcp_governance import execution_identity, visible_tools
 
     assert [tool["name"] for tool in visible_tools(mcp.TOOLS, execution_identity())] == [
-        "get_context", "list_steps", "list_agents",
+        "get_context", "list_steps", "get_step", "list_contexts", "tracking_health",
+        "suggest_step_commits", "list_agents",
     ]
-    tool = visible_tools(mcp.TOOLS, execution_identity())[0]
-    assert tool["annotations"]["readOnlyHint"] is True
-    assert tool["annotations"]["destructiveHint"] is False
+    for tool in visible_tools(mcp.TOOLS, execution_identity()):
+        assert tool["annotations"]["readOnlyHint"] is True
+        assert tool["annotations"]["destructiveHint"] is False
 
 
 def test_readonly_direct_mutation_is_denied_and_audited(isolated_db, governed_env):
@@ -219,6 +220,79 @@ def test_readonly_direct_mutation_is_denied_and_audited(isolated_db, governed_en
         "input_hash": audit["input_hash"],
     }
     assert len(audit["input_hash"]) == 64
+
+
+def test_list_steps_filters_summary_and_keyset_pagination(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Flow")
+    first = isolated_db.insert_step(context_id, 1, "First", agent_preset="reviewer")
+    second = isolated_db.insert_step(context_id, 1, "Second")
+    third = isolated_db.insert_step(context_id, 2, "Third", agent_preset="reviewer")
+    isolated_db._conn().execute("UPDATE steps SET status='completed', notes='secret', description='detail' WHERE id=?", (first,))
+    isolated_db._conn().execute("UPDATE steps SET status='blocked' WHERE id=?", (second,))
+    isolated_db._conn().commit()
+
+    assert mcp._tool_list_steps({"context_id": context_id}) == {"steps": [dict(row) for row in isolated_db._conn().execute("SELECT * FROM steps WHERE context_id=? ORDER BY order_idx, id", (context_id,))]}
+    filtered = mcp._tool_list_steps({"context_id": context_id, "status": ["completed", "pending"], "agent_preset": "reviewer", "fields": "summary"})
+    assert [step["id"] for step in filtered["steps"]] == [first, third]
+    assert "notes" not in filtered["steps"][0] and "description" not in filtered["steps"][0]
+    assert filtered["steps"][0]["notes_chars"] == len("secret")
+    page_one = mcp._tool_list_steps({"context_id": context_id, "limit": 2})
+    page_two = mcp._tool_list_steps({"context_id": context_id, "limit": 2, "cursor": page_one["next_cursor"]})
+    assert [step["id"] for step in page_one["steps"] + page_two["steps"]] == [first, second, third]
+    assert page_two["next_cursor"] is None
+    with pytest.raises(ValueError, match="invalid cursor"):
+        mcp._tool_list_steps({"context_id": context_id, "cursor": "bad"})
+    bad, is_error = mcp._governed_tool_call("list_steps", {"context_id": context_id, "status": "wrong"}, "bad-status")
+    assert is_error and bad["reason_code"] == "invalid_arguments"
+    bad, is_error = mcp._governed_tool_call("list_steps", {"context_id": context_id, "status": ["pending", "wrong"]}, "bad-status-list")
+    assert is_error and bad["reason_code"] == "invalid_arguments"
+
+
+def test_get_step_includes_records_and_enforces_scope(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Flow")
+    step_id = isolated_db.insert_step(context_id, 1, "Step")
+    mcp._tool_confirm_alignment({"context_id": context_id, "step_id": step_id, "agent": "agent", "checkpoint": "check"})
+    mcp._tool_record_tool_call({"context_id": context_id, "step_id": step_id, "tool_name": "tool"})
+    plain, plain_error = mcp._governed_tool_call("get_step", {"step_id": step_id}, "plain")
+    full, full_error = mcp._governed_tool_call("get_step", {"step_id": step_id, "include_alignments": True, "include_tool_calls": True}, "full")
+    assert (plain_error, full_error) == (False, False)
+    assert plain["context"]["id"] == context_id and "alignments" not in plain
+    assert len(full["alignments"]) == len(full["tool_calls"]) == 1
+    private_context = isolated_db.insert_context("otro-proyecto", "Private")
+    private_step = isolated_db.insert_step(private_context, 1, "Private step")
+    denied, is_error = mcp._governed_tool_call("get_step", {"step_id": private_step}, "private")
+    assert is_error and denied["reason_code"] == "project_out_of_scope"
+
+
+def test_list_contexts_health_and_suggestions_are_scoped(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    first = isolated_db.insert_context("allowed", "First")
+    second = isolated_db.insert_context("allowed", "Second", status="completed")
+    step_id = isolated_db.insert_step(first, 1, "ABC-1 Implement")
+    isolated_db._conn().execute("UPDATE contexts SET ts='2026-01-01T00:00:00+00:00' WHERE id=?", (first,))
+    isolated_db._conn().execute("UPDATE contexts SET ts='2026-01-02T00:00:00+00:00' WHERE id=?", (second,))
+    isolated_db._conn().execute("INSERT INTO runs (ts, project, provider, task, session_id) VALUES (?, ?, 'git', ?, ?)", ("2026-01-03T00:00:00+00:00", "allowed", f"step #{step_id}: ABC-1", "git::abcdef123"))
+    isolated_db._conn().commit()
+    first_page, first_error = mcp._governed_tool_call("list_contexts", {"project": "allowed", "limit": 1, "include_steps": True}, "contexts-1")
+    second_page, second_error = mcp._governed_tool_call("list_contexts", {"project": "allowed", "limit": 1, "cursor": first_page["next_cursor"]}, "contexts-2")
+    assert (first_error, second_error) == (False, False)
+    assert [item["id"] for item in first_page["contexts"] + second_page["contexts"]] == [second, first]
+    assert "steps_summary" in first_page["contexts"][0]
+    active_only, active_error = mcp._governed_tool_call("list_contexts", {"project": "allowed", "status": "active"}, "contexts-active")
+    assert active_error is False and [item["id"] for item in active_only["contexts"]] == [first]
+    health, health_error = mcp._governed_tool_call("tracking_health", {"project": "allowed"}, "health")
+    suggestions, suggestions_error = mcp._governed_tool_call("suggest_step_commits", {"project": "allowed", "limit": 1}, "suggest")
+    assert (health_error, suggestions_error) == (False, False)
+    assert health["project"] == "allowed" and any(warning["code"] == "context_project_unregistered" for warning in health["warnings"])
+    assert suggestions["suggestions"][0]["step_id"] == step_id
+    for tool_name, args in (("list_contexts", {"project": "otro-proyecto"}), ("tracking_health", {"project": "otro-proyecto"}), ("suggest_step_commits", {"project": "otro-proyecto"})):
+        denied, is_error = mcp._governed_tool_call(tool_name, args, "private")
+        assert is_error and denied["reason_code"] == "project_out_of_scope"
 
 
 @pytest.mark.parametrize("tool_name", ["start_step", "reset_step"])

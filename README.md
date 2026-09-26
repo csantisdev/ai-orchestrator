@@ -27,7 +27,7 @@ con dashboard en vivo, tracking de costo y memoria RAG.
 
 Los agentes IA (Claude Code, Codex, DeepSeek) generan valor en tareas acotadas, pero el historial queda disperso en archivos de sesión separados, sin visibilidad de costos ni contexto acumulado entre conversaciones. Sin memoria estructurada, cada sesión empieza desde cero y el gasto es opaco.
 
-ai-orchestrator centraliza ese historial localmente: indexa respuestas previas en ChromaDB, rutea cada tarea al modelo más eficiente según el contexto del proyecto, y registra tokens y costo USD de cada run en SQLite. El dashboard SSE muestra el estado en tiempo real. El servidor MCP expone 14 herramientas para que cualquier agente pueda leer y escribir en el historial sin salir de su entorno de trabajo.
+ai-orchestrator centraliza ese historial localmente: indexa respuestas previas en ChromaDB, rutea cada tarea al modelo más eficiente según el contexto del proyecto, y registra tokens y costo USD de cada run en SQLite. El dashboard SSE muestra el estado en tiempo real. El servidor MCP expone 18 herramientas para que cualquier agente pueda leer y escribir en el historial sin salir de su entorno de trabajo.
 
 ---
 
@@ -160,12 +160,16 @@ Perfiles disponibles: `readonly`, `observability`, `workflow_operator`,
 y `workflow_operator` no concede ingestión RAG. Un alcance vacío falla cerrado
 para las tools vinculadas a un proyecto.
 
-El servidor MCP expone 14 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, Gemini Code Assist, etc.) puede invocar directamente sin usar la CLI:
+El servidor MCP expone 18 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, Gemini Code Assist, etc.) puede invocar directamente sin usar la CLI:
 
 | Tool | Propósito |
 |---|---|
 | `get_context` | Retorna el objetivo y estado del contexto activo del proyecto |
-| `list_steps` | Lista los pasos ordenados de un contexto con su estado |
+| `list_steps` | Lista pasos; admite filtros, resumen y paginación keyset por `(order_idx, id)` |
+| `get_step` | Retorna un paso, su contexto y opcionalmente sus últimos alineamientos y tool calls |
+| `list_contexts` | Lista contextos de un proyecto por `(ts, id)` descendente, con resumen de pasos opcional |
+| `tracking_health` | Devuelve las advertencias de salud del tracking de un proyecto, sin modificar datos |
+| `suggest_step_commits` | Sugiere commits importados para pasos abiertos, con filtros de fecha y límite |
 | `confirm_alignment` | Registra un checkpoint antes de una acción significativa |
 | `record_tool_call` | Registra cada herramienta invocada durante un paso (`input` es un objeto libre de hasta 8192 bytes UTF-8) |
 | `advance_step` | Marca el paso actual como completado, agrega sus notas y activa el siguiente salvo `activate_next=false` |
