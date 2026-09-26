@@ -983,3 +983,14 @@ def test_invalid_cursor_is_reported_as_invalid_arguments(isolated_db, workflow_e
         args = {"context_id": context_id, **args}
     result, is_error = mcp._governed_tool_call(tool_name, args, "bad-cursor")
     assert is_error and result["reason_code"] == "invalid_arguments"
+
+
+def test_list_steps_cursor_without_limit_keeps_paginating(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Flow")
+    steps = [isolated_db.insert_step(context_id, 1, f"Step {index}") for index in range(3)]
+    first = mcp._tool_list_steps({"context_id": context_id, "limit": 1})
+    rest = mcp._tool_list_steps({"context_id": context_id, "cursor": first["next_cursor"]})
+    assert [step["id"] for step in first["steps"] + rest["steps"]] == steps
+    assert rest["next_cursor"] is None

@@ -487,7 +487,7 @@ def _tool_list_steps(args: dict) -> dict:
             raise ArgumentValidationError("invalid cursor")
         where.append("(order_idx > ? OR (order_idx = ? AND id > ?))")
         params.extend([order_idx, order_idx, step_id])
-    limited = "limit" in args
+    limited = "limit" in args or bool(args.get("cursor"))
     limit = args.get("limit", 200)
     summary_columns = ("id", "context_id", "order_idx", "title", "status", "provider", "agent_preset", "started_at", "completed_at")
     selected = "*"
