@@ -167,17 +167,25 @@ El servidor MCP expone 14 herramientas que cualquier agente compatible (Claude C
 | `get_context` | Retorna el objetivo y estado del contexto activo del proyecto |
 | `list_steps` | Lista los pasos ordenados de un contexto con su estado |
 | `confirm_alignment` | Registra un checkpoint antes de una acción significativa |
-| `record_tool_call` | Registra cada herramienta invocada durante un paso |
-| `advance_step` | Marca el paso actual como completado y activa el siguiente |
-| `skip_step` | Marca un paso como omitido sin ejecutarlo |
+| `record_tool_call` | Registra cada herramienta invocada durante un paso (`input` es un objeto libre de hasta 8192 bytes UTF-8) |
+| `advance_step` | Marca el paso actual como completado, agrega sus notas y activa el siguiente salvo `activate_next=false` |
+| `skip_step` | Marca un paso como omitido sin ejecutarlo y agrega el motivo a sus notas |
 | `start_step` | Activa un paso `pending` cuando no hay otro `in_progress` |
 | `reset_step` | Devuelve un paso `in_progress` a `pending` sin perder sus notas |
 | `create_context` | Crea un nuevo contexto de trabajo con pasos opcionales |
 | `add_step` | Agrega un paso a un contexto existente durante la ejecución |
 | `update_context` | Edita título, descripción o estado de un contexto |
-| `update_step` | Edita título, descripción, notas o agente de un paso |
+| `update_step` | Edita título, descripción, notas (`notes` reemplaza, `notes_append` agrega) o agente de un paso |
 | `import_agent_context` | Importa trabajo de un agente externo al historial + ChromaDB |
 | `list_agents` | Lista los agentes (presets de provider/model/system-prompt) registrados |
+
+Semántica de las transiciones de pasos:
+
+- `advance_step`, `skip_step` y `reset_step` **agregan** sus notas (`notes` o `reason`) a las que ya tenía el paso; si llegan vacías, las notas existentes no cambian.
+- Al completar u omitir el paso `in_progress`, se activa el primer paso `pending` que le sigue según `(order_idx, id)`; los `pending` anteriores no se tocan. Con `activate_next=false` no se activa ninguno.
+- El contexto pasa a `completed` (`context_done=true`) solo cuando no le quedan pasos `pending` ni `in_progress`.
+- `start_step` exige que el contexto esté `active` y sin otro paso `in_progress`; su respuesta incluye `earlier_pending_steps`, la cantidad de pasos `pending` anteriores que quedan sin iniciar.
+- En `update_step`, `notes` reemplaza las notas y `notes_append` las agrega; no se pueden enviar juntos.
 
 Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto, registra Codex en `.codex/config.toml` y registra Gemini en `~/.gemini/settings.json`. Para Claude global, usá `ai-orchestrator fix --global-mcp`. Cada entrada se escribe con el bloque `env` de gobernanza: `--mcp-profile` (por defecto `readonly`) y `--mcp-projects` (por defecto, el alias registrado para este repo). En entradas existentes, `fix` solo completa las claves `ORCHESTRATOR_MCP_*` que faltan y nunca pisa las ya declaradas. `ai-orchestrator doctor` revisa el `env` de todas las configuraciones de cliente conocidas (incluidas `~/.claude.json`, `~/.copilot/mcp-config.json` y `~/.codex/config.toml`) y falla si el perfil o el alcance harían que el servidor deniegue las tools de proyecto.
 
