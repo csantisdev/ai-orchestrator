@@ -183,3 +183,25 @@ def test_pricing_recompute_cli_is_dry_run_by_default(tmp_path, monkeypatch):
     assert "1 run(s) actualizados" in applied.output
     assert tuple(_cost_row(run_id)) == (3.0, "rc3-model")
     assert len(list((tmp_path / "backups").glob("runs-*.db"))) == 1
+
+
+def _cached_result(provider: str) -> CompletionResult:
+    return CompletionResult(
+        text="", provider=provider, model="gpt-5.5",
+        input_tokens=1_000_000, output_tokens=0,
+        cache_creation_tokens=0, cache_read_tokens=400_000,
+    )
+
+
+def test_anthropic_input_tokens_exclude_cache_tokens():
+    pricing = {"gpt-5.5": {"input": 10.0, "output": 0.0, "cache_read": 1.0}}
+
+    for provider in ("claude", "claude-code"):
+        assert calculate_cost(_cached_result(provider), pricing) == 10.4
+
+
+def test_openai_input_tokens_include_cached_tokens():
+    pricing = {"gpt-5.5": {"input": 10.0, "output": 0.0, "cache_read": 1.0}}
+
+    for provider in ("codex", "openai"):
+        assert calculate_cost(_cached_result(provider), pricing) == 6.4

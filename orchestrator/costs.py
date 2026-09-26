@@ -37,6 +37,10 @@ DEFAULT_PRICING: dict[str, dict[str, float]] = {
 }
 
 
+# Anthropic reporta input_tokens sin los tokens de cache; OpenAI y el resto los incluyen.
+_CACHE_EXCLUSIVE_PROVIDERS = frozenset({"claude", "claude-code", "anthropic"})
+
+
 def resolve_price_key(model: str, pricing: dict) -> str | None:
     """Clave de `pricing` usada para costear `model`; la subcadena más larga como último recurso."""
     if not model:
@@ -74,7 +78,10 @@ def calculate_cost_with_key(result: CompletionResult, pricing: dict) -> tuple[fl
     cc  = getattr(result, "cache_creation_tokens", 0) or 0
     cr  = getattr(result, "cache_read_tokens", 0) or 0
 
-    inp_billable = max(inp - cc - cr, 0)
+    if result.provider in _CACHE_EXCLUSIVE_PROVIDERS:
+        inp_billable = inp
+    else:
+        inp_billable = max(inp - cc - cr, 0)
     cost = (
         inp_billable * table.get("input", 0)      / 1_000_000
         + out         * table.get("output", 0)    / 1_000_000
