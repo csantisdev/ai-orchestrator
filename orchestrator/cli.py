@@ -1139,6 +1139,13 @@ def doctor(
             has_ctx = context_module.context_exists(proj_path)
             if has_ctx:
                 info(f"  context.yaml ✓")
+                try:
+                    raw_context = context_module.load_context(proj_path).raw
+                    for field in context_module.template_fields(raw_context):
+                        warn(f"{a}: context.yaml conserva el texto de plantilla en {field}",
+                             "Completá ese campo para que el router no lo trate como una convención real.")
+                except Exception as exc:
+                    info(f"  No se pudo revisar plantillas de context.yaml: {exc}")
             else:
                 warn(f"  {a}: sin context.yaml", "Ejecutá: ai-orchestrator fix  (o 'add' de nuevo)")
 
