@@ -61,3 +61,18 @@ def test_suggestions_ignore_description_tickets_and_bare_issue_numbers(isolated_
     found = suggest_step_commits(isolated_db._conn(), "demo")
 
     assert found[0]["commits"] == [{"sha": "fedcba32", "date": "2026-01-02T00:00:00+00:00", "subject": "feat: step #1 complete", "reason": "referencia explícita al paso #1", "strength": "fuerte"}]
+
+
+def test_suggestions_are_ordered_by_step_position_and_stop_at_limit(isolated_db):
+    from orchestrator.step_suggestions import suggest_step_commits
+    context = isolated_db.insert_context("demo", "One")
+    later = isolated_db.insert_step(context, 2, "Later")
+    earlier = isolated_db.insert_step(context, 1, "Earlier")
+    third = isolated_db.insert_step(context, 3, "Third")
+    for index, step in enumerate((later, earlier, third)):
+        _commit(isolated_db, "demo", f"feat: paso #{step}", f"sha{index:06d}")
+    _commit(isolated_db, "demo", f"fix: S{third} follow-up", "shortref1")
+
+    assert [item["step_id"] for item in suggest_step_commits(isolated_db._conn(), "demo")] == [earlier, later, third]
+    assert [item["step_id"] for item in suggest_step_commits(isolated_db._conn(), "demo", limit=2)] == [earlier, later]
+    assert len(suggest_step_commits(isolated_db._conn(), "demo")[2]["commits"]) == 2

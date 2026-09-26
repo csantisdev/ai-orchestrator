@@ -489,7 +489,11 @@ def _tool_list_steps(args: dict) -> dict:
         params.extend([order_idx, order_idx, step_id])
     limited = "limit" in args
     limit = args.get("limit", 200)
-    query = f"SELECT * FROM steps WHERE {' AND '.join(where)} ORDER BY order_idx, id"
+    summary_columns = ("id", "context_id", "order_idx", "title", "status", "provider", "agent_preset", "started_at", "completed_at")
+    selected = "*"
+    if args.get("fields", "full") == "summary":
+        selected = ", ".join(summary_columns) + ", LENGTH(COALESCE(notes, '')) AS notes_chars"
+    query = f"SELECT {selected} FROM steps WHERE {' AND '.join(where)} ORDER BY order_idx, id"
     if limited:
         query += " LIMIT ?"
         params.append(limit + 1)
@@ -497,12 +501,7 @@ def _tool_list_steps(args: dict) -> dict:
     has_more = limited and len(rows) > limit
     if has_more:
         rows = rows[:limit]
-    if args.get("fields", "full") == "summary":
-        columns = ("id", "context_id", "order_idx", "title", "status", "provider", "agent_preset", "started_at", "completed_at")
-        steps = [{**{column: row[column] for column in columns}, "notes_chars": len(row["notes"] or "")} for row in rows]
-    else:
-        steps = [dict(row) for row in rows]
-    result = {"steps": steps}
+    result = {"steps": [dict(row) for row in rows]}
     if limited:
         result["next_cursor"] = _encode_cursor(rows[-1]["order_idx"], rows[-1]["id"]) if has_more else None
     return result
@@ -606,8 +605,11 @@ def _tool_suggest_step_commits(args: dict) -> dict:
         config = {}
     tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
     project = str(args["project"]).strip()
-    suggestions = suggest_step_commits(_conn(), project, args.get("since"), tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"))
-    return {"project": project, "suggestions": suggestions[:args.get("limit", 50)]}
+    suggestions = suggest_step_commits(
+        _conn(), project, args.get("since"), tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"),
+        limit=args.get("limit", 50),
+    )
+    return {"project": project, "suggestions": suggestions}
 
 
 def _validate_step_context(conn: Any, step_id: int, context_id: int) -> None:
