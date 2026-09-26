@@ -94,3 +94,92 @@ def test_update_run_stores_cost_pricing_key():
 
     row = conn.execute("SELECT cost_usd, cost_pricing_key FROM runs WHERE id=?", (run_id,)).fetchone()
     assert (row["cost_usd"], row["cost_pricing_key"]) == (30.0, "claude-opus-5")
+
+
+def _insert_priced_run(model: str, cost_usd, key, project: str) -> int:
+    conn = _conn()
+    with _write_lock:
+        run_id = conn.execute(
+            """INSERT INTO runs (ts, project, provider, model, status, input_tokens, output_tokens,
+                                 cost_usd, cost_pricing_key)
+               VALUES (?, ?, 'codex', ?, 'done', 1000000, 1000000, ?, ?)""",
+            (datetime.now(timezone.utc).isoformat(), project, model, cost_usd, key),
+        ).lastrowid
+        conn.commit()
+    return run_id
+
+
+def _cost_row(run_id: int):
+    return _conn().execute("SELECT cost_usd, cost_pricing_key FROM runs WHERE id=?", (run_id,)).fetchone()
+
+
+def test_recompute_plan_and_apply_only_touch_fixable_runs(tmp_path):
+    from orchestrator.db import apply_cost_recompute, backup_database, plan_cost_recompute
+
+    pricing = {"rc-model": {"input": 1.0, "output": 2.0}, "rc": {"input": 50.0, "output": 50.0}}
+    missing = _insert_priced_run("rc-model", None, None, "rc")
+    approximate = _insert_priced_run("rc-model", 100.0, "rc", "rc")
+    legacy = _insert_priced_run("rc-model", 7.0, None, "rc")
+    exact = _insert_priced_run("rc-model", 3.0, "rc-model", "rc")
+    unpriced = _insert_priced_run("rc-unpriced-x", None, None, "rc")
+
+    plan = {item["id"]: item for item in plan_cost_recompute(pricing, model="rc-model")}
+    assert set(plan) == {missing, approximate}
+    assert plan[missing]["new_cost"] == 3.0 and plan[missing]["reason"] == "missing"
+    assert plan[approximate]["new_key"] == "rc-model" and plan[approximate]["reason"] == "approximate"
+
+    unpriced_plan = plan_cost_recompute(pricing, model="rc-unpriced-x")
+    assert [(i["id"], i["new_key"]) for i in unpriced_plan] == [(unpriced, None)]
+
+    with_legacy = {item["id"] for item in plan_cost_recompute(pricing, include_untracked=True, model="rc-model")}
+    assert with_legacy == {missing, approximate, legacy}
+
+    backup = backup_database(tmp_path / "backups" / "runs.db")
+    import sqlite3
+    assert sqlite3.connect(backup).execute("SELECT cost_usd FROM runs WHERE id=?", (approximate,)).fetchone() == (100.0,)
+
+    assert apply_cost_recompute(list(plan.values()) + unpriced_plan) == 2
+    assert tuple(_cost_row(missing)) == (3.0, "rc-model")
+    assert tuple(_cost_row(approximate)) == (3.0, "rc-model")
+    assert tuple(_cost_row(legacy)) == (7.0, None)
+    assert tuple(_cost_row(exact)) == (3.0, "rc-model")
+    assert tuple(_cost_row(unpriced)) == (None, None)
+    assert plan_cost_recompute(pricing, model="rc-model") == []
+
+
+def test_apply_recompute_skips_rows_changed_since_plan():
+    from orchestrator.db import apply_cost_recompute, plan_cost_recompute
+
+    pricing = {"rc2-model": {"input": 1.0, "output": 2.0}}
+    run_id = _insert_priced_run("rc2-model", None, None, "rc2")
+    plan = plan_cost_recompute(pricing, model="rc2-model")
+    conn = _conn()
+    with _write_lock:
+        conn.execute("UPDATE runs SET cost_usd=9.0, cost_pricing_key='rc2-model' WHERE id=?", (run_id,))
+        conn.commit()
+
+    assert apply_cost_recompute(plan) == 0
+    assert tuple(_cost_row(run_id)) == (9.0, "rc2-model")
+
+
+def test_pricing_recompute_cli_is_dry_run_by_default(tmp_path, monkeypatch):
+    from unittest.mock import patch
+    from typer.testing import CliRunner
+    import orchestrator.paths as paths_module
+    from orchestrator.cli import app
+
+    run_id = _insert_priced_run("rc3-model", None, None, "rc3")
+    config = {"pricing": {"rc3-model": {"input": 1.0, "output": 2.0}}}
+    runner = CliRunner()
+    with patch("orchestrator.cli.load_config", return_value=config):
+        dry = runner.invoke(app, ["pricing", "recompute", "--model", "rc3-model"])
+        assert dry.exit_code == 0, dry.output
+        assert "simulación" in dry.output
+        assert tuple(_cost_row(run_id)) == (None, None)
+
+        monkeypatch.setattr(paths_module, "HOME_DIR", tmp_path)
+        applied = runner.invoke(app, ["pricing", "recompute", "--model", "rc3-model", "--apply"])
+    assert applied.exit_code == 0, applied.output
+    assert "1 run(s) actualizados" in applied.output
+    assert tuple(_cost_row(run_id)) == (3.0, "rc3-model")
+    assert len(list((tmp_path / "backups").glob("runs-*.db"))) == 1

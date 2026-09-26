@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 
 from orchestrator.providers.base import CompletionResult
@@ -778,3 +779,99 @@ def run_cost_quality() -> dict:
             label = f"{model} → {key}"
             summary["approximate"][label] = summary["approximate"].get(label, 0) + n
     return summary
+
+
+_RECOMPUTE_WHERE = """provider != 'git'
+    AND COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) > 0"""
+
+
+def plan_cost_recompute(
+    pricing: dict,
+    include_untracked: bool = False,
+    model: Optional[str] = None,
+) -> list[dict]:
+    """Runs cuyo costo se puede recalcular con precio exacto, sin escribir nada.
+
+    Incluye runs sin costo y runs costeados con el precio de otro modelo; con
+    `include_untracked`, también los que tienen costo pero no registran la clave.
+    """
+    from orchestrator.costs import calculate_cost_with_key, is_approximate_price_key
+
+    params: list = []
+    where = _RECOMPUTE_WHERE
+    if model is not None:
+        where += " AND model = ?"
+        params.append(model)
+    rows = _conn().execute(
+        f"""SELECT id, provider, model, input_tokens, output_tokens,
+                   cache_creation_tokens, cache_read_tokens, cost_usd, cost_pricing_key
+            FROM runs WHERE {where} ORDER BY id""",
+        params,
+    ).fetchall()
+
+    plan: list[dict] = []
+    for row in rows:
+        run_model = row["model"] or ""
+        old_key = row["cost_pricing_key"]
+        if row["cost_usd"] is None:
+            reason = "missing"
+        elif old_key is None:
+            if not include_untracked:
+                continue
+            reason = "untracked"
+        elif is_approximate_price_key(run_model, old_key):
+            reason = "approximate"
+        else:
+            continue
+        result = CompletionResult(
+            text="", provider=row["provider"], model=run_model,
+            input_tokens=row["input_tokens"] or 0,
+            output_tokens=row["output_tokens"] or 0,
+            cache_creation_tokens=row["cache_creation_tokens"] or 0,
+            cache_read_tokens=row["cache_read_tokens"] or 0,
+        )
+        new_cost, new_key = calculate_cost_with_key(result, pricing)
+        exact = new_key is not None and not is_approximate_price_key(run_model, new_key)
+        plan.append({
+            "id": row["id"],
+            "model": run_model,
+            "reason": reason,
+            "old_cost": row["cost_usd"],
+            "old_key": old_key,
+            "new_cost": new_cost if exact else None,
+            "new_key": new_key if exact else None,
+        })
+    return plan
+
+
+def apply_cost_recompute(plan: list[dict]) -> int:
+    """Escribe en una transacción los costos recalculados del plan; retorna filas cambiadas."""
+    conn = _conn()
+    changed = 0
+    with _write_lock:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for item in plan:
+                if item["new_key"] is None:
+                    continue
+                changed += conn.execute(
+                    """UPDATE runs SET cost_usd = ?, cost_pricing_key = ?
+                       WHERE id = ? AND cost_usd IS ? AND cost_pricing_key IS ?""",
+                    (item["new_cost"], item["new_key"], item["id"], item["old_cost"], item["old_key"]),
+                ).rowcount
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return changed
+
+
+def backup_database(dest: Path) -> Path:
+    """Copia consistente de runs.db con la API de backup de SQLite."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    target = sqlite3.connect(dest)
+    try:
+        _conn().backup(target)
+    finally:
+        target.close()
+    return dest
