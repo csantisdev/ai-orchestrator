@@ -4,11 +4,13 @@ type: analysis
 title: Protocolo de auditoria cruzada Codex y Claude
 status: active
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 related: [ANL-001, RFC-006, RFC-007, RFC-008]
 ---
 
 # ANL-002 - Protocolo de auditoria cruzada Codex y Claude
+
+**Estado de ejecución (nota operativa, 2026-09-26):** el protocolo no se ejecutó todavía; `evidence/ANL-002/` no existe. El SHA de la sección Baseline es el de su redacción: al ejecutarlo se fija el SHA vigente de `production` en los tres prompts. La auditoría por cambio que se aplica a cada PR no trivial está descrita en ANL-003.
 
 ## Objetivo
 
