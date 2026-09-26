@@ -20,6 +20,21 @@ approval_mode = "approve"
 [mcp_servers.ai_orchestrator.tools.list_steps]
 approval_mode = "approve"
 
+[mcp_servers.ai_orchestrator.tools.get_step]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.list_contexts]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.tracking_health]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.suggest_step_commits]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.list_agents]
+approval_mode = "approve"
+
 [mcp_servers.ai_orchestrator.tools.confirm_alignment]
 approval_mode = "approve"
 
@@ -30,6 +45,12 @@ approval_mode = "approve"
 approval_mode = "approve"
 
 [mcp_servers.ai_orchestrator.tools.skip_step]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.start_step]
+approval_mode = "approve"
+
+[mcp_servers.ai_orchestrator.tools.reset_step]
 approval_mode = "approve"
 
 [mcp_servers.ai_orchestrator.tools.create_context]

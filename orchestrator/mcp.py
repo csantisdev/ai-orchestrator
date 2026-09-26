@@ -9,7 +9,7 @@ import base64
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from orchestrator.mcp_governance import MAX_RECORD_TOOL_CALL_INPUT_BYTES
+from orchestrator.mcp_governance import MAX_RECORD_TOOL_CALL_INPUT_BYTES, ArgumentValidationError
 
 _HANDLERS: dict[str, Callable[[dict], Any]] = {}
 
@@ -466,7 +466,7 @@ def _decode_cursor(value: str, expected_items: int) -> list[Any]:
             raise ValueError
         return parts
     except Exception as exc:
-        raise ValueError("invalid cursor") from exc
+        raise ArgumentValidationError("invalid cursor") from exc
 
 
 def _tool_list_steps(args: dict) -> dict:
@@ -484,7 +484,7 @@ def _tool_list_steps(args: dict) -> dict:
     if args.get("cursor"):
         order_idx, step_id = _decode_cursor(args["cursor"], 2)
         if not isinstance(order_idx, int) or not isinstance(step_id, int):
-            raise ValueError("invalid cursor")
+            raise ArgumentValidationError("invalid cursor")
         where.append("(order_idx > ? OR (order_idx = ? AND id > ?))")
         params.extend([order_idx, order_idx, step_id])
     limited = "limit" in args
@@ -536,7 +536,7 @@ def _tool_list_contexts(args: dict) -> dict:
     if args.get("cursor"):
         ts, context_id = _decode_cursor(args["cursor"], 2)
         if not isinstance(ts, str) or not isinstance(context_id, int):
-            raise ValueError("invalid cursor")
+            raise ArgumentValidationError("invalid cursor")
         where.append("(ts < ? OR (ts = ? AND id < ?))")
         params.extend([ts, ts, context_id])
     limit = args.get("limit", 50)

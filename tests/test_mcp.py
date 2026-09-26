@@ -968,3 +968,18 @@ def test_nested_objects_without_additional_properties_remain_strict(isolated_db,
     )
     assert is_error is True
     assert result["reason_code"] == "invalid_arguments"
+
+
+@pytest.mark.parametrize("tool_name,args", [
+    ("list_steps", {"limit": 1, "cursor": "bad"}),
+    ("list_contexts", {"project": "allowed", "cursor": "bad"}),
+])
+def test_invalid_cursor_is_reported_as_invalid_arguments(isolated_db, workflow_env, tool_name, args):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("allowed", "Flow")
+    isolated_db.insert_step(context_id, 1, "Step")
+    if tool_name == "list_steps":
+        args = {"context_id": context_id, **args}
+    result, is_error = mcp._governed_tool_call(tool_name, args, "bad-cursor")
+    assert is_error and result["reason_code"] == "invalid_arguments"

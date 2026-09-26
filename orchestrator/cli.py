@@ -1438,7 +1438,8 @@ def _mcp_client_envs(project_root: Path, gemini_settings: Path) -> list[tuple[st
 
 
 _CODEX_APPROVED_TOOLS = (
-    "get_context", "list_steps", "confirm_alignment", "record_tool_call",
+    "get_context", "list_steps", "get_step", "list_contexts", "tracking_health",
+    "suggest_step_commits", "list_agents", "confirm_alignment", "record_tool_call",
     "advance_step", "skip_step", "start_step", "reset_step", "create_context", "add_step",
     "update_context", "import_agent_context", "update_step",
 )
