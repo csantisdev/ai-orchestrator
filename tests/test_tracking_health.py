@@ -89,6 +89,24 @@ def test_tracking_health_uses_step_events_as_recent_activity(isolated_db):
     assert _warnings(isolated_db, {"demo"}, stale_in_progress_days=7) == []
 
 
+def test_tracking_health_does_not_count_project_mcp_reads_as_step_activity(isolated_db):
+    context_id = isolated_db.insert_context("demo", "Stale")
+    step_id = isolated_db.insert_step(context_id, 1, "Work")
+    isolated_db.start_step(step_id)
+    old = (datetime(2026, 1, 30, tzinfo=timezone.utc) - timedelta(days=8)).isoformat()
+    recent = (datetime(2026, 1, 30, tzinfo=timezone.utc) - timedelta(days=1)).isoformat()
+    isolated_db._conn().execute("UPDATE steps SET started_at=? WHERE id=?", (old, step_id))
+    isolated_db._conn().execute(
+        """INSERT INTO mcp_invocations (ts, request_id, server_instance_id, client_surface,
+           transport, capability_profile, tool_name, tool_category, input_hash, output_hash, status, created_at)
+           VALUES (?, 'read-1', 'server', 'codex_cli', 'stdio', 'readonly', 'get_context', 'read', 'a', 'b', 'success', ?)""",
+        (recent, recent),
+    )
+    isolated_db._conn().commit()
+
+    assert _codes(_warnings(isolated_db, {"demo"}, stale_in_progress_days=7)) == ["stale_in_progress_step"]
+
+
 def test_tracking_health_reports_stale_scheduled_context(isolated_db):
     context_id = isolated_db.insert_context("demo", "Later", status="programado")
     old = (datetime(2026, 1, 30, tzinfo=timezone.utc) - timedelta(days=61)).isoformat()

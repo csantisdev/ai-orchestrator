@@ -80,12 +80,6 @@ def tracking_health_warnings(
                         f"SELECT MAX(ts) AS ts FROM {table} WHERE step_id=?", (step["id"],)
                     ).fetchone()
                     timestamps.append(_parse_datetime(row["ts"]))
-                invocation = conn.execute(
-                    """SELECT MAX(ts) AS ts FROM mcp_invocations
-                       WHERE project=? AND ts>=?""",
-                    (project, step["started_at"] or ""),
-                ).fetchone()
-                timestamps.append(_parse_datetime(invocation["ts"]))
                 activity = max((item for item in timestamps if item is not None), default=None)
                 if activity and now - activity > timedelta(days=stale_in_progress_days):
                     age = (now - activity).days
