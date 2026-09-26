@@ -464,7 +464,7 @@ def read_contexts_with_steps(
     for ctx in ctx_rows:
         ctx_dict = dict(ctx)
         steps = conn.execute(
-            "SELECT * FROM steps WHERE context_id=? ORDER BY order_idx",
+            "SELECT * FROM steps WHERE context_id=? ORDER BY order_idx, id",
             (ctx["id"],),
         ).fetchall()
         ctx_dict["steps"] = [dict(s) for s in steps]
@@ -513,7 +513,7 @@ def read_inspector_data() -> dict:
         "steps": _rows(
             """SELECT s.*, c.title AS context_title, c.project
                FROM steps s JOIN contexts c ON s.context_id = c.id
-               ORDER BY s.context_id DESC, s.order_idx LIMIT 300"""
+               ORDER BY s.context_id DESC, s.order_idx, s.id LIMIT 300"""
         ),
         "alignments": _rows(
             """SELECT a.*, s.title AS step_title

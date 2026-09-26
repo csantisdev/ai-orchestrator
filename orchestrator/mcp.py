@@ -8,6 +8,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from orchestrator.mcp_governance import MAX_RECORD_TOOL_CALL_INPUT_BYTES
+
 _HANDLERS: dict[str, Callable[[dict], Any]] = {}
 
 SERVER_INSTRUCTIONS = (
@@ -32,7 +34,6 @@ SUPPORTED_PROTOCOL_VERSIONS = {
     "2025-06-18",
 }
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
-MAX_RECORD_TOOL_CALL_INPUT_BYTES = 8192
 
 TOOLS = [
     {
@@ -103,7 +104,7 @@ TOOLS = [
                 "tool_name":  {"type": "string"},
                 "input": {
                     "type": "object", "default": {}, "additionalProperties": True,
-                    "max_utf8_bytes": MAX_RECORD_TOOL_CALL_INPUT_BYTES,
+                    "description": "Entrada de la herramienta (hasta 8192 bytes UTF-8).",
                 },
                 "output":     {"type": "string", "default": ""},
                 "status":     {"type": "string", "enum": ["ok", "error"], "default": "ok"},
@@ -114,7 +115,7 @@ TOOLS = [
     {
         "name": "advance_step",
         "description": (
-            "Marca el paso actual como completado, agrega las notas a las existentes y activa el siguiente pendiente del contexto. "
+            "Marca el paso actual como completado, agrega las notas a las existentes y activa el siguiente pendiente del contexto salvo activate_next=false. "
             "Retorna el nuevo paso activo o indica que el contexto está completo."
         ),
         "inputSchema": {
@@ -123,7 +124,10 @@ TOOLS = [
             "properties": {
                 "step_id": {"type": "integer"},
                 "notes":   {"type": "string", "default": ""},
-                "activate_next": {"type": "boolean", "default": True},
+                "activate_next": {
+                    "type": "boolean", "default": True,
+                    "description": "Con false no activa ningún paso; el contexto solo se cierra si no quedan pasos abiertos.",
+                },
             },
         },
     },
@@ -132,7 +136,7 @@ TOOLS = [
         "description": (
             "Marca un paso como omitido (skipped) sin ejecutarlo y agrega el motivo a las notas existentes. "
             "Funciona sobre steps en estado pending o in_progress. "
-            "Si el step estaba in_progress, activa el siguiente pending del contexto."
+            "Si el step estaba in_progress, activa el siguiente pending del contexto salvo activate_next=false."
         ),
         "inputSchema": {
             "type": "object",
@@ -140,7 +144,10 @@ TOOLS = [
             "properties": {
                 "step_id": {"type": "integer"},
                 "reason":  {"type": "string", "default": "", "description": "Motivo por el que se omite el paso."},
-                "activate_next": {"type": "boolean", "default": True},
+                "activate_next": {
+                    "type": "boolean", "default": True,
+                    "description": "Con false no activa ningún paso; el contexto solo se cierra si no quedan pasos abiertos.",
+                },
             },
         },
     },
@@ -596,32 +603,39 @@ def _tool_update_step(args: dict) -> dict:
     if not step_id:
         raise ValueError("step_id es requerido")
     conn = _conn()
-    row = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
-    if row is None:
-        raise ValueError(f"step {step_id} not found")
-
     if "notes" in args and "notes_append" in args:
         raise ValueError("notes y notes_append son mutuamente excluyentes")
 
-    fields, params = [], []
-    for col in ("title", "description", "notes", "agent_preset"):
-        if col in args:
-            fields.append(f"{col}=?")
-            params.append(args[col])
-    if "notes_append" in args:
-        fields.append("notes=?")
-        params.append(append_step_notes(row["notes"] or "", args["notes_append"]))
-
-    if not fields:
-        return {"step_id": step_id, "updated": []}
-
-    params.append(step_id)
     with _write_lock:
-        conn.execute(
-            f"UPDATE steps SET {', '.join(fields)} WHERE id=?",
-            params,
-        )
-        commit_if_not_atomic(conn)
+        try:
+            if not conn.in_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM steps WHERE id=?", (step_id,)).fetchone()
+            if row is None:
+                raise ValueError(f"step {step_id} not found")
+            fields, params = [], []
+            for col in ("title", "description", "notes", "agent_preset"):
+                if col in args:
+                    fields.append(f"{col}=?")
+                    params.append(args[col])
+            if "notes_append" in args:
+                fields.append("notes=?")
+                params.append(append_step_notes(row["notes"] or "", args["notes_append"]))
+
+            if not fields:
+                commit_if_not_atomic(conn)
+                return {"step_id": step_id, "updated": []}
+
+            changed = conn.execute(
+                f"UPDATE steps SET {', '.join(fields)} WHERE id=?",
+                [*params, step_id],
+            )
+            if changed.rowcount != 1:
+                raise ValueError(f"step {step_id} changed concurrently")
+            commit_if_not_atomic(conn)
+        except Exception:
+            conn.rollback()
+            raise
 
     updated_fields = [f for f in ("title", "description", "notes", "notes_append", "agent_preset") if f in args]
     return {"step_id": step_id, "updated": updated_fields}
@@ -830,7 +844,7 @@ def _governed_tool_call(name: str, args: Any, correlation_id: str | None) -> tup
         tool = next((tool for tool in TOOLS if tool["name"] == name), None)
         if tool is None:
             raise PolicyDenied("unknown_tool")
-        validate_arguments(tool["inputSchema"], args)
+        validate_arguments(tool["inputSchema"], args, tool_name=name)
         project = resolve_project(name, args)
         if name == "get_context" and project is None and len(identity.project_scope) == 1:
             args = {**args, "project": next(iter(identity.project_scope))}

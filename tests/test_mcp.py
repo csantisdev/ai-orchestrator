@@ -612,6 +612,13 @@ def test_update_step_replaces_or_appends_notes(isolated_db):
         mcp._tool_update_step({"step_id": step_id, "notes": "x", "notes_append": "y"})
 
 
+def test_update_step_direct_append_rejects_missing_step(isolated_db):
+    import orchestrator.mcp as mcp
+
+    with pytest.raises(ValueError, match="step 999 not found"):
+        mcp._tool_update_step({"step_id": 999, "notes_append": "nota"})
+
+
 def test_advance_replay_does_not_duplicate_appended_notes(isolated_db, workflow_env):
     import orchestrator.mcp as mcp
 
@@ -639,6 +646,23 @@ def test_transition_can_leave_next_step_pending(isolated_db, tool_name):
     assert result["context_done"] is False
     assert isolated_db._conn().execute("SELECT status FROM steps WHERE id=?", (second_step,)).fetchone()[0] == "pending"
     assert isolated_db._conn().execute("SELECT status FROM contexts WHERE id=?", (context_id,)).fetchone()[0] == "active"
+
+
+@pytest.mark.parametrize("tool_name", ["_tool_advance_step", "_tool_skip_step"])
+def test_transition_without_activation_completes_last_open_step(isolated_db, tool_name):
+    import orchestrator.mcp as mcp
+
+    context_id = isolated_db.insert_context("mi-proyecto", "Flujo")
+    step_id = isolated_db.insert_step(context_id, 1, "\u00danico")
+    isolated_db.activate_first_step(context_id)
+
+    result = getattr(mcp, tool_name)({"step_id": step_id, "activate_next": False})
+
+    assert result["next_step"] is None
+    assert result["context_done"] is True
+    assert isolated_db._conn().execute(
+        "SELECT status FROM contexts WHERE id=?", (context_id,)
+    ).fetchone()[0] == "completed"
 
 
 @pytest.mark.parametrize("tool_name", ["_tool_advance_step", "_tool_skip_step"])
@@ -679,16 +703,42 @@ def test_record_tool_call_accepts_open_input_and_rejects_oversized_input(isolate
     accepted, accepted_error = mcp._governed_tool_call(
         "record_tool_call", {"context_id": context_id, "step_id": step_id, "tool_name": "tool", "input": {"branch": "x", "n": 1}}, "rpc-ok"
     )
+    exact_input = {"payload": "x" * (8192 - len(json.dumps({"payload": ""}, ensure_ascii=False).encode("utf-8")))}
+    oversized_input = {"payload": "x" * (8193 - len(json.dumps({"payload": ""}, ensure_ascii=False).encode("utf-8")))}
+    exact, exact_error = mcp._governed_tool_call(
+        "record_tool_call", {"context_id": context_id, "step_id": step_id, "tool_name": "tool", "input": exact_input}, "rpc-exact"
+    )
     rejected, rejected_error = mcp._governed_tool_call(
-        "record_tool_call", {"context_id": context_id, "step_id": step_id, "tool_name": "tool", "input": {"payload": "x" * 8193}}, "rpc-large"
+        "record_tool_call", {"context_id": context_id, "step_id": step_id, "tool_name": "tool", "input": oversized_input}, "rpc-large"
     )
 
     assert accepted_error is False
     assert accepted["id"]
+    assert exact_error is False
+    assert exact["id"]
     assert json.loads(isolated_db._conn().execute("SELECT input FROM tool_calls WHERE id=?", (accepted["id"],)).fetchone()[0]) == {"branch": "x", "n": 1}
     assert rejected_error is True
     assert rejected["reason_code"] == "invalid_arguments"
-    assert isolated_db._conn().execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0] == 1
+    assert isolated_db._conn().execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0] == 2
+
+
+def test_tool_schemas_only_use_standard_keywords():
+    import orchestrator.mcp as mcp
+
+    standard_keywords = {
+        "type", "properties", "required", "items", "enum", "default", "description",
+        "additionalProperties", "minimum", "maximum",
+    }
+
+    def assert_schema_keywords(schema):
+        assert set(schema) <= standard_keywords
+        for property_schema in schema.get("properties", {}).values():
+            assert_schema_keywords(property_schema)
+        if "items" in schema:
+            assert_schema_keywords(schema["items"])
+
+    for tool in mcp.TOOLS:
+        assert_schema_keywords(tool["inputSchema"])
 
 
 def test_nested_objects_without_additional_properties_remain_strict(isolated_db, workflow_env):

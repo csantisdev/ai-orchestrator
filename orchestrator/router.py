@@ -195,7 +195,7 @@ def _fetch_active_context(project: str) -> dict | None:
         if ctx is None:
             return None
         step = conn.execute(
-            "SELECT * FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx LIMIT 1",
+            "SELECT * FROM steps WHERE context_id=? AND status='in_progress' ORDER BY order_idx, id LIMIT 1",
             (ctx["id"],),
         ).fetchone()
         return {
