@@ -176,7 +176,7 @@ def _resolve_base_pricing(config: dict, refresh: bool) -> tuple[dict, dict]:
         if pricing:
             return pricing, {"source": "static", "updated_at": static.get("updated_at")}
 
-    return dict(DEFAULT_PRICING), {"source": "default", "updated_at": None}
+    return {model: dict(prices) for model, prices in DEFAULT_PRICING.items()}, {"source": "default", "updated_at": None}
 
 
 def load_price_catalog(config: dict, refresh: bool = False) -> dict:

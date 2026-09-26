@@ -758,15 +758,18 @@ def activate_first_step(context_id: int) -> bool:
         return True
 
 
+_BILLABLE_RUNS_WHERE = """provider != 'git'
+    AND COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)
+        + COALESCE(cache_creation_tokens, 0) + COALESCE(cache_read_tokens, 0) > 0"""
+
+
 def run_cost_quality() -> dict:
     """Runs con tokens cuyo costo falta, es aproximado o no registra la clave de precio usada."""
     from orchestrator.costs import is_approximate_price_key
     rows = _conn().execute(
-        """SELECT model, cost_pricing_key, cost_usd IS NULL AS missing, COUNT(*) AS n
-           FROM runs
-           WHERE provider != 'git'
-             AND COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) > 0
-           GROUP BY model, cost_pricing_key, missing"""
+        f"""SELECT model, cost_pricing_key, cost_usd IS NULL AS missing, COUNT(*) AS n
+            FROM runs WHERE {_BILLABLE_RUNS_WHERE}
+            GROUP BY model, cost_pricing_key, missing"""
     ).fetchall()
     summary = {"missing": {}, "approximate": {}, "untracked": 0}
     for row in rows:
@@ -779,10 +782,6 @@ def run_cost_quality() -> dict:
             label = f"{model} → {key}"
             summary["approximate"][label] = summary["approximate"].get(label, 0) + n
     return summary
-
-
-_RECOMPUTE_WHERE = """provider != 'git'
-    AND COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) > 0"""
 
 
 def plan_cost_recompute(
@@ -798,7 +797,7 @@ def plan_cost_recompute(
     from orchestrator.costs import calculate_cost_with_key, is_approximate_price_key
 
     params: list = []
-    where = _RECOMPUTE_WHERE
+    where = _BILLABLE_RUNS_WHERE
     if model is not None:
         where += " AND model = ?"
         params.append(model)

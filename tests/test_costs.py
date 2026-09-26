@@ -205,3 +205,36 @@ def test_openai_input_tokens_include_cached_tokens():
 
     for provider in ("codex", "openai"):
         assert calculate_cost(_cached_result(provider), pricing) == 6.4
+
+
+def test_cache_only_runs_count_as_billable():
+    from orchestrator.db import plan_cost_recompute
+
+    conn = _conn()
+    with _write_lock:
+        run_id = conn.execute(
+            """INSERT INTO runs (ts, project, provider, model, status, input_tokens, output_tokens,
+                                 cache_read_tokens, cost_usd)
+               VALUES (?, 'cache-only', 'claude-code', 'co-model', 'done', 0, 0, 1000000, NULL)""",
+            (datetime.now(timezone.utc).isoformat(),),
+        ).lastrowid
+        conn.commit()
+
+    assert run_cost_quality()["missing"]["co-model"] == 1
+    plan = plan_cost_recompute({"co-model": {"input": 3.0, "output": 15.0, "cache_read": 0.3}}, model="co-model")
+    assert [(item["id"], item["new_cost"]) for item in plan] == [(run_id, 0.3)]
+
+
+def test_default_pricing_fallback_is_a_deep_copy(tmp_path, monkeypatch):
+    import orchestrator.catalog as catalog
+    from orchestrator.costs import DEFAULT_PRICING
+
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
+    monkeypatch.setattr(catalog, "STATIC_CATALOG_PATH", tmp_path / "missing.json")
+    original = DEFAULT_PRICING["gpt-4o"]["input"]
+
+    pricing, meta = catalog.resolve_pricing({})
+    pricing["gpt-4o"]["input"] = 999.0
+
+    assert meta["source"] == "default"
+    assert DEFAULT_PRICING["gpt-4o"]["input"] == original
