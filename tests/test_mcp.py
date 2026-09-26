@@ -970,9 +970,17 @@ def test_nested_objects_without_additional_properties_remain_strict(isolated_db,
     assert result["reason_code"] == "invalid_arguments"
 
 
+def mcp_cursor(*parts):
+    import orchestrator.mcp as mcp
+
+    return mcp._encode_cursor(*parts)
+
+
 @pytest.mark.parametrize("tool_name,args", [
     ("list_steps", {"limit": 1, "cursor": "bad"}),
+    ("list_steps", {"limit": 1, "cursor": mcp_cursor(True, 1)}),
     ("list_contexts", {"project": "allowed", "cursor": "bad"}),
+    ("list_contexts", {"project": "allowed", "cursor": mcp_cursor("2026-01-01T00:00:00+00:00", True)}),
 ])
 def test_invalid_cursor_is_reported_as_invalid_arguments(isolated_db, workflow_env, tool_name, args):
     import orchestrator.mcp as mcp

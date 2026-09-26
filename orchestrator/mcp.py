@@ -483,7 +483,7 @@ def _tool_list_steps(args: dict) -> dict:
         params.append(args["agent_preset"])
     if args.get("cursor"):
         order_idx, step_id = _decode_cursor(args["cursor"], 2)
-        if not isinstance(order_idx, int) or not isinstance(step_id, int):
+        if not all(isinstance(part, int) and not isinstance(part, bool) for part in (order_idx, step_id)):
             raise ArgumentValidationError("invalid cursor")
         where.append("(order_idx > ? OR (order_idx = ? AND id > ?))")
         params.extend([order_idx, order_idx, step_id])
@@ -534,7 +534,7 @@ def _tool_list_contexts(args: dict) -> dict:
         params.append(args["status"])
     if args.get("cursor"):
         ts, context_id = _decode_cursor(args["cursor"], 2)
-        if not isinstance(ts, str) or not isinstance(context_id, int):
+        if not isinstance(ts, str) or not isinstance(context_id, int) or isinstance(context_id, bool):
             raise ArgumentValidationError("invalid cursor")
         where.append("(ts < ? OR (ts = ? AND id < ?))")
         params.extend([ts, ts, context_id])
