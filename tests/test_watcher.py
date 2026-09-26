@@ -163,3 +163,25 @@ def test_scan_and_import_skips_stable_token_session_without_text(cc_env):
 
     assert len(watcher.scan_and_import({}, quiet=True)) == 1
     assert watcher.scan_and_import({}, quiet=True) == []
+
+
+def test_scan_and_import_keeps_cache_only_session(cc_env):
+    _alias, proj, projects_dir = cc_env
+    slug_dir = projects_dir / "slug-cache"
+    slug_dir.mkdir()
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    (slug_dir / "session-cache.jsonl").write_text(
+        json.dumps({"type": "user", "sessionId": "session-cache", "cwd": proj, "timestamp": ts,
+                    "message": {"content": "pregunta"}}) + "\n"
+        + json.dumps({"type": "assistant", "sessionId": "session-cache", "cwd": proj, "timestamp": ts,
+                      "message": {"model": "claude-sonnet-5",
+                                  "usage": {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 1000},
+                                  "content": [{"type": "text", "text": "respuesta"}]}}) + "\n",
+        encoding="utf-8",
+    )
+
+    assert len(watcher.scan_and_import(_PRICED_CONFIG, quiet=True)) == 1
+    row = _conn().execute(
+        "SELECT cache_read_tokens, cost_pricing_key FROM runs WHERE session_id=?", ("session-cache",)
+    ).fetchone()
+    assert (row["cache_read_tokens"], row["cost_pricing_key"]) == (1000, "claude-sonnet-5")

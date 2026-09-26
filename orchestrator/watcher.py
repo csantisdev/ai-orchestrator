@@ -227,7 +227,8 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
             session = _parse_session(jsonl_file)
             if session is None:
                 continue
-            if session.input_tokens + session.output_tokens == 0:
+            if (session.input_tokens + session.output_tokens
+                    + session.cache_creation_tokens + session.cache_read_tokens) == 0:
                 continue
 
             project_alias = _cwd_to_alias(session.project_cwd, index)
