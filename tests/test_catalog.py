@@ -45,10 +45,65 @@ def test_config_pricing_override_wins_over_everything(tmp_path, monkeypatch):
     monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
     _write_cache(tmp_path / "pricing-cache.json", _catalog_payload("cached-model"))
 
-    override = {"my-model": {"input": 9.0, "output": 9.0}}
+    override = {"cached-model": {"input": 9.0, "output": 9.0}}
     result = catalog.load_price_catalog({"pricing": override})
 
-    assert result == override
+    assert result["cached-model"] == {"input": 9.0, "output": 9.0}
+
+
+def test_config_pricing_merges_per_model_over_base(tmp_path, monkeypatch):
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
+    _write_cache(tmp_path / "pricing-cache.json", _catalog_payload("cached-model", 1.0, 2.0))
+
+    pricing, meta = catalog.resolve_pricing({"pricing": {"my-model": {"input": 9.0, "output": 9.5}}})
+
+    assert pricing["cached-model"] == {"input": 1.0, "output": 2.0}
+    assert pricing["my-model"] == {"input": 9.0, "output": 9.5}
+    assert meta["source"] == "config+cache"
+    assert meta["overrides"] == ["my-model"]
+
+
+def test_config_pricing_merges_over_static_catalog(tmp_path, monkeypatch):
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
+
+    pricing, meta = catalog.resolve_pricing({"pricing": {"my-model": {"input": 1, "output": 2}}})
+
+    assert pricing["claude-sonnet-4-6"] is not None
+    assert pricing["my-model"] == {"input": 1, "output": 2}
+    assert meta["source"] == "config+static"
+
+
+def test_invalid_config_pricing_entries_are_ignored(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
+    monkeypatch.setattr(catalog, "STATIC_CATALOG_PATH", tmp_path / "missing.json")
+    override = {
+        "ok-model": {"input": 1.0, "output": 2.0, "cache_read": 0.1, "note": "x"},
+        "no-output": {"input": 1.0},
+        "negative": {"input": -1.0, "output": 2.0},
+        "text-price": {"input": "1.0", "output": 2.0},
+        "bool-price": {"input": True, "output": 2.0},
+        "bad-cache": {"input": 1.0, "output": 2.0, "cache_write": None},
+        "not-a-map": 3,
+        "gpt-4o": {"output": 1.0},
+    }
+
+    pricing, meta = catalog.resolve_pricing({"pricing": override})
+
+    assert pricing["ok-model"] == {"input": 1.0, "output": 2.0, "cache_read": 0.1}
+    for model in ("no-output", "negative", "text-price", "bool-price", "bad-cache", "not-a-map"):
+        assert model not in pricing
+    assert pricing["gpt-4o"] == catalog.DEFAULT_PRICING["gpt-4o"]
+    assert meta["overrides"] == ["ok-model"]
+    assert "override inválido" in caplog.text
+
+
+def test_non_mapping_config_pricing_is_ignored(tmp_path, monkeypatch):
+    monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
+
+    pricing, meta = catalog.resolve_pricing({"pricing": ["gpt-4o"]})
+
+    assert meta["source"] == "static"
+    assert meta["overrides"] == []
 
 
 def test_valid_cache_wins_over_static_catalog(tmp_path, monkeypatch):
@@ -157,7 +212,7 @@ def test_resolve_pricing_reports_source_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(catalog, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
 
     pricing, meta = catalog.resolve_pricing({"pricing": {"x": {"input": 1, "output": 1}}})
-    assert meta["source"] == "config"
+    assert meta["source"] == "config+static"
 
     pricing, meta = catalog.resolve_pricing({})
     assert meta["source"] == "static"

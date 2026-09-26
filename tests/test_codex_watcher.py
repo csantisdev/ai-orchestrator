@@ -88,6 +88,9 @@ def test_newest_available_ts_excludes_threads_without_first_message(codex_env):
     assert ts_with_real is not None
 
 
+_PRICED_CONFIG = {"pricing": {"claude-sonnet-5": {"input": 3.0, "output": 15.0}}}
+
+
 def test_scan_and_import_refreshes_thread_that_grew(codex_env):
     alias, proj, conn, tmp = codex_env
     now_ms = int(time.time() * 1000)
@@ -98,12 +101,13 @@ def test_scan_and_import_refreshes_thread_that_grew(codex_env):
     updated_ms = now_ms - _IDLE_MS
     _upsert_thread(conn, "thread-a", proj, created_ms, updated_ms, "hola", str(rollout))
 
-    imported = codex_watcher.scan_and_import({}, quiet=True)
+    imported = codex_watcher.scan_and_import(_PRICED_CONFIG, quiet=True)
     assert len(imported) == 1
 
     row = _conn().execute(
-        "SELECT response, duration_ms FROM runs WHERE session_id=?", ("thread-a",)
+        "SELECT response, duration_ms, cost_usd, cost_pricing_key FROM runs WHERE session_id=?", ("thread-a",)
     ).fetchone()
+    assert row["cost_usd"] is not None and row["cost_pricing_key"] == "claude-sonnet-5"
     first_duration = row["duration_ms"]
     first_response = row["response"]
 
@@ -113,12 +117,13 @@ def test_scan_and_import_refreshes_thread_that_grew(codex_env):
     updated_ms_2 = now_ms - _IDLE_MS + 10_000
     _upsert_thread(conn, "thread-a", proj, created_ms, updated_ms_2, "hola", str(rollout))
 
-    imported_2 = codex_watcher.scan_and_import({}, quiet=True)
+    imported_2 = codex_watcher.scan_and_import(_PRICED_CONFIG, quiet=True)
     assert len(imported_2) == 1
 
     row_2 = _conn().execute(
-        "SELECT response, duration_ms FROM runs WHERE session_id=?", ("thread-a",)
+        "SELECT response, duration_ms, cost_usd, cost_pricing_key FROM runs WHERE session_id=?", ("thread-a",)
     ).fetchone()
+    assert row_2["cost_usd"] > row["cost_usd"] and row_2["cost_pricing_key"] == "claude-sonnet-5"
     assert row_2["duration_ms"] > first_duration
     assert row_2["response"] != first_response
     assert len(_conn().execute(

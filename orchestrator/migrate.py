@@ -447,6 +447,15 @@ def run_migrations() -> None:
                 conn.commit()
 
         with _write_lock:
+            if not _already_applied(conn, "add_cost_pricing_key_to_runs"):
+                try:
+                    conn.execute("ALTER TABLE runs ADD COLUMN cost_pricing_key TEXT")
+                except Exception:
+                    pass
+                _mark_applied(conn, "add_cost_pricing_key_to_runs")
+                conn.commit()
+
+        with _write_lock:
             if not _already_applied(conn, "add_file_hash_to_chunks"):
                 try:
                     conn.execute("ALTER TABLE chunks ADD COLUMN file_hash TEXT")

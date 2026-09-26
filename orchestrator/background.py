@@ -66,7 +66,7 @@ def _worker(
         from orchestrator import index as index_module
         from orchestrator import router as router_module
         from orchestrator.config import get_pricing_table
-        from orchestrator.costs import calculate_cost, check_budget
+        from orchestrator.costs import calculate_cost_with_key, check_budget
         from orchestrator.providers.factory import build_provider
 
         if ctx is None:
@@ -168,7 +168,7 @@ def _worker(
         duration_ms = int((time.monotonic() - t0) * 1000)
 
         pricing = get_pricing_table(config)
-        cost_usd = calculate_cost(result, pricing)
+        cost_usd, cost_pricing_key = calculate_cost_with_key(result, pricing)
 
         update_run(
             run_id=run_id,
@@ -178,6 +178,7 @@ def _worker(
             cost_usd=cost_usd,
             router_cost_usd=decision.router_cost_usd,
             routing_source=decision.routing_source,
+            cost_pricing_key=cost_pricing_key,
         )
 
         if _rag_chunks:

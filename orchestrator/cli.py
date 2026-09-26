@@ -24,7 +24,7 @@ from orchestrator import index as index_module
 from orchestrator import router as router_module
 from orchestrator.config import ConfigError, get_pricing_table, load_config
 from orchestrator.context import ContextNotFoundError, ProjectContext
-from orchestrator.costs import calculate_cost, check_budget
+from orchestrator.costs import calculate_cost_with_key, check_budget
 from orchestrator.dashboard import build_html
 from orchestrator.db import get_run, init_db, projects_list
 from orchestrator.egress import policy_for_project
@@ -275,7 +275,7 @@ def _execute_run(
     console.print(result.text)
 
     pricing = get_pricing_table(config)
-    cost_usd = calculate_cost(result, pricing)
+    cost_usd, cost_pricing_key = calculate_cost_with_key(result, pricing)
 
     run_id = history_module.log_run(
         project=project,
@@ -285,6 +285,7 @@ def _execute_run(
         routing_reason=decision.reason,
         cost_usd=cost_usd,
         routing_source=decision.routing_source,
+        cost_pricing_key=cost_pricing_key,
     )
 
     if run_id and _rag_chunks:
@@ -1234,6 +1235,31 @@ def doctor(
     else:
         ok("Todos los modelos usados tienen precio registrado")
 
+    try:
+        from orchestrator.db import run_cost_quality
+        _quality = run_cost_quality()
+    except Exception as exc:
+        _quality = None
+        info(f"No se pudo evaluar la calidad de los costos: {exc}")
+    if _quality is not None:
+        def _top(counts: dict) -> str:
+            items = sorted(counts.items(), key=lambda kv: -kv[1])
+            text = ", ".join(f"{name or '(sin modelo)'} ({n})" for name, n in items[:6])
+            return text + (f" (+{len(items) - 6} más)" if len(items) > 6 else "")
+
+        _missing = sum(_quality["missing"].values())
+        _approx = sum(_quality["approximate"].values())
+        if _missing:
+            warn(f"{_missing} run(s) con tokens y sin costo: {_top(_quality['missing'])}",
+                 "Agregá el precio del modelo y corré 'ai-orchestrator pricing recompute'")
+        if _approx:
+            warn(f"{_approx} run(s) con costo aproximado por precio de otro modelo: {_top(_quality['approximate'])}",
+                 "Agregá el precio exacto del modelo y corré 'ai-orchestrator pricing recompute'")
+        if _quality["untracked"]:
+            info(f"{_quality['untracked']} run(s) con costo anterior al registro de la clave de precio")
+        if not _missing and not _approx:
+            ok("Costos de runs calculados con precio exacto")
+
     from datetime import datetime as _dt, timedelta as _td, timezone as _tz
     from orchestrator.db import _conn as _doctor_conn
     _now = _dt.now(_tz.utc)
@@ -1797,6 +1823,7 @@ def pricing_show():
 
     table = Table(title=f"Precios efectivos (fuente: {meta['source']})")
     table.add_column("Modelo")
+    table.add_column("Origen")
     table.add_column("Input $/M", justify="right")
     table.add_column("Output $/M", justify="right")
     table.add_column("Cache write $/M", justify="right")
@@ -1804,6 +1831,7 @@ def pricing_show():
     for model, prices in sorted(pricing.items()):
         table.add_row(
             model,
+            "config" if model in meta.get("overrides", []) else "catálogo",
             f"{prices.get('input', 0):.3f}",
             f"{prices.get('output', 0):.3f}",
             f"{prices['cache_write']:.3f}" if "cache_write" in prices else "-",
@@ -1848,6 +1876,71 @@ def pricing_validate():
         table.add_row(m["provider"], m["model"])
     console.print(table)
     console.print(f"[yellow]{len(missing)} modelo(s) sin precio.[/yellow]")
+
+
+@pricing_app.command("recompute")
+def pricing_recompute(
+    apply: bool = typer.Option(False, "--apply", help="Escribe los costos recalculados; sin esta opción solo muestra el plan."),
+    include_untracked: bool = typer.Option(
+        False, "--include-untracked",
+        help="Incluye runs con costo que no registran la clave de precio (anteriores a su registro).",
+    ),
+    model: Optional[str] = typer.Option(None, "--model", help="Limitar a un modelo."),
+):
+    """Recalcula cost_usd de runs sin costo o con costo aproximado usando el precio exacto vigente."""
+    _ensure_db()
+    try:
+        config = load_config()
+    except ConfigError:
+        config = {}
+    from datetime import datetime as _dt
+    from orchestrator.db import apply_cost_recompute, backup_database, plan_cost_recompute
+
+    plan = plan_cost_recompute(get_pricing_table(config), include_untracked=include_untracked, model=model)
+    if not plan:
+        console.print("[green]✓[/green] No hay runs para recalcular.")
+        return
+
+    groups: dict = {}
+    for item in plan:
+        group = groups.setdefault((item["model"], item["reason"]), {"runs": 0, "old": 0.0, "new": 0.0, "priced": 0})
+        group["runs"] += 1
+        group["old"] += item["old_cost"] or 0.0
+        if item["new_key"] is not None:
+            group["priced"] += 1
+            group["new"] += item["new_cost"]
+        else:
+            group["new"] += item["old_cost"] or 0.0
+
+    reasons = {"missing": "sin costo", "approximate": "aproximado", "untracked": "sin clave"}
+    table = Table(title="Recálculo de costos" + ("" if apply else " (simulación)"))
+    table.add_column("Modelo")
+    table.add_column("Motivo")
+    table.add_column("Runs", justify="right")
+    table.add_column("Con precio exacto", justify="right")
+    table.add_column("Costo actual", justify="right")
+    table.add_column("Costo nuevo", justify="right")
+    for (run_model, reason), group in sorted(groups.items()):
+        table.add_row(
+            run_model or "(sin modelo)", reasons[reason], str(group["runs"]), str(group["priced"]),
+            f"{group['old']:.2f}", f"{group['new']:.2f}",
+        )
+    console.print(table)
+
+    unpriced = sum(1 for item in plan if item["new_key"] is None)
+    if unpriced:
+        console.print(f"[yellow]{unpriced} run(s) sin precio exacto quedan sin cambios.[/yellow]")
+    if not apply:
+        console.print("[dim]Simulación: no se escribió nada. Usá --apply para aplicar (hace un respaldo de runs.db antes).[/dim]")
+        return
+    if unpriced == len(plan):
+        return
+
+    import orchestrator.paths as _paths
+    backup = backup_database(_paths.HOME_DIR / "backups" / f"runs-{_dt.now().strftime('%Y%m%dT%H%M%S')}.db")
+    console.print(f"[dim]Respaldo: {backup}[/dim]")
+    changed = apply_cost_recompute(plan)
+    console.print(f"[green]✓[/green] {changed} run(s) actualizados.")
 
 
 models_app = typer.Typer(help="Discovery de modelos disponibles por proveedor (Decisión 0002).")

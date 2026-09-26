@@ -9,14 +9,24 @@ from orchestrator.providers.base import CompletionResult
 _log = logging.getLogger(__name__)
 
 DEFAULT_PRICING: dict[str, dict[str, float]] = {
+    "claude-fable-5":     {"input": 10.00, "output": 50.00, "cache_write": 12.50, "cache_read": 1.00},
+    "claude-opus-5-5":    {"input": 4.00,  "output": 20.00, "cache_write": 5.00,  "cache_read": 0.20},
+    "claude-opus-5":      {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
+    "claude-sonnet-5":    {"input": 2.00,  "output": 10.00, "cache_write": 2.50,  "cache_read": 0.20},
     "claude-sonnet-4-6":  {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
-    "claude-opus-4-8":    {"input": 15.00, "output": 75.00, "cache_write": 18.75, "cache_read": 1.50},
-    "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.00, "cache_write": 1.00, "cache_read": 0.08},
-    "gpt-4o":             {"input": 5.00,  "output": 15.00, "cache_read": 1.25},
+    "claude-opus-4-8":    {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
+    "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00, "cache_write": 1.25, "cache_read": 0.10},
+    "gpt-4o":             {"input": 2.50,  "output": 10.00, "cache_read": 1.25},
     "gpt-4o-mini":        {"input": 0.15,  "output": 0.60,  "cache_read": 0.075},
-    # gpt-5.x (Codex CLI): exact pricing varies by version — verificar en platform.openai.com/pricing
-    "gpt-5.4-mini":       {"input": 1.50,  "output": 6.00,  "cache_read": 0.375},
-    "gpt-5":              {"input": 3.00,  "output": 15.00, "cache_read": 0.75},
+    "gpt-5.4-mini":       {"input": 0.75,  "output": 4.50,  "cache_read": 0.075},
+    "gpt-5":              {"input": 1.25,  "output": 10.00, "cache_read": 0.125},
+    "gpt-5.6-sol":        {"input": 4.00,  "output": 20.00, "cache_write": 5.00,  "cache_read": 0.40},
+    "gpt-5.6-terra":      {"input": 2.00,  "output": 12.00, "cache_write": 2.50,  "cache_read": 0.20},
+    "gpt-5.6-luna":       {"input": 0.20,  "output": 1.20,  "cache_write": 0.25,  "cache_read": 0.02},
+    "gpt-5.5":            {"input": 5.00,  "output": 30.00, "cache_read": 0.50},
+    "gpt-5.4":            {"input": 2.50,  "output": 15.00, "cache_read": 0.25},
+    "gpt-5.3-codex":      {"input": 1.75,  "output": 14.00, "cache_read": 0.175},
+    "gpt-5.1-codex-max":  {"input": 1.25,  "output": 10.00, "cache_read": 0.125},
     "deepseek-v4-flash":  {"input": 0.14,  "output": 0.28},
     "deepseek-chat":      {"input": 0.14,  "output": 0.28},
     # verificar precio vigente en platform.deepseek.com/api-docs
@@ -27,17 +37,40 @@ DEFAULT_PRICING: dict[str, dict[str, float]] = {
 }
 
 
-def calculate_cost(result: CompletionResult, pricing: dict) -> float | None:
-    model_key = result.model
-    table = pricing.get(model_key) or pricing.get(model_key.split("/")[-1])
-    if not table:
-        for key in pricing:
-            if key in model_key:
-                table = pricing[key]
-                _log.warning("pricing: substring fallback %r → %r; add exact key to config", model_key, key)
-                break
-    if not table:
+# Anthropic reporta input_tokens sin los tokens de cache; OpenAI y el resto los incluyen.
+_CACHE_EXCLUSIVE_PROVIDERS = frozenset({"claude", "claude-code", "anthropic"})
+
+
+def resolve_price_key(model: str, pricing: dict) -> str | None:
+    """Clave de `pricing` usada para costear `model`; la subcadena más larga como último recurso."""
+    if not model:
         return None
+    for key in (model, model.split("/")[-1]):
+        if pricing.get(key):
+            return key
+    matches = [key for key in pricing if key and key in model and pricing.get(key)]
+    if not matches:
+        return None
+    key = max(matches, key=len)
+    _log.warning("pricing: substring fallback %r → %r; add exact key to config", model, key)
+    return key
+
+
+def is_approximate_price_key(model: str, price_key: str | None) -> bool:
+    """True si el costo se calculó con el precio de otro modelo (fallback por subcadena)."""
+    return bool(price_key) and price_key not in (model, model.split("/")[-1])
+
+
+def calculate_cost(result: CompletionResult, pricing: dict) -> float | None:
+    return calculate_cost_with_key(result, pricing)[0]
+
+
+def calculate_cost_with_key(result: CompletionResult, pricing: dict) -> tuple[float | None, str | None]:
+    """Costo estimado y clave de precio usada; `(None, None)` si el modelo no tiene precio."""
+    key = resolve_price_key(result.model or "", pricing)
+    if key is None:
+        return None, None
+    table = pricing[key]
 
     usage = (result.raw_response or {}).get("usage", {})
     inp = result.input_tokens or usage.get("input_tokens") or usage.get("prompt_tokens") or 0
@@ -45,14 +78,17 @@ def calculate_cost(result: CompletionResult, pricing: dict) -> float | None:
     cc  = getattr(result, "cache_creation_tokens", 0) or 0
     cr  = getattr(result, "cache_read_tokens", 0) or 0
 
-    inp_billable = max(inp - cc - cr, 0)
+    if result.provider in _CACHE_EXCLUSIVE_PROVIDERS:
+        inp_billable = inp
+    else:
+        inp_billable = max(inp - cc - cr, 0)
     cost = (
         inp_billable * table.get("input", 0)      / 1_000_000
         + out         * table.get("output", 0)    / 1_000_000
         + cc          * table.get("cache_write", table.get("input", 0)) / 1_000_000
         + cr          * table.get("cache_read",  table.get("input", 0)) / 1_000_000
     )
-    return round(cost, 6)
+    return round(cost, 6), key
 
 
 def check_budget(project: str, config: dict, daily_budget_usd: float | None = None) -> dict:

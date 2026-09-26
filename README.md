@@ -500,6 +500,8 @@ Los precios efectivos se resuelven con esta precedencia: override en `config.yam
 ai-orchestrator pricing show        # tabla efectiva, fuente y fecha
 ai-orchestrator pricing refresh     # fuerza refresh remoto si allow_remote está activo
 ai-orchestrator pricing validate    # modelos usados en runs.db sin precio
+ai-orchestrator pricing recompute   # simula el recálculo de runs sin costo o con costo aproximado
+ai-orchestrator pricing recompute --apply   # lo aplica, con respaldo previo de runs.db
 
 ai-orchestrator models refresh      # consulta el API de cada proveedor configurado (best-effort)
 ai-orchestrator models list         # modelos disponibles vs. con precio en el catálogo

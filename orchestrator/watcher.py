@@ -206,7 +206,7 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
     Retorna lista de resúmenes de lo importado.
     """
     from orchestrator.config import get_pricing_table
-    from orchestrator.costs import calculate_cost
+    from orchestrator.costs import calculate_cost_with_key
     from orchestrator.db import _conn, _write_lock, init_db
     from orchestrator.index import load_index
     from orchestrator.providers.base import CompletionResult
@@ -227,7 +227,8 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
             session = _parse_session(jsonl_file)
             if session is None:
                 continue
-            if session.input_tokens + session.output_tokens == 0:
+            if (session.input_tokens + session.output_tokens
+                    + session.cache_creation_tokens + session.cache_read_tokens) == 0:
                 continue
 
             project_alias = _cwd_to_alias(session.project_cwd, index)
@@ -246,7 +247,7 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                 cache_creation_tokens=session.cache_creation_tokens,
                 cache_read_tokens=session.cache_read_tokens,
             )
-            cost_usd = calculate_cost(fake_result, pricing)
+            cost_usd, cost_pricing_key = calculate_cost_with_key(fake_result, pricing)
 
             try:
                 from orchestrator.tracer import span as _tspan
@@ -282,7 +283,8 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                                    task         = CASE WHEN ? != '' THEN ? ELSE task END,
                                    task_preview = CASE WHEN ? != '' THEN ? ELSE task_preview END,
                                    duration_ms = ?, input_tokens = ?, output_tokens = ?,
-                                   cache_creation_tokens = ?, cache_read_tokens = ?, cost_usd = ?
+                                   cache_creation_tokens = ?, cache_read_tokens = ?, cost_usd = ?,
+                                   cost_pricing_key = ?
                                    WHERE id=?""",
                                 (
                                     session.response_text, session.response_text,
@@ -290,7 +292,7 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                                     session.task_preview, session.task_preview,
                                     session.duration_ms, session.input_tokens, session.output_tokens,
                                     session.cache_creation_tokens, session.cache_read_tokens,
-                                    cost_usd, existing["id"],
+                                    cost_usd, cost_pricing_key, existing["id"],
                                 ),
                             )
                             conn.commit()
@@ -317,8 +319,8 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                                 task, task_preview, response,
                                 duration_ms, input_tokens, output_tokens,
                                 cache_creation_tokens, cache_read_tokens,
-                                cost_usd, routing_reason, session_id)
-                               VALUES (?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                cost_usd, routing_reason, session_id, cost_pricing_key)
+                               VALUES (?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                             (
                                 session.ts_start,
                                 project_alias,
@@ -335,6 +337,7 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                                 cost_usd,
                                 f"Claude Code session · {session.slug[:40]}",
                                 session.session_id,
+                                cost_pricing_key,
                             ),
                         )
                         if cur.rowcount:
