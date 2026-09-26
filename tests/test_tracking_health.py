@@ -124,3 +124,32 @@ def test_tracking_health_is_silent_for_healthy_context(isolated_db):
     isolated_db.start_step(step_id)
 
     assert _warnings(isolated_db, {"demo"}) == []
+
+
+def test_tracking_health_uses_linked_runs_as_recent_activity(isolated_db):
+    context_id = isolated_db.insert_context("demo", "Current")
+    step_id = isolated_db.insert_step(context_id, 1, "Work")
+    isolated_db.start_step(step_id)
+    old = (datetime(2026, 1, 30, tzinfo=timezone.utc) - timedelta(days=8)).isoformat()
+    recent = (datetime(2026, 1, 30, tzinfo=timezone.utc) - timedelta(days=1)).isoformat()
+    isolated_db._conn().execute("UPDATE steps SET started_at=? WHERE id=?", (old, step_id))
+    isolated_db._conn().execute(
+        "INSERT INTO runs (ts, project, step_id) VALUES (?, 'demo', ?)",
+        (recent, step_id),
+    )
+    isolated_db._conn().commit()
+
+    assert _warnings(isolated_db, {"demo"}, stale_in_progress_days=7) == []
+
+
+def test_tracking_health_limits_warnings_to_selected_project(isolated_db):
+    isolated_db.insert_context("demo", "First")
+    isolated_db.insert_context("demo", "Second")
+    isolated_db.insert_context("other", "First")
+    isolated_db.insert_context("other", "Second")
+    isolated_db.insert_context("missing", "Unregistered")
+
+    warnings = _warnings(isolated_db, {"demo", "other"}, project="demo")
+
+    assert _codes(warnings) == ["multiple_active_contexts"]
+    assert warnings[0]["message"].startswith("demo:")

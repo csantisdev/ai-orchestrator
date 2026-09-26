@@ -23,15 +23,23 @@ def tracking_health_warnings(
     now: datetime | None = None,
     stale_in_progress_days: int = 7,
     stale_scheduled_days: int = 60,
+    project: str | None = None,
 ) -> list[dict[str, str]]:
-    """Return actionable warnings without changing tracking records."""
+    """Return actionable warnings without changing tracking records.
+
+    ``project`` limits the diagnosis to one alias; ``registered_projects`` must
+    still list every registered alias so the registration check stays accurate.
+    """
     now = now or datetime.now(timezone.utc)
     registered = set(registered_projects)
     warnings: list[dict[str, str]] = []
+    project_filter = " AND project=?" if project else ""
+    project_params: tuple[str, ...] = (project,) if project else ()
 
     active_projects = conn.execute(
-        """SELECT project, COUNT(*) AS count FROM contexts
-           WHERE status='active' GROUP BY project HAVING COUNT(*) > 1"""
+        f"""SELECT project, COUNT(*) AS count FROM contexts
+           WHERE status='active'{project_filter} GROUP BY project HAVING COUNT(*) > 1""",
+        project_params,
     ).fetchall()
     for row in active_projects:
         warnings.append({
@@ -41,8 +49,9 @@ def tracking_health_warnings(
         })
 
     contexts = conn.execute(
-        """SELECT * FROM contexts WHERE status IN ('active', 'programado')
-           ORDER BY id"""
+        f"""SELECT * FROM contexts WHERE status IN ('active', 'programado'){project_filter}
+           ORDER BY id""",
+        project_params,
     ).fetchall()
     for context in contexts:
         context_id = context["id"]
@@ -75,7 +84,7 @@ def tracking_health_warnings(
             ).fetchall()
             for step in active_steps:
                 timestamps = [_parse_datetime(step["started_at"])]
-                for table in ("alignments", "tool_calls"):
+                for table in ("alignments", "tool_calls", "runs"):
                     row = conn.execute(
                         f"SELECT MAX(ts) AS ts FROM {table} WHERE step_id=?", (step["id"],)
                     ).fetchone()
