@@ -61,15 +61,17 @@ def context_exists(project_path: Path) -> bool:
 
 def template_fields(raw: dict) -> list[str]:
     """Return context.yaml fields that still contain generated placeholder text."""
-    found = []
-    if raw.get("stack") == TEMPLATE_STACK:
-        found.append("stack")
-    if raw.get("description") == TEMPLATE_DESCRIPTION:
-        found.append("description")
-    if TEMPLATE_CONVENTION in (raw.get("conventions") or []):
-        found.append("conventions")
-    if (raw.get("preferred_models") or {}).get("notes") == TEMPLATE_PREFERRED_MODELS_NOTES:
-        found.append("preferred_models.notes")
+    found: list[str] = []
+    for field, placeholder in TEMPLATE_CONTEXT_FIELDS.items():
+        if field == "conventions":
+            matches = placeholder in (raw.get(field) or [])
+        elif "." in field:
+            parent, child = field.split(".", 1)
+            matches = (raw.get(parent) or {}).get(child) == placeholder
+        else:
+            matches = raw.get(field) == placeholder
+        if matches:
+            found.append(field)
     return found
 
 

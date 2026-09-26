@@ -1186,7 +1186,7 @@ def doctor(
                 if resp_count > 0:
                     info(f"  RAG responses: {resp_count} vectores")
 
-    # ── 5. Ingesta y pricing ────────────────────────────────────────────────
+    # ── 5. Salud del tracking ───────────────────────────────────────────────
     console.print("\n[bold cyan]Salud del tracking[/bold cyan]")
     try:
         from orchestrator.db import _conn as _tracking_conn
