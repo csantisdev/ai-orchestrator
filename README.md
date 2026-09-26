@@ -27,7 +27,7 @@ con dashboard en vivo, tracking de costo y memoria RAG.
 
 Los agentes IA (Claude Code, Codex, DeepSeek) generan valor en tareas acotadas, pero el historial queda disperso en archivos de sesión separados, sin visibilidad de costos ni contexto acumulado entre conversaciones. Sin memoria estructurada, cada sesión empieza desde cero y el gasto es opaco.
 
-ai-orchestrator centraliza ese historial localmente: indexa respuestas previas en ChromaDB, rutea cada tarea al modelo más eficiente según el contexto del proyecto, y registra tokens y costo USD de cada run en SQLite. El dashboard SSE muestra el estado en tiempo real. El servidor MCP expone 12 herramientas para que cualquier agente pueda leer y escribir en el historial sin salir de su entorno de trabajo.
+ai-orchestrator centraliza ese historial localmente: indexa respuestas previas en ChromaDB, rutea cada tarea al modelo más eficiente según el contexto del proyecto, y registra tokens y costo USD de cada run en SQLite. El dashboard SSE muestra el estado en tiempo real. El servidor MCP expone 14 herramientas para que cualquier agente pueda leer y escribir en el historial sin salir de su entorno de trabajo.
 
 ---
 

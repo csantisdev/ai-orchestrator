@@ -135,6 +135,27 @@ def test_gemini_provider_sends_key_in_header_not_url():
     assert mock_post.call_args.kwargs["headers"] == {"x-goog-api-key": "AIza-secret"}
 
 
+def test_gemini_provider_stream_sends_key_in_header_not_url():
+    from orchestrator.providers.gemini import GeminiProvider
+    event = (
+        'data: {"candidates": [{"content": {"parts": [{"text": "hola"}]}, "finishReason": "STOP"}], '
+        '"usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 2}}'
+    )
+    response = MagicMock()
+    response.iter_lines.return_value = [event]
+    stream_cm = MagicMock()
+    stream_cm.__enter__.return_value = response
+    with patch("httpx.stream", return_value=stream_cm) as mock_stream:
+        p = GeminiProvider(api_key="AIza-secret", model="gemini-2.5-flash")
+        chunks = list(p.complete_stream("tarea"))
+    assert chunks == ["hola"]
+    url = mock_stream.call_args.args[1]
+    assert "AIza-secret" not in url
+    assert "key=" not in url
+    assert url.endswith(":streamGenerateContent?alt=sse")
+    assert mock_stream.call_args.kwargs["headers"] == {"x-goog-api-key": "AIza-secret"}
+
+
 # ── Secret filter expansion tests ───────────────────────────────────────────
 
 def test_secret_filter_aws():
