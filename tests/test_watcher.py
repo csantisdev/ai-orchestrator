@@ -81,6 +81,9 @@ def test_newest_available_mtime_skips_empty_files(cc_env, monkeypatch):
     assert newest.year != 2020
 
 
+_PRICED_CONFIG = {"pricing": {"claude-sonnet-5": {"input": 3.0, "output": 15.0}}}
+
+
 def test_scan_and_import_refreshes_session_that_grew(cc_env):
     alias, _proj, projects_dir = cc_env
     slug_dir = projects_dir / "slug-1"
@@ -90,12 +93,13 @@ def test_scan_and_import_refreshes_session_that_grew(cc_env):
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     _write_session(session_file, "session-a", _proj, turns=1, base=base)
 
-    imported = watcher.scan_and_import({}, quiet=True)
+    imported = watcher.scan_and_import(_PRICED_CONFIG, quiet=True)
     assert len(imported) == 1
 
     row = _conn().execute(
-        "SELECT response, duration_ms FROM runs WHERE session_id=?", ("session-a",)
+        "SELECT response, duration_ms, cost_usd, cost_pricing_key FROM runs WHERE session_id=?", ("session-a",)
     ).fetchone()
+    assert row["cost_usd"] is not None and row["cost_pricing_key"] == "claude-sonnet-5"
     assert row is not None
     first_duration = row["duration_ms"]
     first_response = row["response"]
@@ -104,12 +108,13 @@ def test_scan_and_import_refreshes_session_that_grew(cc_env):
     # duracion) al MISMO archivo.
     _write_session(session_file, "session-a", _proj, turns=3, base=base)
 
-    imported_2 = watcher.scan_and_import({}, quiet=True)
+    imported_2 = watcher.scan_and_import(_PRICED_CONFIG, quiet=True)
     assert len(imported_2) == 1  # se re-proceso, no se salteo
 
     row_2 = _conn().execute(
-        "SELECT response, duration_ms FROM runs WHERE session_id=?", ("session-a",)
+        "SELECT response, duration_ms, cost_usd, cost_pricing_key FROM runs WHERE session_id=?", ("session-a",)
     ).fetchone()
+    assert row_2["cost_usd"] > row["cost_usd"] and row_2["cost_pricing_key"] == "claude-sonnet-5"
     assert row_2["duration_ms"] > first_duration
     assert row_2["response"] != first_response
     assert len(_conn().execute(

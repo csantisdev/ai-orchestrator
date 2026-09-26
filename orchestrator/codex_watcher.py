@@ -171,7 +171,7 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
     import sqlite3
 
     from orchestrator.config import get_pricing_table
-    from orchestrator.costs import calculate_cost
+    from orchestrator.costs import calculate_cost_with_key
     from orchestrator.db import _conn, _write_lock, init_db
     from orchestrator.index import load_index
     from orchestrator.providers.base import CompletionResult
@@ -265,7 +265,7 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                 }},
                 cache_read_tokens=cache_read,
             )
-            cost_usd = calculate_cost(fake_result, pricing)
+            cost_usd, cost_pricing_key = calculate_cost_with_key(fake_result, pricing)
 
             if existing_row is not None:
                 with _write_lock:
@@ -273,12 +273,12 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                         """UPDATE runs SET
                            model = ?, task = ?, task_preview = ?, response = ?,
                            duration_ms = ?, input_tokens = ?, output_tokens = ?,
-                           cache_read_tokens = ?, cost_usd = ?
+                           cache_read_tokens = ?, cost_usd = ?, cost_pricing_key = ?
                            WHERE id = ?""",
                         (
                             model, task, task[:150], response_text,
                             duration_ms, input_tokens, output_tokens,
-                            cache_read, cost_usd, existing_row["id"],
+                            cache_read, cost_usd, cost_pricing_key, existing_row["id"],
                         ),
                     )
                     conn.commit()
@@ -291,8 +291,8 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                             task, task_preview, response,
                             duration_ms, input_tokens, output_tokens,
                             cache_creation_tokens, cache_read_tokens,
-                            cost_usd, routing_reason, session_id)
-                           VALUES (?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
+                            cost_usd, routing_reason, session_id, cost_pricing_key)
+                           VALUES (?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)""",
                         (
                             ts_start,
                             project_alias,
@@ -308,6 +308,7 @@ def scan_and_import(config: dict, quiet: bool = False) -> list[dict]:
                             cost_usd,
                             f"Codex thread · {thread_id[:8]}",
                             thread_id,
+                            cost_pricing_key,
                         ),
                     )
                     if cur.rowcount:

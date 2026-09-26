@@ -27,17 +27,36 @@ DEFAULT_PRICING: dict[str, dict[str, float]] = {
 }
 
 
-def calculate_cost(result: CompletionResult, pricing: dict) -> float | None:
-    model_key = result.model
-    table = pricing.get(model_key) or pricing.get(model_key.split("/")[-1])
-    if not table:
-        for key in pricing:
-            if key in model_key:
-                table = pricing[key]
-                _log.warning("pricing: substring fallback %r → %r; add exact key to config", model_key, key)
-                break
-    if not table:
+def resolve_price_key(model: str, pricing: dict) -> str | None:
+    """Clave de `pricing` usada para costear `model`; la subcadena más larga como último recurso."""
+    if not model:
         return None
+    for key in (model, model.split("/")[-1]):
+        if pricing.get(key):
+            return key
+    matches = [key for key in pricing if key and key in model and pricing.get(key)]
+    if not matches:
+        return None
+    key = max(matches, key=len)
+    _log.warning("pricing: substring fallback %r → %r; add exact key to config", model, key)
+    return key
+
+
+def is_approximate_price_key(model: str, price_key: str | None) -> bool:
+    """True si el costo se calculó con el precio de otro modelo (fallback por subcadena)."""
+    return bool(price_key) and price_key not in (model, model.split("/")[-1])
+
+
+def calculate_cost(result: CompletionResult, pricing: dict) -> float | None:
+    return calculate_cost_with_key(result, pricing)[0]
+
+
+def calculate_cost_with_key(result: CompletionResult, pricing: dict) -> tuple[float | None, str | None]:
+    """Costo estimado y clave de precio usada; `(None, None)` si el modelo no tiene precio."""
+    key = resolve_price_key(result.model or "", pricing)
+    if key is None:
+        return None, None
+    table = pricing[key]
 
     usage = (result.raw_response or {}).get("usage", {})
     inp = result.input_tokens or usage.get("input_tokens") or usage.get("prompt_tokens") or 0
@@ -52,7 +71,7 @@ def calculate_cost(result: CompletionResult, pricing: dict) -> float | None:
         + cc          * table.get("cache_write", table.get("input", 0)) / 1_000_000
         + cr          * table.get("cache_read",  table.get("input", 0)) / 1_000_000
     )
-    return round(cost, 6)
+    return round(cost, 6), key
 
 
 def check_budget(project: str, config: dict, daily_budget_usd: float | None = None) -> dict:

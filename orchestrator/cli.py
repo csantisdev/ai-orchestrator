@@ -24,7 +24,7 @@ from orchestrator import index as index_module
 from orchestrator import router as router_module
 from orchestrator.config import ConfigError, get_pricing_table, load_config
 from orchestrator.context import ContextNotFoundError, ProjectContext
-from orchestrator.costs import calculate_cost, check_budget
+from orchestrator.costs import calculate_cost_with_key, check_budget
 from orchestrator.dashboard import build_html
 from orchestrator.db import get_run, init_db, projects_list
 from orchestrator.egress import policy_for_project
@@ -275,7 +275,7 @@ def _execute_run(
     console.print(result.text)
 
     pricing = get_pricing_table(config)
-    cost_usd = calculate_cost(result, pricing)
+    cost_usd, cost_pricing_key = calculate_cost_with_key(result, pricing)
 
     run_id = history_module.log_run(
         project=project,
@@ -285,6 +285,7 @@ def _execute_run(
         routing_reason=decision.reason,
         cost_usd=cost_usd,
         routing_source=decision.routing_source,
+        cost_pricing_key=cost_pricing_key,
     )
 
     if run_id and _rag_chunks:
@@ -1233,6 +1234,31 @@ def doctor(
              "Agregá el precio en config.yaml → pricing, o corré 'ai-orchestrator pricing validate'")
     else:
         ok("Todos los modelos usados tienen precio registrado")
+
+    try:
+        from orchestrator.db import run_cost_quality
+        _quality = run_cost_quality()
+    except Exception as exc:
+        _quality = None
+        info(f"No se pudo evaluar la calidad de los costos: {exc}")
+    if _quality is not None:
+        def _top(counts: dict) -> str:
+            items = sorted(counts.items(), key=lambda kv: -kv[1])
+            text = ", ".join(f"{name or '(sin modelo)'} ({n})" for name, n in items[:6])
+            return text + (f" (+{len(items) - 6} más)" if len(items) > 6 else "")
+
+        _missing = sum(_quality["missing"].values())
+        _approx = sum(_quality["approximate"].values())
+        if _missing:
+            warn(f"{_missing} run(s) con tokens y sin costo: {_top(_quality['missing'])}",
+                 "Agregá el precio del modelo y recalculá los costos")
+        if _approx:
+            warn(f"{_approx} run(s) con costo aproximado por precio de otro modelo: {_top(_quality['approximate'])}",
+                 "Agregá el precio exacto del modelo y recalculá los costos")
+        if _quality["untracked"]:
+            info(f"{_quality['untracked']} run(s) con costo anterior al registro de la clave de precio")
+        if not _missing and not _approx:
+            ok("Costos de runs calculados con precio exacto")
 
     from datetime import datetime as _dt, timedelta as _td, timezone as _tz
     from orchestrator.db import _conn as _doctor_conn

@@ -204,6 +204,7 @@ def update_run(
     cost_usd: Optional[float] = None,
     router_cost_usd: Optional[float] = None,
     routing_source: str = "unknown",
+    cost_pricing_key: Optional[str] = None,
 ) -> None:
     conn = _conn()
     in_tok, out_tok = _extract_tokens(result)
@@ -213,14 +214,16 @@ def update_run(
                provider=?, model=?, status='done', response=?,
                duration_ms=?, input_tokens=?, output_tokens=?,
                cache_creation_tokens=?, cache_read_tokens=?,
-               cost_usd=?, routing_reason=?, router_cost_usd=?, routing_source=?
+               cost_usd=?, routing_reason=?, router_cost_usd=?, routing_source=?,
+               cost_pricing_key=?
                WHERE id=?""",
             (
                 result.provider, result.model, result.text,
                 duration_ms, in_tok, out_tok,
                 getattr(result, "cache_creation_tokens", 0),
                 getattr(result, "cache_read_tokens", 0),
-                cost_usd, routing_reason, router_cost_usd, routing_source, run_id,
+                cost_usd, routing_reason, router_cost_usd, routing_source,
+                cost_pricing_key, run_id,
             ),
         )
         conn.commit()
@@ -752,3 +755,26 @@ def activate_first_step(context_id: int) -> bool:
         )
         commit_if_not_atomic(conn)
         return True
+
+
+def run_cost_quality() -> dict:
+    """Runs con tokens cuyo costo falta, es aproximado o no registra la clave de precio usada."""
+    from orchestrator.costs import is_approximate_price_key
+    rows = _conn().execute(
+        """SELECT model, cost_pricing_key, cost_usd IS NULL AS missing, COUNT(*) AS n
+           FROM runs
+           WHERE provider != 'git'
+             AND COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) > 0
+           GROUP BY model, cost_pricing_key, missing"""
+    ).fetchall()
+    summary = {"missing": {}, "approximate": {}, "untracked": 0}
+    for row in rows:
+        model, key, n = row["model"] or "", row["cost_pricing_key"], row["n"]
+        if row["missing"]:
+            summary["missing"][model] = summary["missing"].get(model, 0) + n
+        elif key is None:
+            summary["untracked"] += n
+        elif is_approximate_price_key(model, key):
+            label = f"{model} → {key}"
+            summary["approximate"][label] = summary["approximate"].get(label, 0) + n
+    return summary
