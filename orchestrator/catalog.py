@@ -1,11 +1,14 @@
 """Catalogo versionado de precios de modelos (Decision 0002).
 
 Orden de precedencia de `load_price_catalog`:
-1. `config["pricing"]` — override explicito del usuario.
+1. `config["pricing"]` — override explicito del usuario, por modelo: pisa solo
+   las claves que declara sobre la tabla base.
 2. Cache local vigente (`~/.ai-orchestrator/pricing-cache.json`).
 3. Catalogo remoto, solo si `refresh=True` y `catalog.allow_remote` esta activo.
 4. Catalogo estatico bundleado (`docs/pricing/models.json`).
 5. `DEFAULT_PRICING` en `orchestrator/costs.py`.
+
+La tabla base es la primera fuente disponible entre 2 y 5.
 """
 
 from __future__ import annotations
@@ -105,14 +108,54 @@ def _write_cache(payload: dict) -> None:
         _log.warning("catalog: no se pudo escribir cache: %s", exc)
 
 
+_PRICE_FIELDS = ("input", "output", "cache_write", "cache_read")
+
+
+def _is_price(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+
+
+def _valid_overrides(raw) -> dict:
+    """Filtra `config["pricing"]`: descarta con warning las entradas mal formadas."""
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        _log.warning("pricing: config.pricing debe ser un mapa modelo → precios; se ignora")
+        return {}
+    valid: dict = {}
+    for model, table in raw.items():
+        if (
+            not isinstance(model, str)
+            or not isinstance(table, dict)
+            or not all(_is_price(table.get(field)) for field in ("input", "output"))
+            or not all(_is_price(table[field]) for field in _PRICE_FIELDS[2:] if field in table)
+        ):
+            _log.warning(
+                "pricing: override inválido para %r en config.pricing; requiere input y output numéricos >= 0",
+                model,
+            )
+            continue
+        valid[model] = {field: table[field] for field in _PRICE_FIELDS if field in table}
+    return valid
+
+
 def resolve_pricing(config: dict, refresh: bool = False) -> tuple[dict, dict]:
     """Como `load_price_catalog`, pero retorna tambien metadata de la fuente usada.
 
-    Metadata: `{"source": "config"|"cache"|"remote"|"static"|"default", "updated_at": str|None}`.
+    Metadata: `{"source": "cache"|"remote"|"static"|"default", "updated_at": str|None,
+    "overrides": [modelos pisados desde config.pricing]}`. Con overrides, `source`
+    lleva el prefijo `config+`.
     """
-    if config.get("pricing"):
-        return config["pricing"], {"source": "config", "updated_at": None}
+    pricing, meta = _resolve_base_pricing(config, refresh)
+    overrides = _valid_overrides(config.get("pricing"))
+    meta["overrides"] = sorted(overrides)
+    if overrides:
+        pricing = {**pricing, **overrides}
+        meta["source"] = f"config+{meta['source']}"
+    return pricing, meta
 
+
+def _resolve_base_pricing(config: dict, refresh: bool) -> tuple[dict, dict]:
     cached = _read_cache(config)
     if cached:
         pricing = _extract_pricing(cached)
@@ -133,7 +176,7 @@ def resolve_pricing(config: dict, refresh: bool = False) -> tuple[dict, dict]:
         if pricing:
             return pricing, {"source": "static", "updated_at": static.get("updated_at")}
 
-    return DEFAULT_PRICING, {"source": "default", "updated_at": None}
+    return dict(DEFAULT_PRICING), {"source": "default", "updated_at": None}
 
 
 def load_price_catalog(config: dict, refresh: bool = False) -> dict:

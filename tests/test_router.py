@@ -97,18 +97,16 @@ def test_local_router_falls_back_to_cheapest_permitted():
 
 def test_local_router_reports_missing_prices_without_claiming_known_minimum():
     ctx = _ctx(default_provider="ghost")
-    config = {
-        **_CONFIG,
-        "defaults": {"default_provider": "ghost"},
-        "pricing": {
-            "claude-v4": {"input": None},
-            "gpt-4o": {"input": None},
-            "deepseek-v4-flash": {"input": None},
-            "gemini-2.5-flash": {"input": None},
-        },
+    config = {**_CONFIG, "defaults": {"default_provider": "ghost"}}
+    unpriced = {
+        "claude-v4": {"input": None},
+        "gpt-4o": {"input": None},
+        "deepseek-v4-flash": {"input": None},
+        "gemini-2.5-flash": {"input": None},
     }
 
-    with _active_project_policy(ctx, config):
+    with _active_project_policy(ctx, config), \
+         patch("orchestrator.router.get_effective_pricing", return_value=unpriced):
         decision = decide_with_local_router("documentar el módulo", ctx, config)
 
     assert decision.provider in PROVIDERS

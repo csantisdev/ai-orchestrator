@@ -1797,6 +1797,7 @@ def pricing_show():
 
     table = Table(title=f"Precios efectivos (fuente: {meta['source']})")
     table.add_column("Modelo")
+    table.add_column("Origen")
     table.add_column("Input $/M", justify="right")
     table.add_column("Output $/M", justify="right")
     table.add_column("Cache write $/M", justify="right")
@@ -1804,6 +1805,7 @@ def pricing_show():
     for model, prices in sorted(pricing.items()):
         table.add_row(
             model,
+            "config" if model in meta.get("overrides", []) else "catálogo",
             f"{prices.get('input', 0):.3f}",
             f"{prices.get('output', 0):.3f}",
             f"{prices['cache_write']:.3f}" if "cache_write" in prices else "-",

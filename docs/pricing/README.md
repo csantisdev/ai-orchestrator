@@ -14,7 +14,12 @@ Fuente canonica y versionada de precios por modelo, referenciada en la
 `orchestrator/catalog.py` implementa `load_price_catalog(config, refresh=False)`
 con este orden de precedencia:
 
-1. `config.yaml` clave `pricing` — override explicito del usuario, siempre gana.
+1. `config.yaml` clave `pricing` — override explicito del usuario, por modelo:
+   cada modelo declarado pisa su precio sobre la tabla base (la primera fuente
+   disponible entre 2 y 5) y el resto del catalogo sigue vigente. Cada entrada
+   necesita `input` y `output` numericos >= 0 (`cache_write` y `cache_read`
+   opcionales); las entradas invalidas se ignoran con un warning. `pricing show`
+   muestra la fuente como `config+<base>` y marca que modelos vienen de config.
 2. Cache local en `~/.ai-orchestrator/pricing-cache.json`, si no expiro segun
    `catalog.refresh_ttl_hours`.
 3. Catalogo remoto, solo si se llama con `refresh=True` y
