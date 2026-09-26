@@ -1,9 +1,23 @@
+---
+id: RFC-006
+type: rfc
+title: "Provider-Safe Routing para ai-orchestrator"
+status: accepted
+created: 2026-07-09
+updated: 2026-09-26
+supersedes: [RFC-001, RFC-002, RFC-003, RFC-004, RFC-005]
+superseded_by: null
+related: [RFC-007, RFC-008]
+---
+
 # RFC-006: Provider-Safe Routing para `ai-orchestrator`
 
 **Proyecto:** `csantisdev/ai-orchestrator`
 **Fecha:** 2026-07-09
 **Supersede:** RFC-001 … RFC-005
 **Destino:** rama `feat/egress-gate`. **No** merge directo a `production`.
+**Estado:** Aceptado
+**Implementación (nota operativa, 2026-09-26):** el egress gate se reconstruyó contra código según RFC-007 (Fases 0 y 1) en `feat/egress-gate` y entró a `production` con el PR #2 (merge `4f35c47`, 2026-07-18); `orchestrator/egress.py` existe en `production`. La sección "Estado de la evidencia" describe el estado verificado el 2026-07-09 y se conserva como registro histórico. Trazabilidad en `evidence/RFC-007/README.md`.
 
 ---
 

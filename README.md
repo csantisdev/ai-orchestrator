@@ -27,7 +27,7 @@ con dashboard en vivo, tracking de costo y memoria RAG.
 
 Los agentes IA (Claude Code, Codex, DeepSeek) generan valor en tareas acotadas, pero el historial queda disperso en archivos de sesión separados, sin visibilidad de costos ni contexto acumulado entre conversaciones. Sin memoria estructurada, cada sesión empieza desde cero y el gasto es opaco.
 
-ai-orchestrator centraliza ese historial localmente: indexa respuestas previas en ChromaDB, rutea cada tarea al modelo más eficiente según el contexto del proyecto, y registra tokens y costo USD de cada run en SQLite. El dashboard SSE muestra el estado en tiempo real. El servidor MCP expone 12 herramientas para que cualquier agente pueda leer y escribir en el historial sin salir de su entorno de trabajo.
+ai-orchestrator centraliza ese historial localmente: indexa respuestas previas en ChromaDB, rutea cada tarea al modelo más eficiente según el contexto del proyecto, y registra tokens y costo USD de cada run en SQLite. El dashboard SSE muestra el estado en tiempo real. El servidor MCP expone 14 herramientas para que cualquier agente pueda leer y escribir en el historial sin salir de su entorno de trabajo.
 
 ---
 
@@ -167,17 +167,25 @@ El servidor MCP expone 14 herramientas que cualquier agente compatible (Claude C
 | `get_context` | Retorna el objetivo y estado del contexto activo del proyecto |
 | `list_steps` | Lista los pasos ordenados de un contexto con su estado |
 | `confirm_alignment` | Registra un checkpoint antes de una acción significativa |
-| `record_tool_call` | Registra cada herramienta invocada durante un paso |
-| `advance_step` | Marca el paso actual como completado y activa el siguiente |
-| `skip_step` | Marca un paso como omitido sin ejecutarlo |
+| `record_tool_call` | Registra cada herramienta invocada durante un paso (`input` es un objeto libre de hasta 8192 bytes UTF-8) |
+| `advance_step` | Marca el paso actual como completado, agrega sus notas y activa el siguiente salvo `activate_next=false` |
+| `skip_step` | Marca un paso como omitido sin ejecutarlo y agrega el motivo a sus notas |
 | `start_step` | Activa un paso `pending` cuando no hay otro `in_progress` |
 | `reset_step` | Devuelve un paso `in_progress` a `pending` sin perder sus notas |
 | `create_context` | Crea un nuevo contexto de trabajo con pasos opcionales |
 | `add_step` | Agrega un paso a un contexto existente durante la ejecución |
 | `update_context` | Edita título, descripción o estado de un contexto |
-| `update_step` | Edita título, descripción, notas o agente de un paso |
+| `update_step` | Edita título, descripción, notas (`notes` reemplaza, `notes_append` agrega) o agente de un paso |
 | `import_agent_context` | Importa trabajo de un agente externo al historial + ChromaDB |
 | `list_agents` | Lista los agentes (presets de provider/model/system-prompt) registrados |
+
+Semántica de las transiciones de pasos:
+
+- `advance_step`, `skip_step` y `reset_step` **agregan** sus notas (`notes` o `reason`) a las que ya tenía el paso; si llegan vacías, las notas existentes no cambian.
+- Al completar u omitir el paso `in_progress`, se activa el primer paso `pending` que le sigue según `(order_idx, id)`; los `pending` anteriores no se tocan. Con `activate_next=false` no se activa ninguno.
+- El contexto pasa a `completed` (`context_done=true`) solo cuando no le quedan pasos `pending` ni `in_progress`.
+- `start_step` exige que el contexto esté `active` y sin otro paso `in_progress`; su respuesta incluye `earlier_pending_steps`, la cantidad de pasos `pending` con `order_idx` menor que quedan sin iniciar.
+- En `update_step`, `notes` reemplaza las notas y `notes_append` las agrega; no se pueden enviar juntos.
 
 Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto, registra Codex en `.codex/config.toml` y registra Gemini en `~/.gemini/settings.json`. Para Claude global, usá `ai-orchestrator fix --global-mcp`. Cada entrada se escribe con el bloque `env` de gobernanza: `--mcp-profile` (por defecto `readonly`) y `--mcp-projects` (por defecto, el alias registrado para este repo). En entradas existentes, `fix` solo completa las claves `ORCHESTRATOR_MCP_*` que faltan y nunca pisa las ya declaradas. `ai-orchestrator doctor` revisa el `env` de todas las configuraciones de cliente conocidas (incluidas `~/.claude.json`, `~/.copilot/mcp-config.json` y `~/.codex/config.toml`) y falla si el perfil o el alcance harían que el servidor deniegue las tools de proyecto.
 
@@ -428,6 +436,10 @@ ai-orchestrator sync-cc --quiet   # para hooks
 # Importar sesiones de OpenAI Codex CLI (~/.codex/state_N.sqlite)
 ai-orchestrator sync-codex
 ai-orchestrator sync-codex --quiet
+
+# Importar commits de los repos registrados como runs observables
+ai-orchestrator sync-git
+ai-orchestrator sync-git --quiet
 ```
 
 **Integración automática con Claude Code** — agregar en `~/.claude/settings.json`:
@@ -444,6 +456,38 @@ ai-orchestrator sync-codex --quiet
     }]
   }
 }
+```
+
+---
+
+### Evaluación de modelos y del router
+
+Ninguno de estos comandos llama a proveedores de IA. `model-eval` lee solo métricas agregadas de `runs.db`; `router-eval --offline` reproduce el router local sobre runs históricos usando `config.yaml`, el índice y el `context.yaml` de cada proyecto; `benchmark-validate` sin `--execute` solo valida el manifest y el plan de asignación, y con `--execute` corre localmente los comandos del manifest, así que solo debe usarse con manifests propios y revisados. El protocolo y los umbrales están en [ANL-001](docs/decisions/analyses/ANL-001-local-model-evaluation.md).
+
+```powershell
+# Métricas agregadas de runs evaluados (sin tareas, respuestas ni rutas)
+ai-orchestrator model-eval
+ai-orchestrator model-eval --project mi-proyecto --task-class regression
+
+# Compara el router local con las decisiones históricas del router LLM (requiere --offline)
+ai-orchestrator router-eval --offline --limit 200
+
+# Valida un corpus sintético de casos baseline/mutación; sin --execute solo valida el plan
+ai-orchestrator benchmark-validate --manifest .\benchmark\manifest.yaml --model modelo-a --model modelo-b
+ai-orchestrator benchmark-validate --manifest .\benchmark\manifest.yaml --model modelo-a --model modelo-b --seed pilot-v1 --execute
+```
+
+`model-eval` filtra por `--task-class` (`unit`, `integration`, `regression`, `schema`, `edge_case`). `router-eval` avisa que el resultado no es concluyente con menos de 200 runs evaluados. `benchmark-validate` asigna los casos a cada `--model` por hash de `--seed`, `task_class` y `case_id`, y reporta `mutation_detection_rate` por modelo y clase.
+
+El manifest es YAML con una lista `cases`. Cada caso tiene un `case_id` único (1-64 caracteres `[a-z0-9_-]`), una `task_class` válida, `test_command` (debe terminar en 0) y `mutation_command` (debe terminar distinto de 0 para contar como detección), ambos como listas no vacías de strings que se ejecutan sin shell, y `timeout_seconds` opcional entre 1 y 600 (default 60):
+
+```yaml
+cases:
+  - case_id: parser-empty-input
+    task_class: edge_case
+    test_command: [python, -m, pytest, tests/test_parser.py, -q]
+    mutation_command: [python, scripts/run_mutant.py, parser-empty-input]
+    timeout_seconds: 120
 ```
 
 ---

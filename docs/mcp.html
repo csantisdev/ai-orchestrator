@@ -129,7 +129,7 @@
 <div class="hero">
   <div class="hero-tag">MCP · Model Context Protocol</div>
   <h1>Conectá tu agente al <span>orquestador</span></h1>
-  <p>11 herramientas para que cualquier agente IA lea el plan de trabajo, confirme alineamiento, registre su progreso en tiempo real e importe trabajo de agentes externos.</p>
+  <p>14 herramientas para que cualquier agente IA lea el plan de trabajo, confirme alineamiento, registre su progreso en tiempo real e importe trabajo de agentes externos.</p>
   <div class="hero-badges">
     <span class="badge badge-sky">JSON-RPC · stdio</span>
     <span class="badge badge-orange">Claude Desktop</span>
@@ -269,7 +269,7 @@
 <span class="key">required</span> = <span class="kw">true</span></pre>
   </div>
   <div class="callout callout-info">
-    <strong>Verificación:</strong> Ejecutá <code>codex mcp list</code>. Después de crear o cambiar el archivo, abrí una sesión nueva de Codex para cargar las 11 herramientas.
+    <strong>Verificación:</strong> Ejecutá <code>codex mcp list</code>. Después de crear o cambiar el archivo, abrí una sesión nueva de Codex para cargar las 14 herramientas.
   </div>
 
   <h3>Gemini Code Assist</h3>
@@ -314,14 +314,14 @@
   </div>
 
   <div class="callout callout-info">
-    <strong>Verificar conexión:</strong> Después de configurar, pedile al agente <em>"Listá los tools del servidor ai-orchestrator"</em>. Si responde con los 12 tools, la conexión funciona.
+    <strong>Verificar conexión:</strong> Después de configurar, pedile al agente <em>"Listá los tools del servidor ai-orchestrator"</em>. Si responde con los 14 tools, la conexión funciona.
   </div>
 </section>
 
 <!-- ── TOOLS ── -->
 <section id="tools">
   <div class="sec-label">Referencia</div>
-  <h2>Los 12 tools disponibles</h2>
+  <h2>Los 14 tools disponibles</h2>
   <p>Hacé click en cada tool para ver sus parámetros y el formato de respuesta. Protocolo soportado: <code>2024-11-05</code> · <code>2025-03-26</code> · <code>2025-06-18</code>.</p>
 
   <div class="tools-list">
@@ -465,7 +465,7 @@
             <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso activo.</td></tr>
             <tr><td>context_id<span class="param-req">*</span></td><td>integer</td><td>ID del contexto.</td></tr>
             <tr><td>tool_name<span class="param-req">*</span></td><td>string</td><td>Nombre de la herramienta invocada, ej. <code>"Edit"</code>.</td></tr>
-            <tr><td>input</td><td>object</td><td>Argumentos pasados a la herramienta.</td></tr>
+            <tr><td>input</td><td>object</td><td>Argumentos pasados a la herramienta. Objeto libre de hasta 8192 bytes UTF-8.</td></tr>
             <tr><td>output</td><td>string</td><td>Resultado (puede ser truncado).</td></tr>
             <tr><td>status</td><td>string</td><td><code>"ok"</code> · <code>"error"</code>.</td></tr>
             <tr><td>duration_ms</td><td>integer</td><td>Tiempo de ejecución en milisegundos.</td></tr>
@@ -482,12 +482,13 @@
         <span class="tool-chevron">▼</span>
       </div>
       <div class="tool-body">
-        <p style="margin-bottom:10px">Llamalo cuando el agente termina un paso. Si no hay más pasos pendientes, el contexto queda en estado <code>completed</code> automáticamente. El dashboard se actualiza vía SSE.</p>
+        <p style="margin-bottom:10px">Llamalo cuando el agente termina un paso. Las notas se <strong style="color:var(--text)">agregan</strong> a las que ya tenía el paso (si llegan vacías no cambian). Activa el primer paso <code>pending</code> posterior según <code>(order_idx, id)</code>, salvo <code>activate_next=false</code>. Si no quedan pasos <code>pending</code> ni <code>in_progress</code>, el contexto queda en estado <code>completed</code> automáticamente. El dashboard se actualiza vía SSE.</p>
         <table class="param-table">
           <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
           <tbody>
             <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso que se completó.</td></tr>
-            <tr><td>notes</td><td>string</td><td>Resumen de lo hecho (se guarda en el paso).</td></tr>
+            <tr><td>notes</td><td>string</td><td>Resumen de lo hecho (se agrega a las notas del paso).</td></tr>
+            <tr><td>activate_next</td><td>boolean</td><td>Default <code>true</code>. Con <code>false</code> no activa ningún paso; el contexto solo se cierra si no quedan pasos abiertos.</td></tr>
           </tbody>
         </table>
         <div class="code-block" style="margin-top:12px">
@@ -509,12 +510,13 @@
         <span class="tool-chevron">▼</span>
       </div>
       <div class="tool-body">
-        <p style="margin-bottom:10px">Para pasos que resultaron irrelevantes o ya estaban resueltos. Funciona sobre pasos en estado <code>pending</code> o <code>in_progress</code>. Si estaba activo, activa el siguiente.</p>
+        <p style="margin-bottom:10px">Para pasos que resultaron irrelevantes o ya estaban resueltos. Funciona sobre pasos en estado <code>pending</code> o <code>in_progress</code>. Si estaba activo, activa el primer <code>pending</code> posterior según <code>(order_idx, id)</code>, salvo <code>activate_next=false</code>.</p>
         <table class="param-table">
           <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
           <tbody>
             <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso a omitir.</td></tr>
-            <tr><td>reason</td><td>string</td><td>Motivo por el que se omite (se guarda en el paso).</td></tr>
+            <tr><td>reason</td><td>string</td><td>Motivo por el que se omite (se agrega a las notas del paso).</td></tr>
+            <tr><td>activate_next</td><td>boolean</td><td>Default <code>true</code>. Con <code>false</code> no activa ningún paso; el contexto solo se cierra si no quedan pasos abiertos.</td></tr>
           </tbody>
         </table>
       </div>
@@ -522,13 +524,67 @@
 
     <div class="tool-card">
       <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">start_step</span>
+        <span class="tool-desc">Activa un paso pending</span>
+        <span class="tool-when tw-work">Durante trabajo</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Pasa un paso de <code>pending</code> a <code>in_progress</code>. El contexto tiene que estar <code>active</code> (uno <code>programado</code> se activa antes con <code>update_context</code>) y no puede tener otro paso <code>in_progress</code>.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso a iniciar.</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block" style="margin-top:12px">
+          <div class="code-header"><span class="code-lang">JSON — respuesta</span></div>
+          <pre>{
+  <span class="key">"started_step_id"</span>: <span class="num">29</span>,
+  <span class="key">"context_id"</span>: <span class="num">6</span>,
+  <span class="key">"earlier_pending_steps"</span>: <span class="num">0</span>
+}</pre>
+        </div>
+        <p style="margin-top:10px"><code>earlier_pending_steps</code> cuenta los pasos <code>pending</code> con <code>order_idx</code> menor que quedan sin iniciar.</p>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
+        <span class="tool-name">reset_step</span>
+        <span class="tool-desc">Devuelve un paso in_progress a pending</span>
+        <span class="tool-when tw-work">Durante trabajo</span>
+        <span class="tool-chevron">▼</span>
+      </div>
+      <div class="tool-body">
+        <p style="margin-bottom:10px">Para trabajo abandonado que se va a retomar más adelante. Conserva las notas del paso y les agrega las nuevas; no activa ningún otro paso.</p>
+        <table class="param-table">
+          <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso <code>in_progress</code>.</td></tr>
+            <tr><td>notes</td><td>string</td><td>Motivo o estado del trabajo (se agrega a las notas del paso).</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block" style="margin-top:12px">
+          <div class="code-header"><span class="code-lang">JSON — respuesta</span></div>
+          <pre>{
+  <span class="key">"reset_step_id"</span>: <span class="num">29</span>,
+  <span class="key">"context_id"</span>: <span class="num">6</span>,
+  <span class="key">"notes"</span>: <span class="str">"..."</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-header" onclick="toggleTool(this)">
         <span class="tool-name">update_context</span>
-        <span class="tool-desc">Edita título y/o descripción de un contexto</span>
+        <span class="tool-desc">Edita título, descripción y/o estado de un contexto</span>
         <span class="tool-when tw-plan">Planificación</span>
         <span class="tool-chevron">▼</span>
       </div>
       <div class="tool-body">
-        <p style="margin-bottom:10px">Actualiza solo los campos <strong style="color:var(--text)">presentes en la llamada</strong> — los omitidos no se tocan. No modifica estado, timestamps, proyecto ni relaciones. Útil para corregir errores de contenido como mojibake.</p>
+        <p style="margin-bottom:10px">Actualiza solo los campos <strong style="color:var(--text)">presentes en la llamada</strong> — los omitidos no se tocan. No modifica timestamps, proyecto ni relaciones. Útil para corregir errores de contenido como mojibake.</p>
         <table class="param-table">
           <thead><tr><th>Parámetro</th><th>Tipo</th><th>Descripción</th></tr></thead>
           <tbody>
@@ -564,7 +620,8 @@
             <tr><td>step_id<span class="param-req">*</span></td><td>integer</td><td>ID del paso a editar.</td></tr>
             <tr><td>title</td><td>string</td><td>Nuevo título. Si se omite, no se modifica.</td></tr>
             <tr><td>description</td><td>string</td><td>Nueva descripción. Si se omite, no se modifica.</td></tr>
-            <tr><td>notes</td><td>string</td><td>Nuevas notas. Si se omite, no se modifica.</td></tr>
+            <tr><td>notes</td><td>string</td><td>Nuevas notas que <strong>reemplazan</strong> las existentes. Si se omite, no se modifica.</td></tr>
+            <tr><td>notes_append</td><td>string</td><td>Notas que se <strong>agregan</strong> a las existentes. No se puede enviar junto con <code>notes</code>.</td></tr>
             <tr><td>agent_preset</td><td>string</td><td>Nuevo agente asignado. Pasar <code>""</code> para desasignar (es distinto de omitirlo). Ver <code>list_agents</code>.</td></tr>
           </tbody>
         </table>
@@ -721,7 +778,8 @@
   </div>
   <ul style="color:var(--text2);font-size:14px;padding-left:20px;line-height:2">
     <li><strong style="color:var(--text)">El primer paso se activa automáticamente</strong> al crear el contexto (<code>status=in_progress</code>).</li>
-    <li>Cada <code>advance_step</code> activa el siguiente <code>pending</code>. Cuando no quedan pasos sin resolver, el contexto pasa a <code>completed</code> y <code>context_done=true</code>.</li>
+    <li><code>advance_step</code> (y <code>skip_step</code> sobre el paso activo) activa el primer <code>pending</code> posterior según <code>(order_idx, id)</code>, salvo <code>activate_next=false</code>. Para iniciar otro paso a mano: <code>start_step</code>; para devolver uno a <code>pending</code>: <code>reset_step</code>.</li>
+    <li>Cuando no quedan pasos <code>pending</code> ni <code>in_progress</code>, el contexto pasa a <code>completed</code> y <code>context_done=true</code>.</li>
     <li>Para archivar un contexto manualmente: <code>update_context(context_id=N, status="completed")</code>.</li>
     <li>Para abandonar sin completar: <code>update_context(context_id=N, status="abandoned")</code>.</li>
   </ul>

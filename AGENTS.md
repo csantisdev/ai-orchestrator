@@ -26,7 +26,7 @@ Plantillas: `.mcp.json.example` y `.codex/config.toml.example`. `ai-orchestrator
 - Rama principal: `production`. Nunca se commitea directo: todo entra por PR.
 - El ruleset exige CI verde, rama al día con `production` y todos los hilos de revisión resueltos (Copilot revisa automáticamente).
 - Commits en inglés con prefijo convencional: `feat:`, `fix:`, `docs:` (scope opcional, p. ej. `fix(ingest):`).
-- Cambios no triviales: auditoría cruzada con Codex, corrección y una segunda ronda sobre lo corregido (protocolo en `docs/decisions/analyses/ANL-002-codex-claude-cross-audit.md`).
+- Cambios no triviales: auditoría cruzada con Codex, corrección y una segunda ronda sobre lo corregido (protocolo en `docs/decisions/analyses/ANL-003-per-change-cross-audit.md`; ANL-002 es la auditoría puntual del repositorio completo).
 
 ## Verificación antes de abrir un PR
 
