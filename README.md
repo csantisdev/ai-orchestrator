@@ -31,11 +31,27 @@ ai-orchestrator centraliza ese historial localmente: indexa respuestas previas e
 
 ---
 
-## Quick Start
+## Empezá por acá
+
+Si es tu primera vez con el proyecto, no necesitás entender MCP, RAG ni la arquitectura interna para obtener valor.
+
+**Objetivo del primer uso:** instalar, configurar dos API keys, registrar un proyecto y ejecutar una tarea o abrir el dashboard.
+
+### Qué necesitás antes de empezar
+
+- **Python 3.10 o superior**
+- Un repo local donde quieras trabajar
+- **2 API keys para el camino mínimo recomendado**
+  - **DeepSeek** → decide el ruteo inicial
+  - **Claude (Anthropic)** → resuelve las tareas
+
+> También podés configurar OpenAI o Gemini más adelante. Para arrancar, no hacen falta.
+
+### Primeros 5 minutos
 
 **PowerShell**
 ```powershell
-# 1. Crear entorno virtual
+# 1. Entrar al repo y crear entorno virtual
 cd C:\ruta\ai-orchestrator
 python -m venv .venv
 .venv\Scripts\activate
@@ -44,18 +60,18 @@ python -m venv .venv
 pip install -r requirements.txt
 pip install -e .
 
-# 3. Crear directorio de configuración y copiar plantillas
+# 3. Crear configuración local
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.ai-orchestrator"
 Copy-Item config.example.yaml "$env:USERPROFILE\.ai-orchestrator\config.yaml"
 Copy-Item index.example.yaml  "$env:USERPROFILE\.ai-orchestrator\index.yaml"
 
-# 4. Completar las API keys
+# 4. Completar API keys
 notepad "$env:USERPROFILE\.ai-orchestrator\config.yaml"
 ```
 
 **Git Bash**
 ```bash
-# 1. Crear entorno virtual
+# 1. Entrar al repo y crear entorno virtual
 cd /c/ruta/ai-orchestrator
 python -m venv .venv
 source .venv/Scripts/activate
@@ -64,138 +80,125 @@ source .venv/Scripts/activate
 pip install -r requirements.txt
 pip install -e .
 
-# 3. Crear directorio de configuración y copiar plantillas
+# 3. Crear configuración local
 mkdir -p ~/.ai-orchestrator
 cp config.example.yaml ~/.ai-orchestrator/config.yaml
 cp index.example.yaml  ~/.ai-orchestrator/index.yaml
 
-# 4. Completar las API keys
+# 4. Completar API keys
 notepad ~/.ai-orchestrator/config.yaml
 ```
 
-> **API Keys** — obtené cada key en su plataforma y pegala en `config.yaml`:
-> | Proveedor | Plataforma | Obligatorio |
-> |---|---|---|
-> | Claude (Anthropic) | https://console.anthropic.com → API Keys | Sí (proveedor destino) |
-> | DeepSeek | https://platform.deepseek.com → API Keys | Sí (router) |
-> | OpenAI | https://platform.openai.com → API keys | Opcional |
-> | Gemini (Google) | https://aistudio.google.com/apikey | Opcional |
+> **Dónde obtener las API keys**
 >
-> El mínimo funcional es **DeepSeek** (router) + **Claude** (proveedor destino). Ver guía detallada en [`docs/api-keys.md`](docs/api-keys.md).
+> | Proveedor | Plataforma | Obligatorio para empezar |
+> |---|---|---|
+> | Claude (Anthropic) | https://console.anthropic.com → API Keys | Sí |
+> | DeepSeek | https://platform.deepseek.com → API Keys | Sí |
+> | OpenAI | https://platform.openai.com → API keys | No |
+> | Gemini (Google) | https://aistudio.google.com/apikey | No |
+>
+> Guía detallada: [`docs/api-keys.md`](docs/api-keys.md).
 
 ```bash
-# 5. Verificar instalación
+# 5. Verificar que la CLI quedó instalada
 ai-orchestrator --help
 
-# 6. Registrar tu primer proyecto y levantar el dashboard
+# 6. Registrar tu primer proyecto
 ai-orchestrator add mi-proyecto --path "C:\ruta\al\proyecto"
-ai-orchestrator serve                  # abre http://127.0.0.1:8080
+
+# 7. Levantar el dashboard
+ai-orchestrator serve
 ```
+
+### Qué deberías ver si salió bien
+
+- `ai-orchestrator --help` muestra la lista de comandos disponibles.
+- `ai-orchestrator add ...` registra el alias del proyecto sin error.
+- `ai-orchestrator serve` abre el dashboard en `http://127.0.0.1:8080`.
+- Desde el dashboard ya podés lanzar tareas y ver historial, costo y actividad.
+
+### Primer flujo recomendado
+
+Si no sabés por dónde empezar, usá este orden:
+
+1. Configurá `config.yaml`
+2. Registrá un proyecto con `ai-orchestrator add`
+3. Abrí el dashboard con `ai-orchestrator serve`
+4. Ejecutá una tarea simple
+5. Más adelante explorá indexación RAG, presets, sync o MCP
 
 ---
 
-## Alcances
+## ¿Qué usar según tu objetivo?
 
-| Capacidad | Descripción |
+| Quiero... | Empezá con... |
 |---|---|
-| **Ruteo inteligente** | DeepSeek Flash analiza la tarea y el `context.yaml` del proyecto para decidir qué modelo usar — sin hardcodear |
-| **Control de costos** | Tokens de entrada, salida y cache por run. Costo en USD calculado con un catálogo de precios versionado (`ai-orchestrator pricing show/refresh/validate`), con override en `config.yaml` |
-| **Discovery de modelos** | Consulta el API de cada proveedor configurado (`ai-orchestrator models list/refresh`) y compara contra el catálogo de precios — best-effort, un proveedor caído no rompe a los demás |
-| **Agentes (presets)** | Perfiles reutilizables de provider/model/system-prompt (`ai-orchestrator agents add/list/show/remove`), asignables a un paso de un contexto. Capa de conveniencia sobre el router — no ejecuta nada por sí sola |
-| **Memoria RAG** | ChromaDB indexa docs y respuestas previas por proyecto. Cada tarea recupera contexto semántico relevante (threshold L2=0.9 ≈ cosine_sim≥0.60) antes de llamar al modelo. Re-indexación idempotente: upsert por ID determinístico |
-| **Dashboard en vivo** | Panel web con SSE — las filas aparecen en tiempo real sin recargar. Gauge de presupuesto, filtros y panel de detalle |
-| **Inspector DB** | Vista interna de ChromaDB (colecciones + breakdown por proyecto) y SQLite (counts + últimos registros) |
-| **Contextos y pasos** | Flujos estructurados multi-paso con checkpoints de alineación y registro de tool calls |
-| **Barra de actividad** | Spans en tiempo real: Router → RAG → API → Index. Duración de cada operación visible mientras corre |
-| **Sync Claude Code** | Importa sesiones de `~/.claude/projects/` al historial. Ejecutable vía hook `Stop` automáticamente |
-| **Sync Codex** | Importa sesiones de OpenAI Codex CLI (`~/.codex/state_N.sqlite`) al historial, incluyendo tokens, costo y respuesta completa |
-| **Doctor / Fix** | `doctor` diagnostica el estado completo en 7 secciones (entorno, config, MCP, gobernanza MCP, proyectos, salud del tracking, ingesta y pricing). `fix` aplica correcciones automáticas: crea `.mcp.json`, `.codex/config.toml`, `context.yaml`, registra MCP global, sincroniza e indexa |
-| **Menú de acciones** | Botones `doctor`, `fix`, `sync`, `index` en la barra de actividad del dashboard. Ejecutan las mismas acciones que la CLI y trazan resultados en tiempo real en el log de actividad |
+| Correr una tarea rápido | `ai-orchestrator run` o dashboard |
+| Ver historial y costo | dashboard o `ai-orchestrator history` |
+| Arreglar setup/configuración | `ai-orchestrator doctor` y `ai-orchestrator fix` |
+| Indexar documentación del proyecto | `ai-orchestrator index-docs` |
+| Conectar otro agente o IDE | MCP |
+| Auditar modelos, pricing o router | comandos de evaluación y pricing |
+
+> **Regla simple:** si sos nuevo, empezá por **CLI + dashboard**. MCP, presets, benchmarking y auditoría son capas avanzadas.
+
+---
+
+## Qué podés hacer con ai-orchestrator
+
+| Capacidad | En qué te ayuda |
+|---|---|
+| **Ruteo inteligente** | Elige el modelo más conveniente según la tarea y el contexto del proyecto |
+| **Control de costos** | Guarda tokens y costo estimado por run para que el gasto deje de ser una caja negra |
+| **Dashboard en vivo** | Permite lanzar tareas y ver actividad, historial y presupuesto en tiempo real |
+| **Memoria del proyecto** | Recupera documentación y respuestas previas para no empezar siempre desde cero |
+| **Contextos y pasos** | Ordena trabajo multi-paso cuando una tarea es más grande |
+| **Diagnóstico (`doctor`)** | Detecta problemas de entorno, configuración, MCP, tracking e indexación |
+| **Correcciones (`fix`)** | Crea y completa archivos de configuración comunes |
+| **Sync de sesiones** | Importa trabajo previo desde Claude Code, Codex y Git |
+| **Agentes (presets)** | Reutiliza configuraciones de provider/model/system prompt para tareas repetidas |
 
 **Fuera del alcance:** no es un proxy de API (el proceso corre localmente), no orquesta agentes en paralelo, no mantiene historial de conversación entre runs.
 
 ---
 
-## MCP Plugin
+## MCP (opcional, avanzado)
 
-El servidor MCP usa únicamente **STDIO local** (o STDIO sobre SSH); no abre un
-listener de red. Desde la versión de acceso gobernado, el perfil efectivo es
-`readonly` si no se configura uno y las herramientas se autorizan tanto al
-descubrirlas como antes de ejecutarlas. Cada `tools/call`, incluso uno denegado,
-queda registrado automáticamente en SQLite con hashes de entrada y compromisos
-HMAC locales de salida, sin persistir los argumentos completos.
+MCP te sirve si querés que herramientas como **Claude Code, Codex, Cursor o Gemini Code Assist** usen el historial y el tracking de `ai-orchestrator` sin pasar por la CLI manualmente.
 
-Las herramientas mutables aceptan opcionalmente `request_id`. Solo una clave
-explícita del cliente tiene semántica de persistencia: el cliente debe mantener
-la misma clave al reintentar una operación y el servidor devuelve un recibo
-terminal con su estado, sin ejecutar la mutación de nuevo ni retener o exponer
-el payload ni su compromiso. El ID JSON-RPC se guarda solo como correlación de auditoría
-y nunca se deriva como clave durable; sin
-`request_id`, el servidor genera una clave nueva no segura para replay. Reutilizar
-una clave explícita para otro tool o argumentos devuelve `request_id_reused`; una
-operación reservada pero aún en curso devuelve `request_in_progress` y es
-reintentable. Las mutaciones que solo escriben SQLite, incluida su evidencia
-terminal de idempotencia, se confirman en una única transacción SQLite. Las
-transiciones `advance_step` y `skip_step` son además condicionales, por lo que un
-competidor no puede completar ni activar pasos extra.
+Si recién estás empezando, **podés ignorar esta sección** y usar solo CLI + dashboard.
 
-Para habilitar herramientas de un proyecto, la configuración que inicia el
-proceso debe declarar una allowlist explícita. Estas variables son parte del
-límite de confianza del proceso local; los argumentos de una tool no pueden
-elevar el perfil ni cambiar su alcance:
+### Cuándo vale la pena usar MCP
 
-```json
-{
-  "env": {
-    "ORCHESTRATOR_MCP_PROFILE": "readonly",
-    "ORCHESTRATOR_MCP_PROJECTS": "mi-proyecto",
-    "ORCHESTRATOR_MCP_CLIENT_SURFACE": "claude_code",
-    "ORCHESTRATOR_MCP_TRANSPORT": "stdio"
-  }
-}
-```
+- Querés que un agente externo lea el contexto del proyecto
+- Querés registrar pasos, alineamientos y tool calls desde otro cliente
+- Querés unificar el historial entre agentes y sesiones
 
-Perfiles disponibles: `readonly`, `observability`, `workflow_operator`,
-`memory_curator` y `admin`. `memory_curator` no concede mutaciones de workflow
-y `workflow_operator` no concede ingestión RAG. Un alcance vacío falla cerrado
-para las tools vinculadas a un proyecto.
+### Camino corto
 
-El servidor MCP expone 18 herramientas que cualquier agente compatible (Claude Code, Cursor, Codex, Gemini Code Assist, etc.) puede invocar directamente sin usar la CLI:
+- `ai-orchestrator doctor` revisa el estado de la integración
+- `ai-orchestrator fix` crea la configuración básica
+- `ai-orchestrator fix --global-mcp` agrega la configuración global para Claude
 
-| Tool | Propósito |
-|---|---|
-| `get_context` | Retorna el objetivo y estado del contexto activo del proyecto |
-| `list_steps` | Lista pasos; admite filtros, resumen y paginación keyset por `(order_idx, id)` |
-| `get_step` | Retorna un paso, su contexto y opcionalmente sus últimos alineamientos y tool calls |
-| `list_contexts` | Lista contextos de un proyecto por `(ts, id)` descendente, con resumen de pasos opcional |
-| `tracking_health` | Devuelve las advertencias de salud del tracking de un proyecto, sin modificar datos |
-| `suggest_step_commits` | Sugiere commits importados para pasos abiertos, con filtros de fecha y límite |
-| `confirm_alignment` | Registra un checkpoint antes de una acción significativa |
-| `record_tool_call` | Registra cada herramienta invocada durante un paso (`input` es un objeto libre de hasta 8192 bytes UTF-8) |
-| `advance_step` | Marca el paso actual como completado, agrega sus notas y activa el siguiente salvo `activate_next=false` |
-| `skip_step` | Marca un paso como omitido sin ejecutarlo y agrega el motivo a sus notas |
-| `start_step` | Activa un paso `pending` cuando no hay otro `in_progress` |
-| `reset_step` | Devuelve un paso `in_progress` a `pending` sin perder sus notas |
-| `create_context` | Crea un nuevo contexto de trabajo con pasos opcionales |
-| `add_step` | Agrega un paso a un contexto existente durante la ejecución |
-| `update_context` | Edita título, descripción o estado de un contexto |
-| `update_step` | Edita título, descripción, notas (`notes` reemplaza, `notes_append` agrega) o agente de un paso |
-| `import_agent_context` | Importa trabajo de un agente externo al historial + ChromaDB |
-| `list_agents` | Lista los agentes (presets de provider/model/system-prompt) registrados |
+### Qué hace internamente
 
-Semántica de las transiciones de pasos:
+- Expone herramientas vía **STDIO local** (no abre puertos de red)
+- Aplica perfiles y alcance por proyecto con variables `ORCHESTRATOR_MCP_*`
+- Registra las invocaciones para trazabilidad
 
-- `advance_step`, `skip_step` y `reset_step` **agregan** sus notas (`notes` o `reason`) a las que ya tenía el paso; si llegan vacías, las notas existentes no cambian.
-- Al completar u omitir el paso `in_progress`, se activa el primer paso `pending` que le sigue según `(order_idx, id)`; los `pending` anteriores no se tocan. Con `activate_next=false` no se activa ninguno.
-- El contexto pasa a `completed` (`context_done=true`) solo cuando no le quedan pasos `pending` ni `in_progress`.
-- `start_step` exige que el contexto esté `active` y sin otro paso `in_progress`; su respuesta incluye `earlier_pending_steps`, la cantidad de pasos `pending` con `order_idx` menor que quedan sin iniciar.
-- En `update_step`, `notes` reemplaza las notas y `notes_append` las agrega; no se pueden enviar juntos.
+Para instalación, ejemplos de archivos y detalle completo de las 18 tools:
 
-Instalación automática: `ai-orchestrator fix` genera el `.mcp.json` en el proyecto, registra Codex en `.codex/config.toml` y registra Gemini en `~/.gemini/settings.json`. Para Claude global, usá `ai-orchestrator fix --global-mcp`. Cada entrada se escribe con el bloque `env` de gobernanza: `--mcp-profile` (por defecto `readonly`) y `--mcp-projects` (por defecto, el alias registrado para este repo). En entradas existentes, `fix` solo completa las claves `ORCHESTRATOR_MCP_*` que faltan y nunca pisa las ya declaradas. `ai-orchestrator doctor` revisa el `env` de todas las configuraciones de cliente conocidas (incluidas `~/.claude.json`, `~/.copilot/mcp-config.json` y `~/.codex/config.toml`) y falla si el perfil o el alcance harían que el servidor deniegue las tools de proyecto.
+- documentación web: `http://127.0.0.1:8080/docs`
+- archivo del repo: [`docs/mcp.html`](docs/mcp.html)
 
-Si el MCP no está disponible, el estado de los pasos se puede corregir desde la CLI: `ai-orchestrator step start <id>` activa un paso `pending`, `step reset <id> -n ...` devuelve trabajo abandonado a `pending`, `step done <id> --notes ...` equivale a `advance_step` y `step skip <id> --reason ...` equivale a `skip_step`. Usá `skip` solo para trabajo descartado o reemplazado. `ai-orchestrator step suggest --project <alias> [--since <fecha>]` muestra candidatos commit→paso sin mutar el tracking. Estas transiciones las ejecuta el operador local y no quedan registradas en `mcp_invocations`.
+Si el MCP no está disponible, el tracking también puede operarse desde CLI con `step start`, `step done`, `step reset` y `step skip`.
 
 ---
+
+## Referencia técnica
+
+Desde este punto el README entra en modo más técnico: arquitectura, comandos avanzados, configuración detallada y operaciones de soporte.
 
 ## Diseño
 
@@ -596,6 +599,19 @@ Ver esquema completo en [`docs/context-schema.md`](docs/context-schema.md).
 
 ---
 
+## Glosario rápido
+
+| Término | Significado práctico |
+|---|---|
+| **Provider** | Servicio/modelo que responde la tarea (Claude, OpenAI, DeepSeek, Gemini) |
+| **Router** | Lógica que decide qué provider usar para cada tarea |
+| **RAG** | Recuperación de contexto desde docs y runs previos antes de llamar al modelo |
+| **Run** | Una ejecución individual de una tarea |
+| **`context.yaml`** | Archivo por proyecto con stack, convenciones y reglas que ayudan al router |
+| **MCP** | Forma de conectar agentes/IDEs externos con el historial y tracking del orquestador |
+
+---
+
 ## Modelos disponibles
 
 La fuente de verdad es el catálogo versionado en [`docs/pricing/models.json`](docs/pricing/models.json) (validado contra [`docs/pricing/schema.json`](docs/pricing/schema.json)), no una tabla estática en este README — así no se desincroniza. Para ver los precios efectivos vigentes:
@@ -606,6 +622,16 @@ ai-orchestrator pricing show
 
 > Precios en USD por millón de tokens. Los modelos Claude soportan cache write/read.
 > `gemini-2.5-pro` requiere billing habilitado en Google Cloud — en el free tier la cuota es 0. Usar `gemini-2.5-flash` para cuentas sin billing.
+
+---
+
+## Errores comunes al empezar
+
+- **No activé el entorno virtual** → los comandos pueden fallar o usar otro Python.
+- **Copié `config.example.yaml` pero no agregué API keys** → el router y los providers no van a responder.
+- **Registré mal la ruta del proyecto** → `ai-orchestrator add` debe apuntar al repo local correcto.
+- **No instalé dependencias** → si falta `chromadb`, el sistema sigue funcionando con fallback, pero sin búsqueda semántica.
+- **Empecé por MCP antes del flujo básico** → primero conviene validar CLI + dashboard y después integrar agentes externos.
 
 ---
 
@@ -626,7 +652,7 @@ ai-orchestrator pricing show
 
 ## Instalación
 
-Ver la guía paso a paso en [Quick Start](#quick-start) al inicio de este documento.
+Ver la guía paso a paso en [Empezá por acá](#empezá-por-acá) al inicio de este documento.
 
 `requirements.txt` ya incluye ChromaDB. Sin él el router usa FTS5 (SQLite full-text search) como fallback automático; con él la búsqueda semántica está disponible.
 
