@@ -16,8 +16,31 @@ from typing import Optional
 from rich.console import Console
 
 from orchestrator.paths import HOME_DIR
+from orchestrator.venv_python import venv_python, venv_python_rel
 
 _console = Console(legacy_windows=False)
+
+
+def mcp_json_from_example(example_text: str, is_windows: bool | None = None) -> str:
+    """Adapta .mcp.json.example al SO: solo cambia el command de ai-orchestrator.
+
+    El resto (args, cwd, env de gobernanza, otras entradas) queda intacto. Si la
+    plantilla no tiene la forma esperada se devuelve sin cambios, como la copia
+    literal que se hacía antes.
+    """
+    try:
+        data = json_mod.loads(example_text)
+    except ValueError:
+        return example_text
+    servers = data.get("mcpServers") if isinstance(data, dict) else None
+    entry = servers.get("ai-orchestrator") if isinstance(servers, dict) else None
+    if not isinstance(entry, dict):
+        return example_text
+    command = venv_python_rel(is_windows)
+    if entry.get("command") == command:
+        return example_text
+    entry["command"] = command
+    return json_mod.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
 def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -> None:
@@ -1224,13 +1247,18 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 if mcp_f.exists():
                     _skip2(".mcp.json ya existe")
                 elif mcp_ex.exists():
-                    _shutil.copy(mcp_ex, mcp_f)
+                    example = mcp_ex.read_text(encoding="utf-8")
+                    adapted = mcp_json_from_example(example)
+                    if adapted == example:
+                        _shutil.copy(mcp_ex, mcp_f)
+                    else:
+                        mcp_f.write_text(adapted, encoding="utf-8")
                     _ok2(".mcp.json creado — reiniciá Claude Code para activarlo")
                     fixed_count += 1
                 else:
                     mcp_f.write_text(
                         '{\n  "mcpServers": {\n    "ai-orchestrator": {\n'
-                        '      "command": ".venv/Scripts/python.exe",\n'
+                        f'      "command": "{venv_python_rel()}",\n'
                         '      "args": ["-u", "-m", "orchestrator.mcp"],\n'
                         '      "cwd": "."\n'
                         '    }\n  }\n}\n', encoding="utf-8"
@@ -1246,7 +1274,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                     from orchestrator.cli import _CODEX_APPROVED_TOOLS
                     project_root2 = _P(__file__).parent.parent
                     codex_f.parent.mkdir(parents=True, exist_ok=True)
-                    abs_py2 = str((project_root2 / ".venv" / "Scripts" / "python.exe").resolve()).replace("\\", "\\\\")
+                    abs_py2 = venv_python(project_root2).replace("\\", "\\\\")
                     cwd2 = str(project_root2.resolve()).replace("\\", "\\\\")
                     codex_f.write_text(
                         '[mcp_servers.ai_orchestrator]\n'
@@ -1289,7 +1317,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                     _gemini_base2 = _P(_os2.environ.get("HOME") or _userprofile)
                     _gemini_cfg2 = _gemini_base2 / ".gemini" / "settings.json"
                     _gemini_cfg2.parent.mkdir(parents=True, exist_ok=True)
-                    _abs_py3 = str((_P(__file__).parent.parent / ".venv" / "Scripts" / "python.exe").resolve())
+                    _abs_py3 = venv_python(_P(__file__).parent.parent)
                     _cwd3 = str(_P(__file__).parent.parent.resolve())
                     _mcp_entry = {"command": _abs_py3, "args": ["-u", "-m", "orchestrator.mcp"], "cwd": _cwd3}
                     if _gemini_cfg2.exists():
@@ -1323,7 +1351,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                     if "ai-orchestrator" in servers:
                         _skip2("MCP global ya registrado")
                     else:
-                        abs_py = str((_P(__file__).parent.parent / ".venv" / "Scripts" / "python.exe").resolve())
+                        abs_py = venv_python(_P(__file__).parent.parent)
                         servers["ai-orchestrator"] = {
                             "command": abs_py,
                             "args": ["-u", "-m", "orchestrator.mcp"],

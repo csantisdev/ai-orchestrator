@@ -1,1 +1,1 @@
-"""Implementaciones de proveedores de IA (Claude, OpenAI, DeepSeek)."""
+"""Implementaciones de proveedores de IA (Claude, OpenAI, DeepSeek, Gemini)."""

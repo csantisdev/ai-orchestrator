@@ -31,10 +31,11 @@ from orchestrator.egress import policy_for_project
 from orchestrator.index import ProjectNotFoundError
 from orchestrator.paths import HOME_DIR, PROVIDERS
 from orchestrator.providers.factory import build_provider
+from orchestrator.venv_python import venv_python
 
 app = typer.Typer(
     name="ai-orchestrator",
-    help="Orquestador local de agentes IA. Rutea tareas entre Claude, OpenAI y DeepSeek.",
+    help="Orquestador local de agentes IA. Rutea tareas entre Claude, OpenAI, DeepSeek y Gemini.",
     no_args_is_help=True,
 )
 console = Console(legacy_windows=False)
@@ -969,11 +970,11 @@ def doctor(
     import sys as _sys
     ok(f"Python {_sys.version.split()[0]}")
 
-    venv_python = _Path(__file__).parent.parent / ".venv" / "Scripts" / "python.exe"
-    if not venv_python.exists():
-        venv_python = _Path(__file__).parent.parent / ".venv" / "bin" / "python"
-    if venv_python.exists():
-        ok(f".venv encontrado en {venv_python.parent.parent}")
+    venv_py = _Path(__file__).parent.parent / ".venv" / "Scripts" / "python.exe"
+    if not venv_py.exists():
+        venv_py = _Path(__file__).parent.parent / ".venv" / "bin" / "python"
+    if venv_py.exists():
+        ok(f".venv encontrado en {venv_py.parent.parent}")
     else:
         warn(".venv no detectado en el proyecto", "Ejecutá: python -m venv .venv && pip install -e .")
 
@@ -1027,11 +1028,11 @@ def doctor(
 
     # ── 3. Integración agentes / MCP ──────────────────────────────────────
     console.print("\n[bold cyan]Integración agentes / MCP[/bold cyan]")
-    project_root = _Path(__file__).parent.parent
+    project_root = _repo_root()
     mcp_json = project_root / ".mcp.json"
     mcp_example = project_root / ".mcp.json.example"
     mcp_entry = {
-        "command": str((project_root / ".venv" / "Scripts" / "python.exe").resolve()),
+        "command": venv_python(project_root),
         "args": ["-u", "-m", "orchestrator.mcp"],
         "cwd": str(project_root.resolve()),
     }
@@ -1445,6 +1446,10 @@ _CODEX_APPROVED_TOOLS = (
 )
 
 
+def _repo_root() -> Path:
+    return Path(__file__).parent.parent
+
+
 def _mcp_default_scope(project_root: Path) -> list[str]:
     root = project_root.resolve()
     try:
@@ -1457,7 +1462,7 @@ def _mcp_default_scope(project_root: Path) -> list[str]:
 def _mcp_entry(project_root: Path, profile: str, scope: list[str], surface: str) -> dict:
     from orchestrator.mcp_governance import governance_env
     return {
-        "command": str((project_root / ".venv" / "Scripts" / "python.exe").resolve()),
+        "command": venv_python(project_root),
         "args": ["-u", "-m", "orchestrator.mcp"],
         "cwd": str(project_root.resolve()),
         "env": governance_env(profile, scope, surface),
@@ -1624,7 +1629,7 @@ def fix_command(
 
     # ── 1. .mcp.json ──────────────────────────────────────────────────────
     console.print("\n[bold cyan]MCP[/bold cyan]")
-    project_root = _Path(__file__).parent.parent
+    project_root = _repo_root()
     from orchestrator.mcp_governance import PROFILE_CAPABILITIES
     if mcp_profile not in PROFILE_CAPABILITIES:
         fail(f"--mcp-profile inválido: {mcp_profile}")
