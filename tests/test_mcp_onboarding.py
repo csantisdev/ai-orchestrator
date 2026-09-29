@@ -510,3 +510,110 @@ def test_mcp_example_copy_leaves_other_servers_and_malformed_templates_alone():
     assert adapted["mcpServers"]["ai-orchestrator"]["env"] == {"ORCHESTRATOR_MCP_PROFILE": "readonly"}
     assert adapted["mcpServers"]["otro"] == {"command": ".venv/Scripts/python.exe"}
     assert mcp_json_from_example("{ roto", is_windows=False) == "{ roto"
+
+
+def _legacy_configs(repo, command, codex_extra=""):
+    env = governance_env("workflow_operator", ["mi-proyecto"], "claude_code")
+    mcp_json = repo / ".mcp.json"
+    mcp_json.write_text(json.dumps({"mcpServers": {
+        "ai-orchestrator": {"command": command, "args": ["-u", "-m", "orchestrator.mcp"], "cwd": str(repo), "env": env},
+        "otro": {"command": "node", "args": ["server.js"]},
+    }}), encoding="utf-8")
+    codex = repo / ".codex" / "config.toml"
+    codex.parent.mkdir()
+    codex.write_text(
+        "# comando previo: " + command + "\n"
+        "[mcp_servers.ai_orchestrator]\n"
+        f"command = {json.dumps(command)}\n"
+        'args = ["-u", "-m", "orchestrator.mcp"]\n\n'
+        "[mcp_servers.ai_orchestrator.env]\n"
+        + "".join(f'{k} = "{v}"\n' for k, v in env.items())
+        + "\n[mcp_servers.ai_orchestrator.tools.get_context]\napproval_mode = \"approve\"\n"
+        + codex_extra,
+        encoding="utf-8",
+    )
+    return mcp_json, codex
+
+
+def _run_fix(monkeypatch, repo, home, is_windows=False):
+    import orchestrator.cli as cli
+    import orchestrator.venv_python as venv_python_mod
+
+    monkeypatch.setattr(venv_python_mod, "_host_is_windows", lambda v: is_windows if v is None else v)
+    monkeypatch.setattr(cli, "_ensure_db", lambda: None)
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+    monkeypatch.setattr(cli.index_module, "list_projects", lambda: {})
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    result = CliRunner().invoke(app, ["fix", "--mcp-profile", "workflow_operator", "--mcp-projects", "mi-proyecto"])
+    assert result.exit_code == 0, result.output
+    return result
+
+
+def test_fix_repairs_legacy_windows_venv_command_on_posix_and_is_idempotent(tmp_path, monkeypatch):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    repo.mkdir()
+    home.mkdir()
+    legacy = str((repo / ".venv" / "Scripts" / "python.exe").resolve())
+    mcp_json, codex = _legacy_configs(repo, legacy, '\n[mcp_servers.otro]\ncommand = "node"\n')
+    codex_before = tomllib.loads(codex.read_text(encoding="utf-8"))
+
+    _run_fix(monkeypatch, repo, home)
+    first_json, first_codex = mcp_json.read_text(encoding="utf-8"), codex.read_text(encoding="utf-8")
+    _run_fix(monkeypatch, repo, home)
+
+    assert mcp_json.read_text(encoding="utf-8") == first_json
+    assert codex.read_text(encoding="utf-8") == first_codex
+    servers = json.loads(first_json)["mcpServers"]
+    assert Path(servers["ai-orchestrator"]["command"]).parts[-3:] == (".venv", "bin", "python")
+    assert servers["ai-orchestrator"]["env"]["ORCHESTRATOR_MCP_PROFILE"] == "workflow_operator"
+    assert servers["otro"] == {"command": "node", "args": ["server.js"]}
+    codex_after = tomllib.loads(first_codex)
+    assert Path(codex_after["mcp_servers"]["ai_orchestrator"]["command"]).parts[-3:] == (".venv", "bin", "python")
+    codex_after["mcp_servers"]["ai_orchestrator"]["command"] = legacy
+    assert codex_after == codex_before
+    assert first_codex.startswith("# comando previo: " + legacy)
+
+
+def test_fix_repairs_relative_template_command_on_posix(tmp_path, monkeypatch):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    repo.mkdir()
+    home.mkdir()
+    mcp_json, codex = _legacy_configs(repo, ".venv/Scripts/python.exe")
+
+    _run_fix(monkeypatch, repo, home)
+
+    assert json.loads(mcp_json.read_text(encoding="utf-8"))["mcpServers"]["ai-orchestrator"]["command"] == ".venv/bin/python"
+    assert tomllib.loads(codex.read_text(encoding="utf-8"))["mcp_servers"]["ai_orchestrator"]["command"] == ".venv/bin/python"
+
+
+@pytest.mark.parametrize("command, is_windows", [
+    ("/opt/python/custom/bin/python3", False),
+    (r"C:\Python313\python.exe", False),
+    (".venv/Scripts/python.exe", True),
+])
+def test_fix_leaves_custom_or_windows_commands_alone(tmp_path, monkeypatch, command, is_windows):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    repo.mkdir()
+    home.mkdir()
+    mcp_json, codex = _legacy_configs(repo, command)
+    json_before, codex_before = mcp_json.read_text(encoding="utf-8"), codex.read_text(encoding="utf-8")
+
+    _run_fix(monkeypatch, repo, home, is_windows=is_windows)
+
+    assert mcp_json.read_text(encoding="utf-8") == json_before
+    assert codex.read_text(encoding="utf-8") == codex_before
+
+
+def test_fix_keeps_windows_command_when_that_python_exists(tmp_path, monkeypatch):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    (repo / ".venv" / "Scripts").mkdir(parents=True)
+    (repo / ".venv" / "Scripts" / "python.exe").write_text("")
+    home.mkdir()
+    mcp_json, codex = _legacy_configs(repo, ".venv/Scripts/python.exe")
+    json_before = mcp_json.read_text(encoding="utf-8")
+
+    _run_fix(monkeypatch, repo, home)
+
+    assert mcp_json.read_text(encoding="utf-8") == json_before
