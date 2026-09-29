@@ -1480,6 +1480,26 @@ def _merge_governance_env(existing: dict, wanted: dict) -> tuple[dict, bool]:
     return merged, changed
 
 
+def _repaired_server_command(server: dict, config_path: Path, project_root: Path | None) -> str | None:
+    """Legacy Windows venv command to replace in `server`, resolving cwd conservatively.
+
+    A relative cwd only counts when the config lives inside the repo; otherwise the
+    client's launch directory is unknown and the relative command is left alone.
+    """
+    command = server.get("command")
+    if project_root is None or not isinstance(command, str):
+        return None
+    cwd_raw = server.get("cwd")
+    cwd = None
+    if isinstance(cwd_raw, str) and cwd_raw.strip():
+        cwd_path = Path(cwd_raw)
+        if cwd_path.is_absolute():
+            cwd = cwd_path
+        elif config_path.resolve().is_relative_to(project_root.resolve()):
+            cwd = project_root / cwd_path
+    return repaired_venv_command(command, project_root, cwd=cwd)
+
+
 def _apply_json_mcp(
     path: Path, key: str, name: str, entry: dict, label: str, did, skip, create: bool = True,
     project_root: Path | None = None,
@@ -1512,11 +1532,7 @@ def _apply_json_mcp(
         message = f"{label}: ai-orchestrator registrado con perfil y alcance MCP (reiniciá el cliente)"
     else:
         current["env"], changed = _merge_governance_env(current.get("env", {}), entry["env"])
-        command = current.get("command")
-        repaired = (
-            repaired_venv_command(command, project_root)
-            if project_root is not None and isinstance(command, str) else None
-        )
+        repaired = _repaired_server_command(current, path, project_root)
         if repaired:
             current["command"] = repaired
         if not changed and not repaired:
@@ -1612,13 +1628,9 @@ def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail, project_root: Pat
     if "env" in server and not isinstance(server["env"], dict):
         fail(".codex/config.toml: mcp_servers.ai_orchestrator.env no es una tabla — corregilo a mano")
         return
-    command = server.get("command")
-    repaired = (
-        repaired_venv_command(command, project_root)
-        if project_root is not None and isinstance(command, str) else None
-    )
+    repaired = _repaired_server_command(server, path, project_root)
     if repaired:
-        candidate = _codex_command_replaced(text, command, repaired)
+        candidate = _codex_command_replaced(text, server["command"], repaired)
         if candidate is None:
             fail(f".codex/config.toml: no se pudo corregir el command de forma segura — cambialo a mano a {repaired}")
         else:

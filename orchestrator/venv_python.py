@@ -27,12 +27,15 @@ def venv_python(project_root: Path, is_windows: bool | None = None) -> str:
     return os.path.abspath(os.path.join(os.fspath(project_root), ".venv", "bin", "python"))
 
 
-def repaired_venv_command(command: str, project_root: Path, is_windows: bool | None = None) -> str | None:
+def repaired_venv_command(
+    command: str, project_root: Path, cwd: Path | None = None, is_windows: bool | None = None,
+) -> str | None:
     """Command POSIX que reemplaza la ruta Windows del .venv de este repo, o None.
 
     Solo corrige lo que versiones anteriores generaban en POSIX
     (<repo>/.venv/Scripts/python.exe o la ruta relativa de la plantilla) y
-    únicamente si ese archivo no existe. Cualquier otro command se respeta.
+    únicamente si ese archivo no existe. La ruta relativa exige que `cwd` sea
+    la raíz del repo; sin cwd conocido no se toca. Cualquier otro command se respeta.
     """
     if _host_is_windows(is_windows):
         return None
@@ -46,5 +49,7 @@ def repaired_venv_command(command: str, project_root: Path, is_windows: bool | N
     if command in legacy_absolute:
         return venv_python(project_root, is_windows=False)
     if command == venv_python_rel(is_windows=True):
+        if cwd is None or Path(cwd).resolve() != Path(project_root).resolve():
+            return None
         return venv_python_rel(is_windows=False)
     return None

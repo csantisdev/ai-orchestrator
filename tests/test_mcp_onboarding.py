@@ -525,7 +525,8 @@ def _legacy_configs(repo, command, codex_extra=""):
         "# comando previo: " + command + "\n"
         "[mcp_servers.ai_orchestrator]\n"
         f"command = {json.dumps(command)}\n"
-        'args = ["-u", "-m", "orchestrator.mcp"]\n\n'
+        'args = ["-u", "-m", "orchestrator.mcp"]\n'
+        f"cwd = {json.dumps(str(repo))}\n\n"
         "[mcp_servers.ai_orchestrator.env]\n"
         + "".join(f'{k} = "{v}"\n' for k, v in env.items())
         + "\n[mcp_servers.ai_orchestrator.tools.get_context]\napproval_mode = \"approve\"\n"
@@ -617,3 +618,38 @@ def test_fix_keeps_windows_command_when_that_python_exists(tmp_path, monkeypatch
     _run_fix(monkeypatch, repo, home)
 
     assert mcp_json.read_text(encoding="utf-8") == json_before
+
+
+def test_fix_leaves_relative_windows_command_with_foreign_cwd_alone(tmp_path, monkeypatch):
+    repo, home, other = tmp_path / "repo", tmp_path / "home", tmp_path / "otro-checkout"
+    repo.mkdir()
+    home.mkdir()
+    other.mkdir()
+    mcp_json, codex = _legacy_configs(repo, ".venv/Scripts/python.exe")
+    data = json.loads(mcp_json.read_text(encoding="utf-8"))
+    data["mcpServers"]["ai-orchestrator"]["cwd"] = str(other)
+    mcp_json.write_text(json.dumps(data), encoding="utf-8")
+    json_before = mcp_json.read_text(encoding="utf-8")
+
+    _run_fix(monkeypatch, repo, home)
+
+    assert mcp_json.read_text(encoding="utf-8") == json_before
+
+
+def test_fix_resolves_relative_cwd_only_for_configs_inside_the_repo(tmp_path, monkeypatch):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    repo.mkdir()
+    (home / ".gemini").mkdir(parents=True)
+    env = governance_env("workflow_operator", ["mi-proyecto"], "other")
+    relative = {"command": ".venv/Scripts/python.exe", "args": ["-u", "-m", "orchestrator.mcp"], "cwd": ".", "env": env}
+    (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"ai-orchestrator": dict(relative)}}), encoding="utf-8")
+    gemini = home / ".gemini" / "settings.json"
+    gemini.write_text(json.dumps({"mcpServers": {"ai-orchestrator": dict(relative)}}), encoding="utf-8")
+    gemini_before = gemini.read_text(encoding="utf-8")
+
+    _run_fix(monkeypatch, repo, home)
+
+    repo_entry = json.loads((repo / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["ai-orchestrator"]
+    assert repo_entry["command"] == ".venv/bin/python"
+    assert repo_entry["cwd"] == "."
+    assert gemini.read_text(encoding="utf-8") == gemini_before
