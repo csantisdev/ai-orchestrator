@@ -31,10 +31,11 @@ from orchestrator.egress import policy_for_project
 from orchestrator.index import ProjectNotFoundError
 from orchestrator.paths import HOME_DIR, PROVIDERS
 from orchestrator.providers.factory import build_provider
+from orchestrator.venv_python import repaired_venv_command, venv_python
 
 app = typer.Typer(
     name="ai-orchestrator",
-    help="Orquestador local de agentes IA. Rutea tareas entre Claude, OpenAI y DeepSeek.",
+    help="Orquestador local de agentes IA. Rutea tareas entre Claude, OpenAI, DeepSeek y Gemini.",
     no_args_is_help=True,
 )
 console = Console(legacy_windows=False)
@@ -969,11 +970,11 @@ def doctor(
     import sys as _sys
     ok(f"Python {_sys.version.split()[0]}")
 
-    venv_python = _Path(__file__).parent.parent / ".venv" / "Scripts" / "python.exe"
-    if not venv_python.exists():
-        venv_python = _Path(__file__).parent.parent / ".venv" / "bin" / "python"
-    if venv_python.exists():
-        ok(f".venv encontrado en {venv_python.parent.parent}")
+    venv_py = _Path(__file__).parent.parent / ".venv" / "Scripts" / "python.exe"
+    if not venv_py.exists():
+        venv_py = _Path(__file__).parent.parent / ".venv" / "bin" / "python"
+    if venv_py.exists():
+        ok(f".venv encontrado en {venv_py.parent.parent}")
     else:
         warn(".venv no detectado en el proyecto", "Ejecutá: python -m venv .venv && pip install -e .")
 
@@ -1027,11 +1028,11 @@ def doctor(
 
     # ── 3. Integración agentes / MCP ──────────────────────────────────────
     console.print("\n[bold cyan]Integración agentes / MCP[/bold cyan]")
-    project_root = _Path(__file__).parent.parent
+    project_root = _repo_root()
     mcp_json = project_root / ".mcp.json"
     mcp_example = project_root / ".mcp.json.example"
     mcp_entry = {
-        "command": str((project_root / ".venv" / "Scripts" / "python.exe").resolve()),
+        "command": venv_python(project_root),
         "args": ["-u", "-m", "orchestrator.mcp"],
         "cwd": str(project_root.resolve()),
     }
@@ -1445,6 +1446,10 @@ _CODEX_APPROVED_TOOLS = (
 )
 
 
+def _repo_root() -> Path:
+    return Path(__file__).parent.parent
+
+
 def _mcp_default_scope(project_root: Path) -> list[str]:
     root = project_root.resolve()
     try:
@@ -1457,7 +1462,7 @@ def _mcp_default_scope(project_root: Path) -> list[str]:
 def _mcp_entry(project_root: Path, profile: str, scope: list[str], surface: str) -> dict:
     from orchestrator.mcp_governance import governance_env
     return {
-        "command": str((project_root / ".venv" / "Scripts" / "python.exe").resolve()),
+        "command": venv_python(project_root),
         "args": ["-u", "-m", "orchestrator.mcp"],
         "cwd": str(project_root.resolve()),
         "env": governance_env(profile, scope, surface),
@@ -1475,8 +1480,29 @@ def _merge_governance_env(existing: dict, wanted: dict) -> tuple[dict, bool]:
     return merged, changed
 
 
+def _repaired_server_command(server: dict, config_path: Path, project_root: Path | None) -> str | None:
+    """Legacy Windows venv command to replace in `server`, resolving cwd conservatively.
+
+    A relative cwd only counts when the config lives inside the repo; otherwise the
+    client's launch directory is unknown and the relative command is left alone.
+    """
+    command = server.get("command")
+    if project_root is None or not isinstance(command, str):
+        return None
+    cwd_raw = server.get("cwd")
+    cwd = None
+    if isinstance(cwd_raw, str) and cwd_raw.strip():
+        cwd_path = Path(cwd_raw)
+        if cwd_path.is_absolute():
+            cwd = cwd_path
+        elif config_path.resolve().is_relative_to(project_root.resolve()):
+            cwd = project_root / cwd_path
+    return repaired_venv_command(command, project_root, cwd=cwd)
+
+
 def _apply_json_mcp(
     path: Path, key: str, name: str, entry: dict, label: str, did, skip, create: bool = True,
+    project_root: Path | None = None,
 ) -> None:
     import json as _json
     if path.exists():
@@ -1506,10 +1532,16 @@ def _apply_json_mcp(
         message = f"{label}: ai-orchestrator registrado con perfil y alcance MCP (reiniciá el cliente)"
     else:
         current["env"], changed = _merge_governance_env(current.get("env", {}), entry["env"])
-        if not changed:
+        repaired = _repaired_server_command(current, path, project_root)
+        if repaired:
+            current["command"] = repaired
+        if not changed and not repaired:
             skip(f"{label}: ai-orchestrator ya declara perfil y alcance MCP")
             return
-        message = f"{label}: perfil y alcance MCP agregados al env (reiniciá el cliente)"
+        done = (["perfil y alcance MCP agregados al env"] if changed else []) + (
+            [f"command corregido a {repaired}"] if repaired else []
+        )
+        message = f"{label}: " + "; ".join(done) + " (reiniciá el cliente)"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     did(message)
@@ -1534,7 +1566,31 @@ def _codex_env_inserted_exactly(original: str, candidate: str, env: dict) -> boo
     return after == before
 
 
-def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail) -> None:
+def _codex_command_replaced(text: str, old: str, new: str) -> str | None:
+    """Replace the ai_orchestrator command textually, verifying that is the only parsed change."""
+    import tomllib
+    try:
+        expected = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return None
+    expected["mcp_servers"]["ai_orchestrator"]["command"] = new
+    literals = [_toml_string(old)]
+    if "'" not in old and "\n" not in old:
+        literals.append(f"'{old}'")
+    for literal in literals:
+        start = text.find(literal)
+        while start != -1:
+            candidate = text[:start] + _toml_string(new) + text[start + len(literal):]
+            try:
+                if tomllib.loads(candidate) == expected:
+                    return candidate
+            except tomllib.TOMLDecodeError:
+                pass
+            start = text.find(literal, start + 1)
+    return None
+
+
+def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail, project_root: Path | None = None) -> None:
     import tomllib
     env_block = "[mcp_servers.ai_orchestrator.env]\n" + "".join(
         f"{key} = {_toml_string(value)}\n" for key, value in entry["env"].items()
@@ -1572,6 +1628,15 @@ def _apply_codex_mcp(path: Path, entry: dict, did, skip, fail) -> None:
     if "env" in server and not isinstance(server["env"], dict):
         fail(".codex/config.toml: mcp_servers.ai_orchestrator.env no es una tabla — corregilo a mano")
         return
+    repaired = _repaired_server_command(server, path, project_root)
+    if repaired:
+        candidate = _codex_command_replaced(text, server["command"], repaired)
+        if candidate is None:
+            fail(f".codex/config.toml: no se pudo corregir el command de forma segura — cambialo a mano a {repaired}")
+        else:
+            path.write_text(candidate, encoding="utf-8")
+            text = candidate
+            did(f".codex/config.toml: command corregido a {repaired} (abrí una sesión nueva de Codex)")
     if "env" in server:
         _, changed = _merge_governance_env(server["env"], entry["env"])
         if changed:
@@ -1624,7 +1689,7 @@ def fix_command(
 
     # ── 1. .mcp.json ──────────────────────────────────────────────────────
     console.print("\n[bold cyan]MCP[/bold cyan]")
-    project_root = _Path(__file__).parent.parent
+    project_root = _repo_root()
     from orchestrator.mcp_governance import PROFILE_CAPABILITIES
     if mcp_profile not in PROFILE_CAPABILITIES:
         fail(f"--mcp-profile inválido: {mcp_profile}")
@@ -1639,10 +1704,12 @@ def fix_command(
     _apply_json_mcp(
         project_root / ".mcp.json", "mcpServers", "ai-orchestrator",
         _mcp_entry(project_root, mcp_profile, scope, "claude_code"), ".mcp.json", did, skip,
+        project_root=project_root,
     )
     _apply_codex_mcp(
         project_root / ".codex" / "config.toml",
         _mcp_entry(project_root, mcp_profile, scope, "codex_cli"), did, skip, fail,
+        project_root=project_root,
     )
 
     # ── 2. MCP global en ~/.claude/settings.json ──────────────────────────
@@ -1651,6 +1718,7 @@ def fix_command(
         _Path.home() / ".claude" / "settings.json", "mcpServers", "ai-orchestrator",
         _mcp_entry(project_root, mcp_profile, scope, "claude_code"),
         "~/.claude/settings.json global", did, skip, create=global_mcp or all_fixes,
+        project_root=project_root,
     )
 
     console.print("\n[bold cyan]Gemini MCP[/bold cyan]")
@@ -1681,6 +1749,7 @@ def fix_command(
         gemini_base / ".gemini" / "settings.json", "mcpServers", "ai-orchestrator",
         _mcp_entry(project_root, mcp_profile, scope, "other"),
         "Gemini: ~/.gemini/settings.json", did, skip,
+        project_root=project_root,
     )
 
     # ── 3. context.yaml para proyectos sin él ─────────────────────────────

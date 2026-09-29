@@ -89,6 +89,26 @@ cp index.example.yaml  ~/.ai-orchestrator/index.yaml
 notepad ~/.ai-orchestrator/config.yaml
 ```
 
+**Linux / macOS**
+```bash
+# 1. Entrar al repo y crear entorno virtual
+cd ~/ruta/ai-orchestrator
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. Instalar dependencias
+pip install -r requirements.txt
+pip install -e .
+
+# 3. Crear configuración local
+mkdir -p ~/.ai-orchestrator
+cp config.example.yaml ~/.ai-orchestrator/config.yaml
+cp index.example.yaml  ~/.ai-orchestrator/index.yaml
+
+# 4. Completar API keys
+${EDITOR:-nano} ~/.ai-orchestrator/config.yaml
+```
+
 > **Dónde obtener las API keys**
 >
 > | Proveedor | Plataforma | Obligatorio para empezar |
@@ -137,7 +157,7 @@ Si no sabés por dónde empezar, usá este orden:
 | Correr una tarea rápido | `ai-orchestrator run` o dashboard |
 | Ver historial y costo | dashboard o `ai-orchestrator history` |
 | Arreglar setup/configuración | `ai-orchestrator doctor` y `ai-orchestrator fix` |
-| Indexar documentación del proyecto | `ai-orchestrator index-docs` |
+| Indexar documentación del proyecto | `ai-orchestrator index-docs -p <alias>` |
 | Conectar otro agente o IDE | MCP |
 | Auditar modelos, pricing o router | comandos de evaluación y pricing |
 
@@ -325,9 +345,9 @@ La documentación completa está en **`http://127.0.0.1:8080/docs`** una vez lev
 ### Indexación RAG
 
 ```powershell
-ai-orchestrator index-docs mi-proyecto
-ai-orchestrator index-docs mi-proyecto --exclude "vendor,storage,public/build"  # excluir carpetas
-ai-orchestrator index-docs mi-proyecto --exclude "vendor" --save                 # guardar exclusiones en context.yaml
+ai-orchestrator index-docs -p mi-proyecto
+ai-orchestrator index-docs -p mi-proyecto --exclude "vendor,storage,public/build"  # excluir carpetas
+ai-orchestrator index-docs -p mi-proyecto --exclude "vendor" --save                 # guardar exclusiones en context.yaml
 ```
 
 > Sin costo de IA — usa embeddings locales (`all-MiniLM-L6-v2`). También disponible desde el Inspector del dashboard.
@@ -406,7 +426,7 @@ ai-orchestrator fix --all               # aplica todas las mejoras anteriores ju
 | Sección | Qué revisa |
 |---|---|
 | **Entorno** | Python version, `.venv` activo |
-| **Configuración global** | `config.yaml` cargable, API keys de los 3 providers, `index.yaml`, `runs.db`, ChromaDB |
+| **Configuración global** | `config.yaml` cargable, API keys de los 4 providers, `index.yaml`, `runs.db`, ChromaDB |
 | **MCP / Claude Code / Codex** | `.mcp.json` en el proyecto, `.codex/config.toml`, MCP en `~/.claude/settings.json` global |
 | **Gobernanza MCP** | Cada config de cliente MCP define `ORCHESTRATOR_MCP_PROFILE` y `ORCHESTRATOR_MCP_PROJECTS` con alias registrados |
 | **Proyectos** | Ruta existe, `context.yaml` generado, indexado en ChromaDB, sin texto de plantilla en `context.yaml` |
@@ -646,7 +666,7 @@ ai-orchestrator pricing show
 | `ModuleNotFoundError: chromadb` | ChromaDB no instalado | `pip install chromadb` — sin él el RAG usa FTS5 como fallback |
 | Mojibake en contextos MCP desde Codex (Windows) | `sys.stdin` hereda encoding `cp1252` | Ya resuelto: el servidor fuerza `utf-8` al arrancar. Datos previos: reparar con `update_context` / `update_step` |
 | Panel de actividad se abre solo | Comportamiento esperado en la primera traza | Colapsarlo manualmente — el estado se respeta para el resto de la sesión |
-| `doctor` muestra ✗ en ChromaDB | ChromaDB no inicializa o colección vacía | Ejecutar `ai-orchestrator index-docs <alias>` por proyecto |
+| `doctor` muestra ✗ en ChromaDB | ChromaDB no inicializa o colección vacía | Ejecutar `ai-orchestrator index-docs -p <alias>` por proyecto |
 
 ---
 
@@ -662,7 +682,7 @@ Ver la guía paso a paso en [Empezá por acá](#empezá-por-acá) al inicio de e
 
 ## Seguridad local
 
-El orquestador nunca envía datos del proyecto a servidores externos, excepto el texto del prompt al provider elegido (Claude, OpenAI, DeepSeek).
+El historial, el índice RAG y la configuración se guardan en la máquina local. Para responder una tarea, el orquestador llama directamente al API del provider elegido (Claude, OpenAI, DeepSeek o Gemini) y le envía el prompt con el contexto del proyecto que se le agregue; el router también envía la tarea al modelo router configurado para decidir el ruteo.
 
 El indexador RAG excluye automáticamente:
 - **Por nombre de archivo:** `.env`, `credentials.json`, `id_rsa`, `secrets.yaml`, `.npmrc`, `auth.json`, `terraform.tfvars`, etc.

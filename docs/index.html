@@ -806,7 +806,7 @@ pip install chromadb</pre></div>
   </table>
 
   <h3>Indexación RAG</h3>
-  <div class="code-block"><pre><span class="cmd">ai-orchestrator</span> index-docs mi-proyecto   <span class="cm"># también disponible desde el Inspector</span></pre></div>
+  <div class="code-block"><pre><span class="cmd">ai-orchestrator</span> index-docs -p mi-proyecto   <span class="cm"># también disponible desde el Inspector</span></pre></div>
 
   <div class="callout">
     <strong>Sin costo de IA:</strong> la indexación usa embeddings locales (<code>all-MiniLM-L6-v2</code>) — no llama a ningún proveedor externo. El costo ocurre solo al <em>recuperar</em> contexto durante un run.
