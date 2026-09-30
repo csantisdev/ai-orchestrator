@@ -16,4 +16,4 @@ def test_python_sources_have_no_invisible_characters(path):
         for line_no, line in enumerate(text.splitlines(), 1)
         for char, name in _INVISIBLE.items() if char in line
     ]
-    assert not found, f"usá escapes (p. ej. \ufeff) en vez de caracteres invisibles: {found}"
+    assert not found, f"usá escapes (p. ej. \\ufeff) en vez de caracteres invisibles: {found}"
