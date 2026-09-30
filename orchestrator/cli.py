@@ -433,6 +433,18 @@ def sync_git(
     console.print(table)
 
 
+def _read_steps_json(source: str) -> str:
+    from orchestrator.step_specs import StepSpecError
+    if source != "-":
+        return Path(source).read_bytes().decode("utf-8-sig")
+    stream = getattr(sys.stdin, "buffer", sys.stdin)
+    try:
+        data = stream.read()
+    except (AttributeError, ValueError) as exc:
+        raise StepSpecError(f"no se pudo leer stdin: {exc}") from exc
+    return data.decode("utf-8-sig") if isinstance(data, bytes) else data.lstrip("﻿")
+
+
 @app.command(name="create-context")
 def create_context_cmd(
     project: str = typer.Option(..., "--project", "-p", help="Alias del proyecto."),
@@ -457,8 +469,7 @@ def create_context_cmd(
         raise typer.Exit(1)
     try:
         if steps_json:
-            data = sys.stdin.buffer.read() if steps_json == "-" else Path(steps_json).read_bytes()
-            specs = load_steps_json(data.decode("utf-8-sig"))
+            specs = load_steps_json(_read_steps_json(steps_json))
         else:
             specs = [parse_step_option(s) for s in step or []]
     except (StepSpecError, OSError, UnicodeError) as exc:

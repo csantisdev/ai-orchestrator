@@ -1,3 +1,4 @@
+import io
 import json
 from unittest.mock import patch
 
@@ -164,6 +165,32 @@ def test_create_context_reads_non_ascii_utf8_from_stdin_bytes():
     assert result.exit_code == 0, result.output
     _, steps = _context_rows("cli-stdin-utf8")
     assert [s["title"] for s in steps] == ["Revisión: año"]
+
+
+@pytest.mark.parametrize("stdin, expected", [
+    (io.StringIO('﻿[{"title": "Texto: ok"}]'), '[{"title": "Texto: ok"}]'),
+    (io.BytesIO('[{"title": "Año"}]'.encode("utf-8")), '[{"title": "Año"}]'),
+])
+def test_read_steps_json_accepts_text_or_byte_stdin(monkeypatch, stdin, expected):
+    from orchestrator.cli import _read_steps_json
+    monkeypatch.setattr("sys.stdin", stdin)
+
+    assert _read_steps_json("-") == expected
+
+
+def _closed_stdin():
+    stream = io.StringIO("[]")
+    stream.close()
+    return stream
+
+
+@pytest.mark.parametrize("stdin", [None, _closed_stdin()])
+def test_read_steps_json_reports_unusable_stdin(monkeypatch, stdin):
+    from orchestrator.cli import _read_steps_json
+    monkeypatch.setattr("sys.stdin", stdin)
+
+    with pytest.raises(StepSpecError):
+        _read_steps_json("-")
 
 
 def test_create_context_accepts_steps_json_with_bom(tmp_path):
