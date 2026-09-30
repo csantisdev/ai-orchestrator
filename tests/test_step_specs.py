@@ -154,6 +154,44 @@ def test_create_context_reads_steps_json_from_stdin():
     assert [s["title"] for s in steps] == ["Desde stdin: ok"]
 
 
+def test_create_context_reads_non_ascii_utf8_from_stdin_bytes():
+    result = CliRunner().invoke(
+        app,
+        ["create-context", "-p", "cli-stdin-utf8", "-t", "Plan", "--steps-json", "-"],
+        input=json.dumps([{"title": "Revisión: año"}], ensure_ascii=False).encode("utf-8"),
+    )
+
+    assert result.exit_code == 0, result.output
+    _, steps = _context_rows("cli-stdin-utf8")
+    assert [s["title"] for s in steps] == ["Revisión: año"]
+
+
+def test_create_context_accepts_steps_json_with_bom(tmp_path):
+    steps_file = tmp_path / "steps.json"
+    steps_file.write_bytes(b"\xef\xbb\xbf" + json.dumps([{"title": "Con BOM"}]).encode("utf-8"))
+
+    result = CliRunner().invoke(app, [
+        "create-context", "-p", "cli-bom", "-t", "Plan", "--steps-json", str(steps_file),
+    ])
+
+    assert result.exit_code == 0, result.output
+    _, steps = _context_rows("cli-bom")
+    assert [s["title"] for s in steps] == ["Con BOM"]
+
+
+def test_create_context_reports_non_utf8_steps_json(tmp_path):
+    steps_file = tmp_path / "steps.json"
+    steps_file.write_bytes(b'[{"title": "\xff\xfe"}]')
+
+    result = CliRunner().invoke(app, [
+        "create-context", "-p", "cli-latin", "-t", "Plan", "--steps-json", str(steps_file),
+    ])
+
+    assert result.exit_code == 1
+    assert "Pasos inválidos" in result.output
+    assert _context_rows("cli-latin") == ([], [])
+
+
 def test_create_context_rejects_step_and_steps_json_together(tmp_path):
     steps_file = tmp_path / "steps.json"
     steps_file.write_text("[]", encoding="utf-8")

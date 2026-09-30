@@ -457,11 +457,11 @@ def create_context_cmd(
         raise typer.Exit(1)
     try:
         if steps_json:
-            raw = sys.stdin.read() if steps_json == "-" else Path(steps_json).read_text(encoding="utf-8")
-            specs = load_steps_json(raw)
+            data = sys.stdin.buffer.read() if steps_json == "-" else Path(steps_json).read_bytes()
+            specs = load_steps_json(data.decode("utf-8-sig"))
         else:
             specs = [parse_step_option(s) for s in step or []]
-    except (StepSpecError, OSError) as exc:
+    except (StepSpecError, OSError, UnicodeError) as exc:
         console.print(f"[red]Pasos inválidos:[/red] {escape(str(exc))}")
         raise typer.Exit(1)
     _ensure_db()
