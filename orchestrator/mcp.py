@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from orchestrator.mcp_governance import MAX_RECORD_TOOL_CALL_INPUT_BYTES, ArgumentValidationError
+from orchestrator.step_specs import STEPS_SCHEMA
 
 _HANDLERS: dict[str, Callable[[dict], Any]] = {}
 
@@ -248,22 +249,7 @@ TOOLS = [
                 "project":     {"type": "string", "description": "Alias del proyecto registrado."},
                 "title":       {"type": "string", "description": "Objetivo o título del contexto."},
                 "description": {"type": "string", "default": ""},
-                "steps": {
-                    "type": "array",
-                    "description": "Pasos iniciales del contexto (opcional).",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "title":    {"type": "string"},
-                            "provider": {"type": "string", "default": ""},
-                            "agent_preset": {
-                                "type": "string", "default": "",
-                                "description": "Nombre de un agente registrado (preset de provider/model/system-prompt). Ver list_agents.",
-                            },
-                        },
-                        "required": ["title"],
-                    },
-                },
+                "steps": STEPS_SCHEMA,
                 "parent_step_id": {
                     "type": "integer",
                     "description": "ID del step que originó este contexto. Permite trazar la relación entre contextos.",

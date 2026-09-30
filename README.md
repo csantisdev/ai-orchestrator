@@ -387,9 +387,13 @@ ai-orchestrator history --project mi-proyecto --last 50
 ### Contextos y pasos
 
 ```powershell
-ai-orchestrator create-context mi-proyecto "Implementar autenticación JWT"
-ai-orchestrator list-contexts mi-proyecto
+ai-orchestrator create-context --project mi-proyecto --title "Implementar autenticación JWT" `
+  --step "Fase 1: diseñar tokens:claude" --step "Fase 2: middleware:codex"
+ai-orchestrator create-context --project mi-proyecto --title "Plan desde archivo" --steps-json pasos.json
+ai-orchestrator list-contexts --project mi-proyecto
 ```
+
+En `--step 'Título:etiqueta'`, la etiqueta (provider o ejecutor, sin validar, como en el MCP) es lo que sigue al **último** `:`, pegado y con forma de identificador; si no, todo el texto es título (`"Fix: parser"` no lleva etiqueta). Para títulos que terminan de verdad en `:palabra` o para indicar `agent_preset`, usá `--steps-json` con una lista `[{"title": ..., "provider": ..., "agent_preset": ...}]`, el mismo esquema que la tool MCP `create_context` (`-` lee de stdin).
 
 ### Agentes (presets reutilizables)
 
