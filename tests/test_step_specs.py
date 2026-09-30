@@ -168,7 +168,7 @@ def test_create_context_reads_non_ascii_utf8_from_stdin_bytes():
 
 
 @pytest.mark.parametrize("stdin, expected", [
-    (io.StringIO('﻿[{"title": "Texto: ok"}]'), '[{"title": "Texto: ok"}]'),
+    (io.StringIO('\ufeff[{"title": "Texto: ok"}]'), '[{"title": "Texto: ok"}]'),
     (io.BytesIO('[{"title": "Año"}]'.encode("utf-8")), '[{"title": "Año"}]'),
 ])
 def test_read_steps_json_accepts_text_or_byte_stdin(monkeypatch, stdin, expected):
@@ -217,6 +217,23 @@ def test_create_context_reports_non_utf8_steps_json(tmp_path):
     assert result.exit_code == 1
     assert "Pasos inválidos" in result.output
     assert _context_rows("cli-latin") == ([], [])
+
+
+def test_create_context_rejects_empty_steps_json_path():
+    result = CliRunner().invoke(app, ["create-context", "-p", "cli-empty-json", "-t", "Plan", "--steps-json", ""])
+
+    assert result.exit_code == 1
+    assert "Pasos inválidos" in result.output
+    assert _context_rows("cli-empty-json") == ([], [])
+
+
+def test_create_context_rejects_step_with_empty_steps_json():
+    result = CliRunner().invoke(app, [
+        "create-context", "-p", "cli-both-empty", "-t", "Plan", "-s", "Uno", "--steps-json", "",
+    ])
+
+    assert result.exit_code == 1
+    assert _context_rows("cli-both-empty") == ([], [])
 
 
 def test_create_context_rejects_step_and_steps_json_together(tmp_path):
