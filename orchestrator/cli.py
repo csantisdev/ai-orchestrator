@@ -442,7 +442,7 @@ def _read_steps_json(source: str) -> str:
         data = stream.read()
     except (AttributeError, ValueError) as exc:
         raise StepSpecError(f"no se pudo leer stdin: {exc}") from exc
-    return data.decode("utf-8-sig") if isinstance(data, bytes) else data.lstrip("﻿")
+    return data.decode("utf-8-sig") if isinstance(data, bytes) else data.removeprefix("\ufeff")
 
 
 @app.command(name="create-context")
@@ -464,11 +464,11 @@ def create_context_cmd(
     """Crea un contexto de trabajo con pasos en la base de datos."""
     from rich.markup import escape
     from orchestrator.step_specs import StepSpecError, load_steps_json, parse_step_option
-    if step and steps_json:
+    if step and steps_json is not None:
         console.print("[red]Usá --step o --steps-json, no ambos.[/red]")
         raise typer.Exit(1)
     try:
-        if steps_json:
+        if steps_json is not None:
             specs = load_steps_json(_read_steps_json(steps_json))
         else:
             specs = [parse_step_option(s) for s in step or []]

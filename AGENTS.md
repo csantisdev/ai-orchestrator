@@ -24,7 +24,7 @@ Plantillas: `.mcp.json.example` y `.codex/config.toml.example`. `ai-orchestrator
 ## Flujo de ramas y PRs
 
 - Rama principal: `production`. Nunca se commitea directo: todo entra por PR.
-- El ruleset exige CI verde, rama al día con `production` y todos los hilos de revisión resueltos (Copilot revisa automáticamente).
+- El ruleset exige CI verde, rama al día con `production` y todos los hilos de revisión resueltos. Copilot revisa automáticamente en cada push (regla `copilot_code_review`), pero el ruleset no bloquea el merge si su review todavía no llegó: sin hilos, "hilos resueltos" se cumple igual. No mergees hasta que exista la review de Copilot del último push (`gh pr view <n> --json reviews`); si no aparece en unos minutos, pedila a mano.
 - Commits en inglés con prefijo convencional: `feat:`, `fix:`, `docs:` (scope opcional, p. ej. `fix(ingest):`).
 - Cambios no triviales: auditoría cruzada con Codex, corrección y una segunda ronda sobre lo corregido (protocolo en `docs/decisions/analyses/ANL-003-per-change-cross-audit.md`; ANL-002 es la auditoría puntual del repositorio completo).
 
