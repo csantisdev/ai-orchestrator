@@ -814,8 +814,9 @@ pip install chromadb</pre></div>
 
   <h3>Historial y contextos</h3>
   <div class="code-block"><pre><span class="cmd">ai-orchestrator</span> history <span class="flag">--project</span> mi-proyecto <span class="flag">--last</span> 50
-<span class="cmd">ai-orchestrator</span> create-context mi-proyecto <span class="str">"Implementar autenticación JWT"</span>
-<span class="cmd">ai-orchestrator</span> list-contexts mi-proyecto</pre></div>
+<span class="cmd">ai-orchestrator</span> create-context <span class="flag">--project</span> mi-proyecto <span class="flag">--title</span> <span class="str">"Implementar autenticación JWT"</span> <span class="flag">--step</span> <span class="str">"Fase 1: diseñar tokens:claude"</span>
+<span class="cmd">ai-orchestrator</span> create-context <span class="flag">--project</span> mi-proyecto <span class="flag">--title</span> <span class="str">"Plan desde archivo"</span> <span class="flag">--steps-json</span> pasos.json
+<span class="cmd">ai-orchestrator</span> list-contexts <span class="flag">--project</span> mi-proyecto</pre></div>
 
   <h3>Sync de sesiones Claude Code y Codex</h3>
   <div class="code-block"><pre><span class="cmd">ai-orchestrator</span> sync-cc            <span class="cm"># importa sesiones CC nuevas</span>

@@ -433,32 +433,66 @@ def sync_git(
     console.print(table)
 
 
+def _read_steps_json(source: str) -> str:
+    from orchestrator.step_specs import StepSpecError
+    if source != "-":
+        return Path(source).read_bytes().decode("utf-8-sig")
+    stream = getattr(sys.stdin, "buffer", sys.stdin)
+    try:
+        data = stream.read()
+    except (AttributeError, ValueError) as exc:
+        raise StepSpecError(f"no se pudo leer stdin: {exc}") from exc
+    return data.decode("utf-8-sig") if isinstance(data, bytes) else data.lstrip("﻿")
+
+
 @app.command(name="create-context")
 def create_context_cmd(
     project: str = typer.Option(..., "--project", "-p", help="Alias del proyecto."),
     title: str = typer.Option(..., "--title", "-t", help="Objetivo del contexto."),
     description: str = typer.Option("", "--description", "-d", help="Descripción extendida."),
-    step: Optional[list[str]] = typer.Option(None, "--step", "-s", help="'Título:provider' — repetible. Ej: 'Diseñar schema:claude'"),
+    step: Optional[list[str]] = typer.Option(
+        None, "--step", "-s",
+        help="'Título:etiqueta' — repetible. La etiqueta (provider o ejecutor) es lo que sigue al último ':', "
+             "pegado y con forma de identificador; si no, todo es título. Ej: 'Fase 1: schema:claude'",
+    ),
+    steps_json: Optional[str] = typer.Option(
+        None, "--steps-json",
+        help="Archivo JSON (o '-' para stdin) con una lista de pasos {title, provider, agent_preset}, "
+             "el mismo esquema que la tool MCP create_context. Excluyente con --step.",
+    ),
 ):
     """Crea un contexto de trabajo con pasos en la base de datos."""
+    from rich.markup import escape
+    from orchestrator.step_specs import StepSpecError, load_steps_json, parse_step_option
+    if step and steps_json:
+        console.print("[red]Usá --step o --steps-json, no ambos.[/red]")
+        raise typer.Exit(1)
+    try:
+        if steps_json:
+            specs = load_steps_json(_read_steps_json(steps_json))
+        else:
+            specs = [parse_step_option(s) for s in step or []]
+    except (StepSpecError, OSError, UnicodeError) as exc:
+        console.print(f"[red]Pasos inválidos:[/red] {escape(str(exc))}")
+        raise typer.Exit(1)
     _ensure_db()
-    from orchestrator.db import insert_context, insert_step, activate_first_step
-    ctx_id = insert_context(project, title, description)
-    console.print(f"[green]✓[/green] Contexto [bold]#{ctx_id}[/bold] creado → {title}")
-    steps_created = []
-    for i, s in enumerate(step or [], 1):
-        parts = s.split(":", 1)
-        step_title = parts[0].strip()
-        provider = parts[1].strip() if len(parts) > 1 else ""
-        sid = insert_step(ctx_id, i, step_title, provider=provider)
-        badge = f" [{provider}]" if provider else ""
-        console.print(f"  [cyan]paso {i}[/cyan]{badge} — {step_title} [dim](#{sid})[/dim]")
-        steps_created.append(sid)
-    if steps_created:
-        activate_first_step(ctx_id)
+    from orchestrator.db import activate_first_step, atomic_mutation, insert_context, insert_step
+    with atomic_mutation():
+        ctx_id = insert_context(project, title, description)
+        step_ids = [
+            insert_step(ctx_id, i, s["title"], provider=s["provider"], agent_preset=s["agent_preset"])
+            for i, s in enumerate(specs, 1)
+        ]
+        if step_ids:
+            activate_first_step(ctx_id)
+    console.print(f"[green]✓[/green] Contexto [bold]#{ctx_id}[/bold] creado → {escape(title)}")
+    for i, (s, sid) in enumerate(zip(specs, step_ids), 1):
+        badge = escape(f" [{s['provider']}]") if s["provider"] else ""
+        console.print(f"  [cyan]paso {i}[/cyan]{badge} — {escape(s['title'])} [dim](#{sid})[/dim]")
+    if step_ids:
         console.print(f"  [yellow]▶[/yellow] paso 1 marcado como [bold]in_progress[/bold]")
     else:
-        console.print("  [yellow]sin pasos[/yellow] — añadí con --step 'Título:provider'")
+        console.print("  [yellow]sin pasos[/yellow] — añadí con --step 'Título:etiqueta' o --steps-json")
 
 
 @app.command(name="list-contexts")
@@ -466,22 +500,23 @@ def list_contexts_cmd(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Filtrar por proyecto."),
 ):
     """Lista contextos de trabajo y sus pasos."""
+    from rich.markup import escape
     _ensure_db()
     from orchestrator.db import read_contexts_with_steps
     contexts = read_contexts_with_steps(project=project)
     if not contexts:
         msg = f"No hay contextos para '{project}'." if project else "No hay contextos registrados."
-        console.print(f"[yellow]{msg}[/yellow]")
+        console.print(f"[yellow]{escape(msg)}[/yellow]")
         return
     for ctx in contexts:
         sc = "green" if ctx["status"] == "active" else "dim"
-        console.print(f"\n[bold]#{ctx['id']}[/bold] [{sc}]{ctx['status']}[/{sc}]  [cyan]{ctx['project']}[/cyan] — {ctx['title']}")
+        console.print(f"\n[bold]#{ctx['id']}[/bold] [{sc}]{escape(ctx['status'])}[/{sc}]  [cyan]{escape(ctx['project'])}[/cyan] — {escape(ctx['title'])}")
         if ctx.get("description"):
-            console.print(f"  [dim]{ctx['description']}[/dim]")
+            console.print(f"  [dim]{escape(ctx['description'])}[/dim]")
         for s in ctx.get("steps", []):
             sc2 = {"pending": "dim", "in_progress": "yellow", "completed": "green"}.get(s["status"], "dim")
-            badge = f" [{s['provider']}]" if s.get("provider") else ""
-            console.print(f"  [{sc2}]{s['order_idx']}.[/{sc2}]{badge} {s['title']} — [{sc2}]{s['status']}[/{sc2}]")
+            badge = escape(f" [{s['provider']}]") if s.get("provider") else ""
+            console.print(f"  [{sc2}]{s['order_idx']}.[/{sc2}]{badge} {escape(s['title'])} — [{sc2}]{escape(s['status'])}[/{sc2}]")
 
 
 step_app = typer.Typer(help="Corrige el estado de pasos desde la CLI, sin depender del MCP.")
