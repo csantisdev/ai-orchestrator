@@ -228,6 +228,10 @@ function runContext(btn) {
     .catch(() => { showToast("Error de conexión", true); btn.disabled = false; btn.textContent = "▶ Ejecutar"; });
 }
 
+function deleteContextFromButton(button) {
+  deleteContext(Number(button.dataset.ctxId), button.dataset.ctxTitle || "");
+}
+
 function deleteContext(ctxId, title) {
   showConfirmModal(
     "Eliminar contexto",
@@ -1903,6 +1907,25 @@ function renderProyectos(data) {
   const mbAdd = unregistered.length ? "14px" : "6px";
 
   // ── Tabla de proyectos registrados (alias → path + ✎ renombrar) ──────────
+  // Los alias no van en handlers en línea: el escape HTML no protege una
+  // cadena JavaScript dentro de un atributo onclick. Se leen de data-alias.
+  if (!window.__regDelegated) {
+    window.__regDelegated = true;
+    document.addEventListener("click", function(ev) {
+      const btn = ev.target.closest && ev.target.closest("[data-reg-action]");
+      if (!btn) return;
+      const alias = btn.dataset.alias || "";
+      if (btn.dataset.regAction === "start") startRenameProject(alias);
+      else if (btn.dataset.regAction === "confirm") confirmRenameProject(alias);
+      else if (btn.dataset.regAction === "cancel") cancelRenameProject(alias);
+    });
+    document.addEventListener("keydown", function(ev) {
+      const input = ev.target.closest && ev.target.closest("input[data-reg-input]");
+      if (!input) return;
+      if (ev.key === "Enter") confirmRenameProject(input.dataset.alias || "");
+      else if (ev.key === "Escape") cancelRenameProject(input.dataset.alias || "");
+    });
+  }
   const regIndex = data.registered_project_index || {};
   const regEntries = Object.entries(regIndex);
   const regRows2 = regEntries.map(function([alias, projPath]) {
@@ -1912,11 +1935,11 @@ function renderProyectos(data) {
       '<div class="reg-proj-row" id="regrow-' + ae + '" style="display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border-faint)">' +
         '<span style="font-size:12px;font-weight:600;color:var(--text-primary);min-width:140px;font-family:monospace;flex-shrink:0">' + ae + '</span>' +
         '<span style="font-size:11px;color:var(--text-faint);flex:1;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + pe + '">' + pe + '</span>' +
-        '<button class="btn btn-secondary" style="padding:2px 10px;font-size:11px;flex-shrink:0" onclick="startRenameProject(\\'' + ae + '\\')">✎ Renombrar</button>' +
+        '<button class="btn btn-secondary" style="padding:2px 10px;font-size:11px;flex-shrink:0" data-reg-action="start" data-alias="' + ae + '">✎ Renombrar</button>' +
         '<div id="rename-form-' + ae + '" style="display:none;gap:6px;align-items:center">' +
-          '<input id="rename-input-' + ae + '" type="text" value="' + ae + '" style="width:140px;font-size:12px" onkeydown="if(event.key===\\'Enter\\')confirmRenameProject(\\'' + ae + '\\');else if(event.key===\\'Escape\\')cancelRenameProject(\\'' + ae + '\\')">' +
-          '<button class="btn btn-primary" style="padding:2px 10px;font-size:11px;flex-shrink:0" onclick="confirmRenameProject(\\'' + ae + '\\')">OK</button>' +
-          '<button class="btn btn-secondary" style="padding:2px 10px;font-size:11px;flex-shrink:0" onclick="cancelRenameProject(\\'' + ae + '\\')">✕</button>' +
+          '<input id="rename-input-' + ae + '" type="text" value="' + ae + '" style="width:140px;font-size:12px" data-reg-input="1" data-alias="' + ae + '">' +
+          '<button class="btn btn-primary" style="padding:2px 10px;font-size:11px;flex-shrink:0" data-reg-action="confirm" data-alias="' + ae + '">OK</button>' +
+          '<button class="btn btn-secondary" style="padding:2px 10px;font-size:11px;flex-shrink:0" data-reg-action="cancel" data-alias="' + ae + '">✕</button>' +
           '<span id="rename-status-' + ae + '" style="font-size:11px;min-width:60px"></span>' +
         '</div>' +
       '</div>'
