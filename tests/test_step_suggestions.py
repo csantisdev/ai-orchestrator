@@ -92,3 +92,21 @@ def test_suggestions_compare_since_and_order_by_instant(isolated_db):
     result = suggest_step_commits(isolated_db._conn(), "demo", since="2026-06-02T00:00:00+00:00")
 
     assert [commit["sha"] for commit in result[0]["commits"]] == ["latecomm", "earlycom"]
+
+
+def test_suggestions_reject_an_unparseable_since(isolated_db):
+    from orchestrator.step_suggestions import suggest_step_commits
+    with pytest.raises(ValueError, match="since inválido"):
+        suggest_step_commits(isolated_db._conn(), "demo", since="ayer")
+
+
+def test_suggestions_accept_a_date_only_since_as_utc(isolated_db):
+    from orchestrator.step_suggestions import suggest_step_commits
+    context = isolated_db.insert_context("demo", "One")
+    step = isolated_db.insert_step(context, 1, "Work")
+    _commit(isolated_db, "demo", f"feat: paso #{step} in", "insidecommit", ts="2026-06-02T00:30:00+00:00")
+    _commit(isolated_db, "demo", f"feat: paso #{step} out", "outsidecommit", ts="2026-06-01T23:30:00+00:00")
+
+    result = suggest_step_commits(isolated_db._conn(), "demo", since="2026-06-02")
+
+    assert [commit["sha"] for commit in result[0]["commits"]] == ["insideco"]

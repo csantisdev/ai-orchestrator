@@ -427,7 +427,7 @@ def daily_cost(project: str) -> float:
     # Ventana de 2 dias UTC alcanza cualquier offset de zona horaria real.
     window_start = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
     rows = conn.execute(
-        "SELECT ts, cost_usd FROM runs WHERE project=? AND ts >= ? AND cost_usd IS NOT NULL",
+        "SELECT ts, cost_usd FROM runs WHERE project=? AND julianday(ts) >= julianday(?) AND cost_usd IS NOT NULL",
         (project, window_start),
     ).fetchall()
     total = 0.0

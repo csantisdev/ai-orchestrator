@@ -14,6 +14,11 @@ def suggest_step_commits(
     limit: int | None = None,
 ) -> list[dict]:
     """Return explainable commit candidates for open steps in active contexts."""
+    if since is not None and conn.execute("SELECT julianday(?)", (since,)).fetchone()[0] is None:
+        raise ValueError(
+            f"since inválido: {since!r}. Usá una fecha ISO, por ejemplo 2026-06-02 "
+            "o 2026-06-02T00:00:00+00:00 (sin zona horaria se interpreta como UTC)."
+        )
     query = """SELECT s.id, s.title, s.description FROM steps s
                JOIN contexts c ON c.id=s.context_id
                WHERE c.project=? AND c.status='active' AND s.status IN ('pending', 'in_progress')
