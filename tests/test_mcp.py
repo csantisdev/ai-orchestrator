@@ -1002,3 +1002,13 @@ def test_list_steps_cursor_without_limit_keeps_paginating(isolated_db, workflow_
     rest = mcp._tool_list_steps({"context_id": context_id, "cursor": first["next_cursor"]})
     assert [step["id"] for step in first["steps"] + rest["steps"]] == steps
     assert rest["next_cursor"] is None
+
+
+def test_suggest_step_commits_reports_an_invalid_since(isolated_db, workflow_env):
+    import orchestrator.mcp as mcp
+
+    isolated_db.insert_context("allowed", "First")
+    result, is_error = mcp._governed_tool_call("suggest_step_commits", {"project": "allowed", "since": "ayer"}, "bad-since")
+
+    assert is_error and result["reason_code"] == "invalid_arguments"
+    assert "since inválido" in result["error"]

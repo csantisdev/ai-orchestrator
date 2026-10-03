@@ -591,10 +591,13 @@ def _tool_suggest_step_commits(args: dict) -> dict:
         config = {}
     tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
     project = str(args["project"]).strip()
-    suggestions = suggest_step_commits(
-        _conn(), project, args.get("since"), tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"),
-        limit=args.get("limit", 50),
-    )
+    try:
+        suggestions = suggest_step_commits(
+            _conn(), project, args.get("since"), tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"),
+            limit=args.get("limit", 50),
+        )
+    except ValueError as exc:
+        raise ArgumentValidationError(str(exc)) from exc
     return {"project": project, "suggestions": suggestions}
 
 

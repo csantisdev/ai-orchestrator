@@ -313,3 +313,19 @@ def test_insert_or_ignore_race_indexes_correct_run_id(synthetic_repo, monkeypatc
     # (el de commit-newer, ajeno) en vez del id real de commit-older.
     assert row_older["id"] in captured_run_ids
     assert captured_run_ids.count(row_newer["id"]) == 1
+
+
+def test_cursor_is_the_newest_instant_not_the_largest_text(request):
+    """Commits keep the committer's offset. '2026-03-01T20:00:00-05:00'
+    (01:00Z on March 2) is newer than '2026-03-01T23:00:00+00:00', but
+    MAX(ts) on the text returned the latter and forced extra rescans."""
+    alias = f"cursor_{request.node.name}"
+    conn = _conn()
+    for ts, sha in (("2026-03-01T23:00:00+00:00", "aaa"), ("2026-03-01T20:00:00-05:00", "bbb")):
+        conn.execute(
+            "INSERT INTO runs (ts, project, provider, task, session_id) VALUES (?, ?, 'git', 'x', ?)",
+            (ts, alias, f"git::{alias}::{sha}"),
+        )
+    conn.commit()
+
+    assert git_scanner._newest_imported_commit_date(conn, alias) == "2026-03-01T20:00:00-05:00"
