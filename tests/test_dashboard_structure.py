@@ -179,14 +179,27 @@ def _build_js_text():
 def test_event_stream_delivers_published_events(server):
     from orchestrator.sse import BUS
 
+    def subscribers():
+        with BUS._lock:
+            return len(BUS._subscribers)
+
+    def wait_until(condition, seconds=3.0):
+        until = time.monotonic() + seconds
+        while time.monotonic() < until:
+            if condition():
+                return True
+            time.sleep(0.02)
+        return False
+
+    baseline = subscribers()
     conn = http.client.HTTPConnection("127.0.0.1", server, timeout=5)
     conn.request("GET", "/events", headers={"Host": f"localhost:{server}"})
     response = conn.getresponse()
     assert response.status == 200
     assert response.getheader("Content-Type") == "text/event-stream"
+    assert wait_until(lambda: subscribers() > baseline), "el handler SSE no se suscribió"
 
-    publisher = threading.Timer(0.3, BUS.publish, args=("run_update", '{"id": 42}'))
-    publisher.start()
+    BUS.publish("run_update", '{"id": 42}')
     frame = []
     try:
         while not frame or frame[-1] != b"\n":
@@ -197,8 +210,12 @@ def test_event_stream_delivers_published_events(server):
                 continue
             frame.append(line if line.strip() else b"\n")
     finally:
-        publisher.cancel()
+        response.close()
         conn.close()
+        # El handler sigue esperando en q.get(); un evento más lo hace escribir en el
+        # socket cerrado, salir y desuscribirse, sin dejar estado en el BUS global.
+        assert wait_until(lambda: BUS.publish("noop", "{}") or subscribers() == baseline), \
+            "el handler SSE no liberó su suscripción"
 
     text = b"".join(frame).decode("utf-8")
     assert "event: run_update" in text and 'data: {"id": 42}' in text

@@ -29,10 +29,138 @@ JS_START = "<script>\ntry {\n"
 JS_END = "\n} catch(e) {"
 JS_PLACEHOLDER = "<script>\ntry {\n/*JS*/\n} catch(e) {"
 TAIL_MARKER = "Object.assign(window, {"
-CHUNK_START = re.compile(
-    r"^(?:async function |function |var |let |const |\(function|document\.|window\.|"
-    r"Object\.assign|refreshStaleRateOnLoad\(|// )"
-)
+# Un bloque empieza en cualquier línea en columna 0 que no cierre una estructura.
+# `test_block_boundaries_are_top_level_code` verifica con un analizador léxico que
+# cada corte cae en código de nivel superior.
+CHUNK_START = re.compile(r"^[^\s})\]]")
+DECLARATION = re.compile(r"^(?:async function |function |var |let |const |//)")
+REGEX_PRECEDERS = set("(,=:[!&|?{};+-*%<>~^")
+REGEX_KEYWORDS = {"return", "typeof", "case", "in", "of", "new", "delete", "void", "throw", "else", "do"}
+
+
+def top_level_lines(js: str) -> set[int]:
+    """Índices de línea que empiezan en código de nivel superior.
+
+    Recorre el JS siguiendo strings, template literals (con `${}` anidados),
+    comentarios y literales de regex, y la profundidad de llaves, paréntesis y
+    corchetes; una línea es de nivel superior si empieza fuera de todo eso.
+    """
+    result = set()
+    stack: list[str] = []
+    depth = 0
+    i, line, n = 0, 0, len(js)
+    prev = ""
+    word = ""
+    at_line_start = True
+    while i < n:
+        ch = js[i]
+        mode = stack[-1] if stack else "code"
+        if at_line_start:
+            if mode == "code" and depth == 0:
+                result.add(line)
+            at_line_start = False
+        if ch == "\n":
+            line += 1
+            at_line_start = True
+            if mode == "line_comment":
+                stack.pop()
+            i += 1
+            continue
+        if mode == "line_comment":
+            i += 1
+            continue
+        if mode == "block_comment":
+            if js.startswith("*/", i):
+                stack.pop()
+                i += 2
+                continue
+            i += 1
+            continue
+        if mode in ("'", '"'):
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == mode:
+                stack.pop()
+                prev = ch
+            i += 1
+            continue
+        if mode == "regex":
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == "[":
+                stack.append("regex_class")
+            elif ch == "/":
+                stack.pop()
+                prev = "a"
+            i += 1
+            continue
+        if mode == "regex_class":
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == "]":
+                stack.pop()
+            i += 1
+            continue
+        if mode == "template":
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == "`":
+                stack.pop()
+                prev = "`"
+            elif js.startswith("${", i):
+                stack.append("template_expr")
+                i += 2
+                continue
+            i += 1
+            continue
+        # código (nivel superior o dentro de ${...})
+        if ch.isalnum() or ch in "_$":
+            word += ch
+            prev = ch
+            i += 1
+            continue
+        if word:
+            last_word, word = word, ""
+        else:
+            last_word = ""
+        if ch.isspace():
+            i += 1
+            if last_word:
+                prev = "a" if last_word not in REGEX_KEYWORDS else "kw"
+            continue
+        if js.startswith("//", i):
+            stack.append("line_comment")
+            i += 2
+            continue
+        if js.startswith("/*", i):
+            stack.append("block_comment")
+            i += 2
+            continue
+        if ch in ("'", '"'):
+            stack.append(ch)
+        elif ch == "`":
+            stack.append("template")
+        elif ch == "/" and (prev in REGEX_PRECEDERS or prev in ("", "kw") or last_word in REGEX_KEYWORDS):
+            stack.append("regex")
+        elif ch in "{([":
+            if mode in ("template_expr", "template_brace") and ch == "{":
+                stack.append("template_brace")
+            else:
+                depth += 1
+        elif ch in "})]":
+            if mode == "template_expr" and ch == "}":
+                stack.pop()
+            elif mode == "template_brace" and ch == "}":
+                stack.pop()
+            else:
+                depth -= 1
+        prev = ch
+        i += 1
+    return result
 
 RUNS = [
     {"id": 1, "ts": "2026-06-01T10:00:00-03:00", "project": "mi-proyecto", "provider": "claude",
@@ -180,25 +308,39 @@ def test_script_has_the_same_top_level_blocks(outputs):
     assert not missing and not extra, (list(missing)[:3], list(extra)[:3])
 
 
-LOAD_TIME_EFFECTS = ("(function", "document.", "const evtSource", "Object.assign", "refreshStaleRateOnLoad()")
+def _load_time_code(js: str) -> list[str]:
+    """Bloques que se ejecutan al cargar: todo lo que no empieza con una declaración."""
+    return [chunk for chunk in js_chunks(js) if not DECLARATION.match(chunk)]
 
 
 def test_code_that_runs_at_load_keeps_its_relative_order(outputs):
-    def effects(js):
-        return [chunk for chunk in js_chunks(js) if chunk.startswith(LOAD_TIME_EFFECTS)]
+    current = _load_time_code(outputs["script.js"])
 
-    assert effects(outputs["script.js"]) == effects(_golden("script.js"))
-    assert len(effects(outputs["script.js"])) == 5
+    assert current == _load_time_code(_golden("script.js"))
+    assert any(chunk.startswith('evtSource.addEventListener("trace"') for chunk in current)
+    assert current[-2].startswith(TAIL_MARKER) and current[-1] == "refreshStaleRateOnLoad();"
 
 
-def test_block_boundaries_never_fall_inside_a_template_literal(outputs):
-    """El corte por líneas en columna 0 sería engañoso dentro de un template literal."""
+def test_block_boundaries_are_top_level_code(outputs):
+    """Cada corte cae fuera de strings, template literals, comentarios, regex y llaves."""
     for js in (outputs["script.js"], _golden("script.js")):
-        backticks = 0
-        for line in js.split("\n"):
-            if CHUNK_START.match(line):
-                assert backticks % 2 == 0, line
-            backticks += len(re.findall(r"(?<!\\)`", line))
+        top = top_level_lines(js)
+        starts = [i for i, line in enumerate(js.split("\n")) if CHUNK_START.match(line) or line.startswith("//")]
+        assert starts and all(i in top for i in starts), [js.split("\n")[i] for i in starts if i not in top][:3]
+
+
+@pytest.mark.parametrize("snippet, expected_top", [
+    ("const a = `\nfunction no() {}\n`;\nfunction si() {}", {0, 3}),
+    ("const r = /`[}]/g;\nfunction si() {}", {0, 1}),
+    ("const s = '`';\nfunction si() {}", {0, 1}),
+    ("// `\nfunction si() {}", {0, 1}),
+    ("/* `\n*/\nfunction si() {}", {0, 2}),
+    ("const t = `${ {a: 1}.a }`;\nfunction si() {}", {0, 1}),
+    ("const x = 4 / 2;\nconst y = `\n}`;\nfunction si() {}", {0, 1, 3}),
+    ("function f() {\n  return `x`;\n}\nlet z;", {0, 3}),
+])
+def test_lexer_recognizes_top_level_lines(snippet, expected_top):
+    assert top_level_lines(snippet) == expected_top
 
 
 def test_exports_and_startup_calls_stay_last(outputs):
