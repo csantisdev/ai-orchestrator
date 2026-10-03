@@ -534,6 +534,17 @@ def run_migrations() -> None:
                     raise
 
         with _write_lock:
+            if not _already_applied(conn, "add_runs_instant_indexes"):
+                # runs.ts mixes offsets (git keeps the committer's), so queries
+                # order and filter by julianday(ts). These expression indexes
+                # let SQLite serve those queries without a full sort.
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_instant ON runs(julianday(ts))")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_project_instant ON runs(project, julianday(ts))"
+                )
+                _mark_applied(conn, "add_runs_instant_indexes")
+                conn.commit()
+
             if not _already_applied(conn, "redact_legacy_mcp_output_hashes"):
                 # Existing values predate keyed commitments and cannot safely be
                 # upgraded without the removed payload. Clear them once before

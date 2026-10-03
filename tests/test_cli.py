@@ -158,3 +158,13 @@ def test_doctor_hides_short_keys_entirely(tmp_path, key):
 
     assert "API key configurada […]" in output
     assert key[-4:] not in output
+
+
+def test_step_suggest_reports_an_invalid_since_and_exits_1():
+    runner = CliRunner()
+    with patch("orchestrator.cli._ensure_db"), \
+         patch("orchestrator.cli.load_config", return_value={}):
+        result = runner.invoke(app, ["step", "suggest", "--project", "demo", "--since", "ayer"])
+
+    assert result.exit_code == 1
+    assert "since inválido" in result.output

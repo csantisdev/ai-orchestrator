@@ -110,3 +110,21 @@ def test_suggestions_accept_a_date_only_since_as_utc(isolated_db):
     result = suggest_step_commits(isolated_db._conn(), "demo", since="2026-06-02")
 
     assert [commit["sha"] for commit in result[0]["commits"]] == ["insideco"]
+
+
+@pytest.mark.parametrize("since", ["12:00", "1234", "2026-02-30"])
+def test_suggestions_reject_values_sqlite_accepts_but_are_not_dates(isolated_db, since):
+    from orchestrator.step_suggestions import suggest_step_commits
+    with pytest.raises(ValueError, match="since inválido"):
+        suggest_step_commits(isolated_db._conn(), "demo", since=since)
+
+
+def test_suggestions_accept_a_z_suffixed_since(isolated_db):
+    from orchestrator.step_suggestions import suggest_step_commits
+    context = isolated_db.insert_context("demo", "One")
+    step = isolated_db.insert_step(context, 1, "Work")
+    _commit(isolated_db, "demo", f"feat: paso #{step} in", "insidecommit", ts="2026-06-02T00:30:00+00:00")
+
+    result = suggest_step_commits(isolated_db._conn(), "demo", since="2026-06-02T00:00:00Z")
+
+    assert [commit["sha"] for commit in result[0]["commits"]] == ["insideco"]

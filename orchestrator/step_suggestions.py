@@ -3,10 +3,32 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 
 _STEP_REFERENCE = re.compile(r"(?:step|paso)\s*#?(\d+)\b|\bs(\d+)\b", re.I)
+
+
+def _normalize_since(since: str) -> str:
+    """Parse an ISO date or datetime and return it in UTC.
+
+    SQLite's julianday() also accepts values like "12:00", "1234" or
+    "2026-02-30", so validation cannot rely on it.
+    """
+    value = since.strip()
+    if value[-1:] in ("Z", "z"):
+        value = value[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError(
+            f"since inválido: {since!r}. Usá una fecha ISO, por ejemplo 2026-06-02 "
+            "o 2026-06-02T00:00:00+00:00 (sin zona horaria se interpreta como UTC)."
+        ) from None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
 
 
 def suggest_step_commits(
@@ -14,11 +36,8 @@ def suggest_step_commits(
     limit: int | None = None,
 ) -> list[dict]:
     """Return explainable commit candidates for open steps in active contexts."""
-    if since is not None and conn.execute("SELECT julianday(?)", (since,)).fetchone()[0] is None:
-        raise ValueError(
-            f"since inválido: {since!r}. Usá una fecha ISO, por ejemplo 2026-06-02 "
-            "o 2026-06-02T00:00:00+00:00 (sin zona horaria se interpreta como UTC)."
-        )
+    if since is not None:
+        since = _normalize_since(since)
     query = """SELECT s.id, s.title, s.description FROM steps s
                JOIN contexts c ON c.id=s.context_id
                WHERE c.project=? AND c.status='active' AND s.status IN ('pending', 'in_progress')
