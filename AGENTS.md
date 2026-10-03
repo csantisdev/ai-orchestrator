@@ -24,9 +24,9 @@ Plantillas: `.mcp.json.example` y `.codex/config.toml.example`. `ai-orchestrator
 ## Flujo de ramas y PRs
 
 - Rama principal: `production`. Nunca se commitea directo: todo entra por PR.
-- El ruleset exige CI verde, rama al día con `production` y todos los hilos de revisión resueltos. Copilot revisa automáticamente en cada push (regla `copilot_code_review`), pero el ruleset no bloquea el merge si su review todavía no llegó: sin hilos, "hilos resueltos" se cumple igual. No mergees hasta que exista la review de Copilot del último push (`gh pr view <n> --json reviews`); si no aparece en unos minutos, pedila a mano.
+- El ruleset exige CI verde, rama al día con `production` y todos los hilos de revisión resueltos. No hay review automático de Copilot: consume créditos del plan del dueño y se quitó del ruleset. Pedilo a mano (`gh pr edit <n> --add-reviewer "@copilot"`) solo en cambios de seguridad o si el dueño lo indica; si se pidió, leé el cuerpo completo de cada review (los hallazgos de "Previously missed" no crean hilos) antes de mergear.
 - Commits en inglés con prefijo convencional: `feat:`, `fix:`, `docs:` (scope opcional, p. ej. `fix(ingest):`).
-- Cambios no triviales: auditoría cruzada con Codex, corrección y una segunda ronda sobre lo corregido (protocolo en `docs/decisions/analyses/ANL-003-per-change-cross-audit.md`; ANL-002 es la auditoría puntual del repositorio completo).
+- Cambios no triviales: auditoría cruzada con Codex, corrección y una segunda ronda sobre lo corregido (protocolo en `docs/decisions/analyses/ANL-003-per-change-cross-audit.md`; ANL-002 es la auditoría puntual del repositorio completo). El auditor es distinto del implementador: si implementa Codex, audita Claude. Copilot CLI también consume créditos de Copilot; usalo como auditor solo en cambios de seguridad o a pedido.
 
 ## Verificación antes de abrir un PR
 
