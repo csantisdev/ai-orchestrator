@@ -180,6 +180,27 @@ def test_script_has_the_same_top_level_blocks(outputs):
     assert not missing and not extra, (list(missing)[:3], list(extra)[:3])
 
 
+LOAD_TIME_EFFECTS = ("(function", "document.", "const evtSource", "Object.assign", "refreshStaleRateOnLoad()")
+
+
+def test_code_that_runs_at_load_keeps_its_relative_order(outputs):
+    def effects(js):
+        return [chunk for chunk in js_chunks(js) if chunk.startswith(LOAD_TIME_EFFECTS)]
+
+    assert effects(outputs["script.js"]) == effects(_golden("script.js"))
+    assert len(effects(outputs["script.js"])) == 5
+
+
+def test_block_boundaries_never_fall_inside_a_template_literal(outputs):
+    """El corte por líneas en columna 0 sería engañoso dentro de un template literal."""
+    for js in (outputs["script.js"], _golden("script.js")):
+        backticks = 0
+        for line in js.split("\n"):
+            if CHUNK_START.match(line):
+                assert backticks % 2 == 0, line
+            backticks += len(re.findall(r"(?<!\\)`", line))
+
+
 def test_exports_and_startup_calls_stay_last(outputs):
     chunks = js_chunks(outputs["script.js"])
 

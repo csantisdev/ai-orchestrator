@@ -8,10 +8,14 @@ la página, `/contexts-html` y `/events`.
 from __future__ import annotations
 
 import http.client
+import json
 import re
+import shutil
 import socket
+import subprocess
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -122,15 +126,79 @@ def test_server_serves_the_page_with_every_tab(server):
     assert "Object.assign(window, {" in page
 
 
-def test_server_serves_the_contexts_fragment(server):
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node no está instalado (D1 lo agrega al CI)")
+def test_switch_tab_shows_one_panel_activates_its_button_and_loads_once():
+    harness = Path(__file__).parent / "js" / "switch_tab_harness.mjs"
+    core = Path(__file__).parent.parent / "orchestrator" / "legacy_dashboard" / "js" / "core.js"
+
+    steps = json.loads(subprocess.run(
+        ["node", str(harness), str(core)], capture_output=True, text=True, check=True, timeout=30,
+    ).stdout)
+
+    for step in steps:
+        assert step["visible"] == [step["tab"]] and step["active"] == [step["tab"]], step
+    first_visit = {step["tab"]: step["calls"] for step in steps[:6]}
+    assert first_visit == {"actividad": [], "flujos": ["_refreshContexts"], "proyectos": ["loadProyectos"],
+                           "metrics": ["loadMetrics"], "datos": ["loadDatos"], "config": ["loadConfig"]}
+    second_visit = {step["tab"]: step["calls"] for step in steps[6:]}
+    assert second_visit == {"proyectos": [], "metrics": [], "datos": [], "config": [],
+                            "flujos": ["_refreshContexts"], "actividad": []}
+
+
+def test_contexts_fragment_keeps_its_ids_and_handlers(server):
+    from orchestrator.db import _conn
+
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO contexts (ts, updated_at, project, title, status) VALUES "
+        "('2026-06-01T00:00:00+00:00', '2026-06-01T00:00:00+00:00', 'mi-proyecto', ?, 'active')",
+        ("Flujo <b>'beta'</b>",),
+    )
+    ctx_id = conn.execute("SELECT max(id) FROM contexts").fetchone()[0]
+    conn.execute("INSERT INTO steps (context_id, order_idx, title, status) VALUES (?, 1, 'Paso', 'in_progress')",
+                 (ctx_id,))
+    conn.commit()
+
     response, body = _get(server, "/contexts-html")
+    fragment = body.decode("utf-8")
 
     assert response.status == 200
     assert response.getheader("Content-Type", "").startswith("text/html")
+    assert f'data-ctx-id="{ctx_id}"' in fragment
+    assert 'onclick="deleteContextFromButton(this)"' in fragment
+    assert "<b>'beta'</b>" not in fragment and "&lt;b&gt;" in fragment
+    assert set(INLINE_HANDLER.findall(fragment)) <= set(FUNCTION.findall(_build_js_text()))
 
 
-def test_server_opens_the_event_stream(server):
-    response, _ = _get(server, "/events", read=False)
+def _build_js_text():
+    from orchestrator.dashboard_js import _build_js
 
+    return _build_js()
+
+
+def test_event_stream_delivers_published_events(server):
+    from orchestrator.sse import BUS
+
+    conn = http.client.HTTPConnection("127.0.0.1", server, timeout=5)
+    conn.request("GET", "/events", headers={"Host": f"localhost:{server}"})
+    response = conn.getresponse()
     assert response.status == 200
     assert response.getheader("Content-Type") == "text/event-stream"
+
+    publisher = threading.Timer(0.3, BUS.publish, args=("run_update", '{"id": 42}'))
+    publisher.start()
+    frame = []
+    try:
+        while not frame or frame[-1] != b"\n":
+            line = response.fp.readline()
+            if not line:
+                break
+            if line.startswith(b":") and not frame:
+                continue
+            frame.append(line if line.strip() else b"\n")
+    finally:
+        publisher.cancel()
+        conn.close()
+
+    text = b"".join(frame).decode("utf-8")
+    assert "event: run_update" in text and 'data: {"id": 42}' in text
