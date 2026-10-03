@@ -37,11 +37,13 @@ gobierna el acceso por MCP: este documento cubre solo el servidor HTTP del dashb
 | Métodos | Solo GET y POST | Validación previa al despacho en todos los métodos; HEAD, PUT, DELETE, PATCH y OPTIONS responden `405` (H-04) |
 | Cabeceras de seguridad | En respuestas exitosas | En todas las respuestas, incluidos errores y archivos, desde un único punto (H-04, H-08) |
 | `Origin` ausente | No definido | Se permite solo si pasan token y `Content-Type` (H-06) |
-| Llamadas POST del JS | "Un envoltorio de `fetch`" | Hoy: 26 llamadas para 25 endpoints. Tras D0: 28 llamadas para 27 endpoints (se suman `/pick-folder` y `/chroma-stats/refresh`), todas a través del helper `postJson` y con un test estático (H-07, review del PR #30) |
+| Llamadas POST del JS | "Un envoltorio de `fetch`" | Hoy: 26 llamadas para 25 endpoints. Tras D0: 29 llamadas para 27 endpoints (se suman las dos llamadas existentes a `/pick-folder`, `dashboard_js.py:1529` y `1574`, y una a `/chroma-stats/refresh`), todas a través del helper `postJson` y con un test estático (H-07, review del PR #30) |
 | Token viejo | Mensaje de recarga | Respuesta `403` con `reason: session_expired`, incluida la página restaurada desde el bfcache del navegador (H-08) |
-| Invariantes | I1–I9 | I1–I13 (H-09); I9 incluye `404` y `/static/*` (ronda 2); I1 cubre 27 POST (más `/pick-folder` y `/chroma-stats/refresh`) e I2/I10 cualquier verbo (review del PR #30) |
+| Invariantes | I1–I9 | I1–I15 (H-09; I14–I15 por XSS); I9 incluye `404` y `/static/*` (ronda 2); I1 cubre 27 POST (más `/pick-folder` y `/chroma-stats/refresh`) e I2/I10 cualquier verbo (review del PR #30) |
 | Alcance del token | "Otros procesos con acceso al sistema de archivos" | Cualquier cliente que pueda conectarse a loopback queda fuera de alcance: el token protege del navegador, no autentica clientes locales (review del PR #30) |
-| Resumen | "Cinco controles" | Seis controles (H-10) |
+| Resumen | "Cinco controles" | Siete controles: seis (H-10) más C7, serialización segura contra XSS (review del PR #30) |
+| XSS | No contemplado | Problema 6 (XSS almacenado y reflejado en `/`, reproducido), amenaza T9, control C7 e invariantes I14–I15 (review del PR #30) |
+| `Origin` en el puerto 80 | Puerto literal | Puerto efectivo; un origen sin puerto equivale al 80 (review del PR #30) |
 | Referencias | Ruta local de la especificación | PR #28, porque el archivo no existe en esta rama (H-11) |
 
 ---
@@ -51,10 +53,14 @@ gobierna el acceso por MCP: este documento cubre solo el servidor HTTP del dashb
 El dashboard escucha en `127.0.0.1` y ejecuta acciones con efectos (borrar contextos, purgar
 ChromaDB, lanzar runs con costo, ejecutar `doctor`/`fix`) sin autenticar quién las pide. Cualquier
 página abierta en el navegador del usuario puede disparar varias de esas acciones, y un ataque de DNS
-rebinding puede leer datos completos de runs. Este RFC propone **seis controles** para D0: validación
-de `Host` antes de despachar cualquier método, token de sesión obligatorio en toda petición con
-efectos, `Origin` permitido, `Content-Type` exacto, eliminación de efectos en peticiones GET y
-cabeceras de seguridad centralizadas que impiden embeber el dashboard y cachear datos.
+rebinding puede leer datos completos de runs. Además, el HTML del dashboard tiene **XSS almacenado y
+reflejado**: un texto con `</script>` (en un mensaje de commit importado, en un prompt de una sesión o
+en el parámetro `?project=` de un enlace) se ejecuta como JavaScript en el origen del dashboard.
+Este RFC propone **siete controles** para D0: serialización segura de todo dato que se inserta en
+HTML o en scripts (requisito de los demás, porque un XSS puede leer el token), validación de `Host`
+antes de despachar cualquier método, token de sesión obligatorio en toda petición con efectos,
+`Origin` permitido, `Content-Type` exacto, eliminación de efectos en peticiones GET y cabeceras de
+seguridad centralizadas.
 
 Lo que este documento **no** afirma: el token **no autentica clientes locales**. Protege contra
 páginas web abiertas en el navegador (CSRF, DNS rebinding, clickjacking). Cualquier proceso o usuario
@@ -90,9 +96,23 @@ Verificado en `orchestrator/server.py` del baseline:
    `frame-ancestors`, lo que habilita clickjacking sobre sus botones.
 5. **Los métodos distintos de GET y POST** caen en la respuesta `501` por defecto de
    `BaseHTTPRequestHandler`, sin validación ni cabeceras propias.
+6. **XSS almacenado y reflejado en `/`.** `build_html` inserta datos con `json.dumps` dentro de
+   bloques `<script>` (`dashboard.py:341-350` y `661-663` para los runs, `676` para el proyecto
+   seleccionado). `json.dumps` no escapa `</script>`, así que el texto cierra el bloque y lo que sigue
+   se ejecuta. Reproducido en un navegador headless contra el baseline:
+   - **almacenado:** un run cuyo `task_preview` contiene
+     `x</script><script>window.__xss=document.title.length</script>` ejecuta el script al abrir el
+     dashboard. Ese texto llega desde mensajes de commit importados (`git_scanner.py`) y prompts de
+     sesiones importadas (`watcher.py`, `codex_watcher.py`);
+   - **reflejado:** `GET /?project=x</script><script>…</script>` ejecuta el script, porque el
+     parámetro llega a `_runsFilterProject` (`dashboard.py:676`). Alcanza con un enlace.
 
-Severidad: alta para (1) y (2), porque hay acciones destructivas (`/delete-contexts`,
-`/purge-chroma-*`), con costo (`/run`) y con red. Media para (3), (4) y (5).
+   Un script en el origen del dashboard puede llamar a cualquier endpoint, leer el token de sesión de
+   C2 y enviar datos afuera. Ningún otro control de este RFC lo detiene.
+
+Severidad: **crítica para (6)**, porque anula los demás controles. Alta para (1) y (2), porque hay
+acciones destructivas (`/delete-contexts`, `/purge-chroma-*`), con costo (`/run`) y con red. Media
+para (3), (4) y (5).
 
 ## 2. Estado verificado del código
 
@@ -150,6 +170,7 @@ MCP no consumen este servidor HTTP.
 | T6 | Cualquier proceso o usuario que pueda conectarse a `127.0.0.1` (con o sin acceso al sistema de archivos) | No: puede leer el token del HTML de `/` sin autenticarse, y también `runs.db` y `config.yaml` si tiene acceso a disco. El token es una defensa contra páginas web del navegador, no autenticación de clientes locales |
 | T7 | Atacante en la red | No: el servidor solo escucha en `127.0.0.1` |
 | T8 | Extensión maliciosa del navegador | No |
+| T9 | Texto controlado por terceros que el dashboard muestra (mensajes de commit de repos escaneados, prompts de sesiones importadas, parámetros de la URL) inyecta scripts (XSS) | Sí |
 
 ### 3.2 Controles
 
@@ -174,8 +195,8 @@ MCP no consumen este servidor HTTP.
 - Al iniciar, el servidor genera `secrets.token_urlsafe(32)` y lo guarda **solo en memoria**.
 - El HTML de `/` lo incluye en `<meta name="orchestrator-session" content="…">`.
 - El JS envía el token en la cabecera `X-Orchestrator-Session` a través de un helper explícito
-  (`postJson`) que reemplaza las 26 llamadas POST actuales (y lo usan también las llamadas nuevas a
-  `/pick-folder` y `/chroma-stats/refresh`) y conserva las cabeceras que cada una ya
+  (`postJson`) que reemplaza las 26 llamadas POST actuales (y lo usan también las dos llamadas a
+  `/pick-folder` y la nueva a `/chroma-stats/refresh`: 29 en total) y conserva las cabeceras que cada una ya
   envía. Un test estático falla si aparece un `fetch` con método POST fuera del helper.
 - El servidor lo compara con `hmac.compare_digest`. Si falta o no coincide responde `403` con
   `{"reason": "session_expired"}` y no ejecuta el handler.
@@ -188,9 +209,10 @@ MCP no consumen este servidor HTTP.
 - Se descarta una cookie `SameSite`: otro puerto de `localhost` cuenta como el mismo sitio, así que
   no cubre T5.
 
-**C3 · `Origin` y `Sec-Fetch-Site` en peticiones con efectos.** Si el navegador envía `Origin`, debe
-ser `http://127.0.0.1:<puerto>` o `http://localhost:<puerto>`; si envía `Sec-Fetch-Site`, debe ser
-`same-origin`. Si faltan (clientes que no son navegadores, o navegadores viejos), la petición se
+**C3 · `Origin` y `Sec-Fetch-Site` en peticiones con efectos.** Si el navegador envía `Origin`, se
+parsea y debe tener esquema `http`, host `127.0.0.1` o `localhost` y **puerto efectivo** igual al del
+servidor, tratando un origen sin puerto como puerto 80 (los navegadores serializan
+`http://localhost` sin `:80`). Si envía `Sec-Fetch-Site`, debe ser `same-origin`. Si faltan (clientes que no son navegadores, o navegadores viejos), la petición se
 acepta **solo si pasan C2 y C4**. Es defensa en profundidad sobre C2.
 
 **C4 · `Content-Type` exacto.** Se compara la esencia MIME (`application/json`) sin parámetros ni
@@ -217,6 +239,33 @@ subcadenas. `text/plain; x=application/json` y `application/x-www-form-urlencode
 JSON, CSV y SSE) lleva además `Cache-Control: no-store`. Los archivos de `/static/*` pueden
 cachearse. El SSE conserva su `Access-Control-Allow-Origin` actual, nunca `*`.
 
+**C7 · Serialización segura en HTML y scripts (requisito de los demás controles).**
+
+- Todo dato insertado dentro de un `<script>` pasa por un único helper que serializa a JSON y escapa
+  `<`, `>`, `&`, U+2028 y U+2029 como secuencias `\uXXXX`, de modo que ningún texto pueda cerrar el
+  bloque. Reemplaza los `json.dumps` de `dashboard.py:341` y `676`.
+- Todo dato insertado en HTML pasa por el escape de HTML existente (`_escape`); en el JS, todo
+  `innerHTML` construido con datos usa el helper de escape (§23.7 de la especificación).
+- **Ningún dato va dentro de un handler en línea** (`onclick`, `onkeydown`…). El escape HTML no
+  protege una cadena JavaScript dentro de un atributo, porque el navegador decodifica la entidad
+  antes de ejecutar el handler. Los datos van en atributos `data-*` (escapados como HTML) y el
+  handler los lee con `dataset`, o se usa delegación de eventos.
+- Inventario de sumideros del baseline (auditoría de Codex), que D0 cierra:
+
+  | Id | Ubicación | Sumidero | Dato | Severidad |
+  |---|---|---|---|---|
+  | X01 | `dashboard.py:341-350`, `661-663` | JSON en `<script>` | `task_preview` y demás campos de runs | Crítica |
+  | X02 | `dashboard.py:676` | JSON en `<script>` | Parámetro `?project=` | Crítica |
+  | X03 | `dashboard.py:235` | `onclick` con el título del contexto | Título de contexto | Alta |
+  | X04 | `server.py:325-338` y `dashboard_js.py:253-257` | `/contexts-html` interpretado con `innerHTML` | Hereda X03 | Alta |
+  | X05 | `dashboard_js.py:1915-1919` | `onclick`/`onkeydown` con el alias entre comillas simples | Alias de proyecto (sin validar en `/add-project` y `/project/rename`) | Alta |
+  | X06–X11 | `dashboard.py`, `dashboard_js.py` | IDs, fechas, conteos y estados sin escape; mensaje de error en `insertAdjacentHTML` | Valores hoy numéricos o internos | Baja (a revisar) |
+
+  Los X01–X05 entran en el arreglo inmediato; los X06–X11 se revisan en D0.
+- El parámetro `project` de la URL se valida contra los alias registrados antes de usarse.
+- Una política `Content-Security-Policy` con `script-src` basada en nonce queda para D1, cuando los
+  scripts salgan del HTML en línea (§23.7); hasta entonces, C7 es la defensa.
+
 ### 3.3 Orden de validación
 
 En todos los métodos, primero C1. En GET, después el despacho. En POST, en este orden: C3, C2, C4 y
@@ -235,12 +284,14 @@ rutas (`server.py:574-578`), pasa por el mismo pipeline: la validación va antes
 | I5 | Ningún GET usa la red, escribe ni lanza procesos | Con caché viejo y credenciales configuradas, `GET /rates`, `/inspect`, `/metrics`, `/integrations/status` y `/pricing` no llaman a la red ni escriben; `GET /inspect` y `/clean-preview` no invocan `subprocess` (mocks) |
 | I6 | El token no se filtra | No aparece en logs, respuestas JSON ni en el SSE; solo en el `<meta>` de `/` |
 | I7 | El dashboard sigue funcionando | Test que recorre las acciones con el token del HTML; prueba manual de cada botón |
-| I8 | `Origin` y `Sec-Fetch-Site` se aplican | POST con token válido y `Origin` ajeno → `403`; `Sec-Fetch-Site: cross-site` → `403`; sin ambos y con token válido → aceptado |
+| I8 | `Origin` y `Sec-Fetch-Site` se aplican | POST con token válido y `Origin` ajeno → `403`; `Sec-Fetch-Site: cross-site` → `403`; sin ambos y con token válido → aceptado; con el servidor en el puerto 80, `Origin: http://localhost` y `Origin: http://127.0.0.1` (sin `:80`) → aceptados, y `Origin: http://localhost:8080` o `http://atacante.example` → `403` |
 | I9 | Las cabeceras de seguridad están en toda respuesta | `X-Frame-Options`, `frame-ancestors` y `nosniff` presentes en `200`, `403`, `404` (POST a ruta desconocida), `405`, `415`, `421` y `500`, y en un archivo de `/static/*`; `no-store` en toda respuesta dinámica |
 | I10 | Los métodos no soportados no exponen nada | HEAD, PUT, DELETE, PATCH, OPTIONS, TRACE, CONNECT y un verbo inventado (con `Host` válido) → `405` con las cabeceras de C6, nunca `501` |
 | I11 | Un token viejo se trata como sesión vencida | Tras reiniciar el servidor, un POST con el token anterior → `403 session_expired`; el JS muestra el mensaje de recarga |
 | I12 | No se exponen identificadores de credenciales | `/integrations/status` no incluye el usuario del Banco Central |
 | I13 | Todas las llamadas POST envían el token | Test estático: ningún `fetch` con método POST fuera de `postJson` en el JS del dashboard |
+| I14 | Ningún dato rompe un bloque `<script>` | Test con un run cuyo `task_preview` contiene `</script><script>…</script>`, `<!--` y U+2028, y con `?project=` malicioso: el HTML no contiene `</script>` fuera de los cierres propios, y en un navegador headless el script inyectado no se ejecuta |
+| I15 | Los sumideros de HTML escapan los datos según su contexto | Un test por cada sumidero del inventario de C7 que recibe datos de runs, contextos, pasos, alias o URL; un título de contexto y un alias con `'` y `);alert(1);//` no ejecutan código; ningún handler en línea recibe datos |
 
 ## 5. Alcance
 
@@ -266,7 +317,7 @@ MCP (RFC-008).
 ## 7. Plan de implementación
 
 Fase D0 de la especificación, implementada por Codex CLI en un worktree, con auditoría de Copilot
-CLI (ronda 1) y Claude (ronda 2). Un solo PR con los archivos de §5. Criterio de salida: I1 a I13 en
+CLI (ronda 1) y Claude (ronda 2). Un solo PR con los archivos de §5. Criterio de salida: I1 a I15 en
 verde y la suite completa sin regresiones.
 
 ## 8. Criterios de merge
@@ -285,7 +336,9 @@ verde y la suite completa sin regresiones.
 - [ ] `/pick-folder` pasa a POST.
 - [ ] `/integrations/status` deja de mostrar el usuario de las credenciales.
 - [ ] El dashboard no se podrá embeber en ninguna otra página.
-- [ ] Las invariantes I1 a I13 son el criterio de aceptación de D0.
+- [ ] El XSS del dashboard actual se corrige: primero con un arreglo inmediato fuera de D0 (por su
+      severidad) y después con el inventario completo de C7 en D0.
+- [ ] Las invariantes I1 a I15 son el criterio de aceptación de D0.
 
 ## Apéndice A — Referencias
 
