@@ -24,11 +24,11 @@ def suggest_step_commits(
     commits_query = "SELECT ts, task, session_id FROM runs WHERE project=? AND provider='git'"
     params = [project]
     if since:
-        commits_query += " AND ts>=?"
+        commits_query += " AND julianday(ts)>=julianday(?)"
         params.append(since)
     ticket_pattern = re.compile(ticket_regex)
     commits = []
-    for commit in conn.execute(commits_query + " ORDER BY ts DESC, id DESC", params):
+    for commit in conn.execute(commits_query + " ORDER BY julianday(ts) DESC, id DESC", params):
         task = commit["task"]
         references = {int(a or b) for a, b in _STEP_REFERENCE.findall(task)}
         commits.append((commit, references, set(ticket_pattern.findall(task))))

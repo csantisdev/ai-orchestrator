@@ -76,3 +76,19 @@ def test_suggestions_are_ordered_by_step_position_and_stop_at_limit(isolated_db)
     assert [item["step_id"] for item in suggest_step_commits(isolated_db._conn(), "demo")] == [earlier, later, third]
     assert [item["step_id"] for item in suggest_step_commits(isolated_db._conn(), "demo", limit=2)] == [earlier, later]
     assert len(suggest_step_commits(isolated_db._conn(), "demo")[2]["commits"]) == 2
+
+
+def test_suggestions_compare_since_and_order_by_instant(isolated_db):
+    """A commit at 22:00-04:00 on June 1 happened at 02:00Z on June 2. The
+    text comparison against since=2026-06-02T00:00:00+00:00 dropped it, and
+    the text sort put it after a commit that happened earlier."""
+    from orchestrator.step_suggestions import suggest_step_commits
+    context = isolated_db.insert_context("demo", "One")
+    step = isolated_db.insert_step(context, 1, "Work")
+    _commit(isolated_db, "demo", f"feat: paso #{step} late", "latecommit", ts="2026-06-01T22:00:00-04:00")
+    _commit(isolated_db, "demo", f"feat: paso #{step} early", "earlycommit", ts="2026-06-02T01:00:00+00:00")
+    _commit(isolated_db, "demo", f"feat: paso #{step} old", "oldcommit", ts="2026-06-01T20:00:00+00:00")
+
+    result = suggest_step_commits(isolated_db._conn(), "demo", since="2026-06-02T00:00:00+00:00")
+
+    assert [commit["sha"] for commit in result[0]["commits"]] == ["latecomm", "earlycom"]

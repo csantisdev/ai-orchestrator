@@ -388,7 +388,7 @@ def read_runs(
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params.append(last)
     rows = conn.execute(
-        f"SELECT * FROM runs {where} ORDER BY ts DESC LIMIT ?", params
+        f"SELECT * FROM runs {where} ORDER BY julianday(ts) DESC, id DESC LIMIT ?", params
     ).fetchall()
     return list(rows)
 

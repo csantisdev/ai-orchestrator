@@ -255,3 +255,23 @@ def test_migration_recovers_interrupted_mcp_payload_rebuild(tmp_path, monkeypatc
         ).fetchone() is not None
     finally:
         conn.close()
+
+
+def test_read_runs_orders_by_instant_not_by_text(request):
+    """Imported git commits keep the author's offset, so ts mixes -03:00,
+    -04:00 and UTC. Sorting the text would put 12:00Z before 11:30-04:00
+    (15:30Z); read_runs must sort by the actual instant."""
+    from orchestrator.db import read_runs
+
+    project = f"order-{request.node.name}"
+    _insert(project, "2026-06-01T10:00:00-03:00", 0.0)
+    _insert(project, "2026-06-01T12:00:00+00:00", 0.0)
+    _insert(project, "2026-06-01T11:30:00-04:00", 0.0)
+
+    rows = read_runs(project=project)
+
+    assert [row["ts"] for row in rows] == [
+        "2026-06-01T11:30:00-04:00",
+        "2026-06-01T10:00:00-03:00",
+        "2026-06-01T12:00:00+00:00",
+    ]
