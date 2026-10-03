@@ -264,6 +264,8 @@ verde y la suite completa sin regresiones.
 **Lista de verificación para el usuario:**
 
 - [ ] El modelo de amenazas de §3.1 (en alcance y fuera de alcance) es el correcto.
+- [ ] El token protege contra páginas web del navegador, no contra procesos o usuarios que puedan
+      conectarse a `127.0.0.1` (pueden leerlo del HTML); eso queda aceptado fuera de alcance.
 - [ ] El token de sesión vive solo en memoria y rota en cada reinicio, aceptando que las pestañas
       abiertas tengan que recargarse.
 - [ ] Ningún GET refresca por red; el refresco del tipo de cambio pasa a ser explícito.
