@@ -144,7 +144,7 @@ def test_i8_origin_and_fetch_site(dashboard_server):
 @pytest.mark.parametrize(("values", "server_port", "allowed"), (
     (["localhost"], 80, True), (["127.0.0.1"], 80, True), (["LOCALHOST:80"], 80, True),
     (["localhost"], 8080, False), (["127.0.0.1"], 8080, False), (["[::1]:80"], 80, False),
-    (["localhost.:80"], 80, False), (["localhost:abc"], 80, False),
+    (["localhost.:80"], 80, False), (["localhost:abc"], 80, False), (["localhost:²"], 80, False),
     (["localhost:80", "localhost:80"], 80, False), ([], 80, False),
 ))
 def test_host_allowed(values, server_port, allowed):
@@ -157,7 +157,7 @@ def test_host_allowed(values, server_port, allowed):
     ("http://LOCALHOST:80", 80, True), ("http://localhost", 8080, False),
     ("http://127.0.0.1", 8080, False), ("http://[::1]:80", 80, False),
     ("http://localhost.", 80, False), ("http://localhost:abc", 80, False),
-    ("https://localhost:80", 80, False), ("null", 80, False),
+    ("https://localhost:80", 80, False), ("null", 80, False), ("http://[", 80, False),
 ))
 def test_origin_allowed(origin, server_port, allowed):
     from orchestrator.server import _origin_allowed
@@ -167,6 +167,27 @@ def test_origin_allowed(origin, server_port, allowed):
 def test_i5_invalid_origin_port_is_403(dashboard_server):
     _, request, token = dashboard_server
     assert request("POST", "/rates/refresh", b"{}", _headers(token, Origin="http://localhost:abc"))[0].status == 403
+
+
+def test_malformed_headers_get_a_rejection_instead_of_a_dropped_connection(dashboard_server):
+    port, request, token = dashboard_server
+    response, body = request("POST", "/rates/refresh", b"{}", _headers("é"))
+    assert response.status == 403 and json.loads(body)["reason"] == "session_expired"
+    _security(response)
+    response, _ = request("POST", "/rates/refresh", b"{}", _headers(token, Origin="http://["))
+    assert response.status == 403
+    response, _ = request("GET", "/", None, {"Host": "localhost:²"})
+    assert response.status == 421
+    _security(response)
+
+
+def test_session_expired_rejects_the_promise_and_refresh_checks_status():
+    from orchestrator.dashboard_js import _build_js
+    js = _build_js()
+    post_json = _js_function(js, "postJson")
+    assert 'throw new Error("session_expired")' in post_json
+    assert post_json.index('throw new Error("session_expired")') > post_json.index("__sessionExpiredNotified = true")
+    assert "if (!r.ok) throw" in _js_function(js, "refreshChromaStats")
 
 
 def test_i4_chroma_stats_failure_is_json_500(dashboard_server, monkeypatch):

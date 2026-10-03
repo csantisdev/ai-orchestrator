@@ -32,7 +32,7 @@ def _host_allowed(values: list[str], server_port: int) -> bool:
         if value.count(":") != 1:
             return False
         host, port_text = value.rsplit(":", 1)
-        if not port_text.isdigit():
+        if not (port_text.isascii() and port_text.isdigit()):
             return False
         effective_port = int(port_text)
     else:
@@ -44,8 +44,8 @@ def _origin_allowed(origin: str | None, server_port: int) -> bool:
     """Return whether Origin is absent or names this local HTTP server."""
     if not origin:
         return True
-    parsed = urllib.parse.urlparse(origin)
     try:
+        parsed = urllib.parse.urlparse(origin)
         effective_port = parsed.port or (80 if parsed.scheme == "http" else None)
     except ValueError:
         return False
@@ -178,7 +178,7 @@ def serve(
             if self.headers.get("Sec-Fetch-Site") not in (None, "same-origin"):
                 self._reject({"error": "invalid fetch site"}, 403); return False
             token = self.headers.get("X-Orchestrator-Session", "")
-            if not hmac.compare_digest(token, _session_token):
+            if not token.isascii() or not hmac.compare_digest(token, _session_token):
                 self._reject({"reason": "session_expired"}, 403); return False
             return self._require_json_ct()
 
