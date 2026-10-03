@@ -39,7 +39,7 @@ gobierna el acceso por MCP: este documento cubre solo el servidor HTTP del dashb
 | `Origin` ausente | No definido | Se permite solo si pasan token y `Content-Type` (H-06) |
 | Llamadas POST del JS | "Un envoltorio de `fetch`" | 26 llamadas para 25 endpoints, con un helper explícito y un test estático (H-07) |
 | Token viejo | Mensaje de recarga | Respuesta `403` con `reason: session_expired`, incluida la página restaurada desde el bfcache del navegador (H-08) |
-| Invariantes | I1–I9 | I1–I13 (H-09) |
+| Invariantes | I1–I9 | I1–I13 (H-09); I9 incluye `404` y `/static/*` (ronda 2) |
 | Resumen | "Cinco controles" | Seis controles (H-10) |
 | Referencias | Ruta local de la especificación | PR #28, porque el archivo no existe en esta rama (H-11) |
 
@@ -93,7 +93,7 @@ Severidad: alta para (1) y (2), porque hay acciones destructivas (`/delete-conte
 ### 2.1 Inventario de endpoints
 
 **POST con efectos** (25 endpoints, llamados desde 26 lugares de `dashboard_js.py`; `_syncOne`
-reutiliza una misma llamada para varias rutas y `/evaluate-run` no tiene llamada en el JS actual):
+reutiliza una misma llamada para varias rutas; `/evaluate-run`, `/pricing/refresh` y `/models/refresh` no tienen llamada en el JS actual, pero quedan igualmente protegidos):
 
 | Categoría | Endpoints |
 |---|---|
@@ -203,6 +203,8 @@ cachearse. El SSE conserva su `Access-Control-Allow-Origin` actual, nunca `*`.
 
 En todos los métodos, primero C1. En GET, después el despacho. En POST, en este orden: C3, C2, C4 y
 el despacho. Las cabeceras de C6 se agregan en todos los casos, incluidas las respuestas de rechazo.
+La ruta `/context/{id}/delete`, que hoy se resuelve en una rama aparte antes del diccionario de
+rutas (`server.py:574-578`), pasa por el mismo pipeline: la validación va antes de cualquier rama.
 
 ## 4. Invariantes / Requisitos falsables
 
@@ -216,7 +218,7 @@ el despacho. Las cabeceras de C6 se agregan en todos los casos, incluidas las re
 | I6 | El token no se filtra | No aparece en logs, respuestas JSON ni en el SSE; solo en el `<meta>` de `/` |
 | I7 | El dashboard sigue funcionando | Test que recorre las acciones con el token del HTML; prueba manual de cada botón |
 | I8 | `Origin` y `Sec-Fetch-Site` se aplican | POST con token válido y `Origin` ajeno → `403`; `Sec-Fetch-Site: cross-site` → `403`; sin ambos y con token válido → aceptado |
-| I9 | Las cabeceras de seguridad están en toda respuesta | `X-Frame-Options`, `frame-ancestors` y `nosniff` presentes en `200`, `403`, `405`, `415`, `421` y `500`; `no-store` en toda respuesta dinámica |
+| I9 | Las cabeceras de seguridad están en toda respuesta | `X-Frame-Options`, `frame-ancestors` y `nosniff` presentes en `200`, `403`, `404` (POST a ruta desconocida), `405`, `415`, `421` y `500`, y en un archivo de `/static/*`; `no-store` en toda respuesta dinámica |
 | I10 | Los métodos no soportados no exponen nada | HEAD, PUT, DELETE, PATCH y OPTIONS → `405` con las cabeceras de C6 |
 | I11 | Un token viejo se trata como sesión vencida | Tras reiniciar el servidor, un POST con el token anterior → `403 session_expired`; el JS muestra el mensaje de recarga |
 | I12 | No se exponen identificadores de credenciales | `/integrations/status` no incluye el usuario del Banco Central |
