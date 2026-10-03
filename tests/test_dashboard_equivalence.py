@@ -308,17 +308,66 @@ def test_script_has_the_same_top_level_blocks(outputs):
     assert not missing and not extra, (list(missing)[:3], list(extra)[:3])
 
 
+FUNCTION_DECLARATION = re.compile(r"^(?:async )?function [\w$]+\(")
+VARIABLE_DECLARATION = re.compile(r"^(?:var|let|const) [\w$]+\s*(?:=\s*(?P<init>.*?))?;?\s*$", re.S)
+STRING_LITERAL = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'")
+OBJECT_KEY = re.compile(r"[\w$]+\s*:")
+LITERAL_TOKENS = {"{", "}", "[", "]", ",", ":", "S", "true", "false", "null"}
+
+
+def _is_reorderable(chunk: str) -> bool:
+    """Una función declarada (se eleva) o una variable con valor inicial literal puro.
+
+    Todo lo demás —incluidos `const` con llamadas como `new EventSource(...)`— se
+    ejecuta al cargar en el orden del archivo.
+    """
+    code = "\n".join(line for line in chunk.split("\n") if not line.lstrip().startswith("//")).strip()
+    if FUNCTION_DECLARATION.match(code):
+        return True
+    match = VARIABLE_DECLARATION.match(code)
+    if not match:
+        return False
+    init = match.group("init")
+    if init is None:
+        return True
+    rest = OBJECT_KEY.sub(":", STRING_LITERAL.sub("S", init))
+    tokens = re.findall(r"[A-Za-z_$][\w$]*|-?\d+(?:\.\d+)?|\S", rest)
+    return all(token in LITERAL_TOKENS or re.fullmatch(r"-?\d+(?:\.\d+)?", token) for token in tokens)
+
+
 def _load_time_code(js: str) -> list[str]:
-    """Bloques que se ejecutan al cargar: todo lo que no empieza con una declaración."""
-    return [chunk for chunk in js_chunks(js) if not DECLARATION.match(chunk)]
+    """Bloques que se ejecutan al cargar con efectos de orden: todo lo no reordenable."""
+    return [chunk for chunk in js_chunks(js) if not _is_reorderable(chunk)]
 
 
 def test_code_that_runs_at_load_keeps_its_relative_order(outputs):
     current = _load_time_code(outputs["script.js"])
 
     assert current == _load_time_code(_golden("script.js"))
+    assert any(chunk.startswith('const evtSource = new EventSource("/events")') for chunk in current)
     assert any(chunk.startswith('evtSource.addEventListener("trace"') for chunk in current)
     assert current[-2].startswith(TAIL_MARKER) and current[-1] == "refreshStaleRateOnLoad();"
+
+
+@pytest.mark.parametrize("chunk, reorderable", [
+    ("function f() {\n  return 1;\n}", True),
+    ("async function g(x) {}", True),
+    ("var _page = 0;", True),
+    ("let _filter = \"all\";", True),
+    ("let _cb = null;", True),
+    ("let x;", True),
+    ("const _map = {};", True),
+    ("const P = {\n  \"claude-code\": { label: \"Sync\", color: \"#22c55e\" },\n  git: { n: -1.5 },\n};", True),
+    ("const es = new EventSource(\"/events\");", False),
+    ("const f = window.fetch.bind(window);", False),
+    ("let n = compute();", False),
+    ("const o = { a: helper() };", False),
+    ("evtSource.addEventListener(\"x\", e => e);", False),
+    ("(function() {})();", False),
+    ("refreshStaleRateOnLoad();", False),
+])
+def test_reorderable_blocks_are_only_hoisted_functions_and_literal_declarations(chunk, reorderable):
+    assert _is_reorderable(chunk) is reorderable
 
 
 def test_block_boundaries_are_top_level_code(outputs):
@@ -336,6 +385,7 @@ def test_block_boundaries_are_top_level_code(outputs):
     ("// `\nfunction si() {}", {0, 1}),
     ("/* `\n*/\nfunction si() {}", {0, 2}),
     ("const t = `${ {a: 1}.a }`;\nfunction si() {}", {0, 1}),
+    ("const u = `a ${ `b ${ `c\n}` }` }`;\nfunction si() {}", {0, 2}),
     ("const x = 4 / 2;\nconst y = `\n}`;\nfunction si() {}", {0, 1, 3}),
     ("function f() {\n  return `x`;\n}\nlet z;", {0, 3}),
 ])
