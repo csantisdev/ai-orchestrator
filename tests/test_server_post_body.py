@@ -15,6 +15,7 @@ import json
 import re
 import socket
 import threading
+import time
 
 import pytest
 
@@ -129,17 +130,35 @@ def test_a_body_shorter_than_its_content_length_is_a_400_that_closes(server):
     assert all(header in head for header in SECURITY_HEADERS)
 
 
-@pytest.mark.parametrize("framing", [
-    "Content-Length: 2\r\nContent-Length: 50\r\n",
-    "Content-Length: 2\r\nContent-Length: 2\r\n",
-    "Content-Length: 2\r\nTransfer-Encoding: chunked\r\n",
-    "Content-Length: 1_0\r\n",
-    "Content-Length: +2\r\n",
+def test_an_unauthenticated_post_does_not_wait_for_its_body(server):
+    """El cuerpo se lee después de validar la sesión: un cliente sin token que declara
+    500 KB y no los envía recibe su 403 sin que el servidor espere el buffer."""
+    _, _, port = server
+    with socket.create_connection(("127.0.0.1", port)) as raw:
+        raw.settimeout(15)
+        raw.sendall(
+            f"POST /rates/refresh HTTP/1.1\r\nHost: localhost:{port}\r\n"
+            "Content-Type: application/json\r\nContent-Length: 500000\r\n\r\n".encode()
+        )
+        started = time.monotonic()
+        first = raw.recv(4096)
+        elapsed = time.monotonic() - started
+
+    assert b" 403 " in first.split(b"\r\n", 1)[0]
+    assert elapsed < 3, elapsed
+
+
+@pytest.mark.parametrize("framing, body", [
+    ("Content-Length: 2\r\nContent-Length: 50\r\n", "{}"),
+    ("Content-Length: 2\r\nContent-Length: 2\r\n", "{}"),
+    ("Content-Length: 2\r\nTransfer-Encoding: chunked\r\n", "{}"),
+    ("Content-Length: 1_0\r\n", '{"a": 123}'),
+    ("Content-Length: +2\r\n", "{}"),
 ])
-def test_ambiguous_framing_is_rejected(server, framing):
+def test_ambiguous_framing_is_rejected(server, framing, body):
     _, token, port = server
 
-    response = _raw(port, (_post_head(port, token, framing) + "\r\n{}").encode())
+    response = _raw(port, (_post_head(port, token, framing) + "\r\n" + body).encode())
 
     status_line = response.split(b"\r\n", 1)[0]
     assert b" 400 " in status_line
