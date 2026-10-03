@@ -86,6 +86,13 @@ def _session_token(port: int) -> str:
     return re.search(r'orchestrator-session" content="([^"]+)', page).group(1)
 
 
+def _stop_server(servers, thread) -> None:
+    """Stop each test listener before its temporary database is removed."""
+    if servers:
+        servers[0].shutdown()
+    thread.join(timeout=3)
+
+
 def test_server_post_requires_json_ct():
     """All POST endpoints return 415 when Content-Type is not application/json."""
     import orchestrator.paths as paths_mod
@@ -97,13 +104,14 @@ def test_server_post_requires_json_ct():
     orig_home = paths_mod.HOME_DIR
     orig_db = paths_mod.DB_PATH
     port = 19977
+    servers = []
 
     def _run():
         paths_mod.HOME_DIR = tmp_path
         paths_mod.DB_PATH = tmp_path / "runs.db"
         db_mod._local = threading.local()
         db_mod.init_db()
-        serve(port, None, False, {})
+        serve(port, None, False, {}, on_server_ready=servers.append, start_background=False)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -159,6 +167,7 @@ def test_server_post_requires_json_ct():
         conn.close()
 
     finally:
+        _stop_server(servers, t)
         paths_mod.HOME_DIR = orig_home
         paths_mod.DB_PATH = orig_db
         db_mod._local = threading.local()
@@ -178,13 +187,14 @@ def test_pricing_endpoints(monkeypatch):
     orig_db = paths_mod.DB_PATH
     monkeypatch.setattr(catalog_mod, "PRICING_CACHE_PATH", tmp_path / "pricing-cache.json")
     port = 19978
+    servers = []
 
     def _run():
         paths_mod.HOME_DIR = tmp_path
         paths_mod.DB_PATH = tmp_path / "runs.db"
         db_mod._local = threading.local()
         db_mod.init_db()
-        serve(port, None, False, {})
+        serve(port, None, False, {}, on_server_ready=servers.append, start_background=False)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -216,6 +226,7 @@ def test_pricing_endpoints(monkeypatch):
         assert data["source"] in ("config", "cache", "remote", "static", "default")
 
     finally:
+        _stop_server(servers, t)
         paths_mod.HOME_DIR = orig_home
         paths_mod.DB_PATH = orig_db
         db_mod._local = threading.local()
@@ -235,13 +246,14 @@ def test_models_endpoints(monkeypatch):
     orig_db = paths_mod.DB_PATH
     monkeypatch.setattr(model_discovery_mod, "MODELS_CACHE_PATH", tmp_path / "models-cache.json")
     port = 19979
+    servers = []
 
     def _run():
         paths_mod.HOME_DIR = tmp_path
         paths_mod.DB_PATH = tmp_path / "runs.db"
         db_mod._local = threading.local()
         db_mod.init_db()
-        serve(port, None, False, {})
+        serve(port, None, False, {}, on_server_ready=servers.append, start_background=False)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -272,6 +284,7 @@ def test_models_endpoints(monkeypatch):
         assert data["providers"] == {}
 
     finally:
+        _stop_server(servers, t)
         paths_mod.HOME_DIR = orig_home
         paths_mod.DB_PATH = orig_db
         db_mod._local = threading.local()
@@ -292,13 +305,14 @@ def test_agents_endpoint(monkeypatch):
     monkeypatch.setattr(agents_mod, "AGENTS_PATH", tmp_path / "agents.yaml")
     agents_mod.upsert_agent(agents_mod.AgentDefinition(name="reviewer", provider="claude"))
     port = 19980
+    servers = []
 
     def _run():
         paths_mod.HOME_DIR = tmp_path
         paths_mod.DB_PATH = tmp_path / "runs.db"
         db_mod._local = threading.local()
         db_mod.init_db()
-        serve(port, None, False, {})
+        serve(port, None, False, {}, on_server_ready=servers.append, start_background=False)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -318,6 +332,7 @@ def test_agents_endpoint(monkeypatch):
         assert data["agents"][0]["provider"] == "claude"
 
     finally:
+        _stop_server(servers, t)
         paths_mod.HOME_DIR = orig_home
         paths_mod.DB_PATH = orig_db
         db_mod._local = threading.local()
@@ -378,6 +393,7 @@ def test_sync_endpoints_reject_concurrent_runs(monkeypatch):
     orig_home = paths_mod.HOME_DIR
     orig_db = paths_mod.DB_PATH
     port = 19980
+    servers = []
 
     def _slow_scan(*_a, **_kw):
         time.sleep(0.6)
@@ -390,7 +406,7 @@ def test_sync_endpoints_reject_concurrent_runs(monkeypatch):
         paths_mod.DB_PATH = tmp_path / "runs.db"
         db_mod._local = threading.local()
         db_mod.init_db()
-        serve(port, None, False, {})
+        serve(port, None, False, {}, on_server_ready=servers.append, start_background=False)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -421,6 +437,7 @@ def test_sync_endpoints_reject_concurrent_runs(monkeypatch):
         assert 200 in statuses, f"esperaba una respuesta 200, obtuve {statuses}"
         assert 409 in statuses, f"esperaba una respuesta 409 'busy', obtuve {statuses}"
     finally:
+        _stop_server(servers, t)
         paths_mod.HOME_DIR = orig_home
         paths_mod.DB_PATH = orig_db
         db_mod._local = threading.local()
@@ -439,6 +456,7 @@ def test_dashboard_ignores_an_unknown_project_parameter():
     orig_home = paths_mod.HOME_DIR
     orig_db = paths_mod.DB_PATH
     port = 19991
+    servers = []
 
     def _run():
         paths_mod.HOME_DIR = tmp_path
@@ -446,7 +464,7 @@ def test_dashboard_ignores_an_unknown_project_parameter():
         db_mod._local = threading.local()
         db_mod.init_db()
         db_mod.insert_run("Mi Proyecto", "tarea", "deepseek", "deepseek-v4-flash")
-        serve(port, "por-defecto", False, {})
+        serve(port, "por-defecto", False, {}, on_server_ready=servers.append, start_background=False)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -470,6 +488,7 @@ def test_dashboard_ignores_an_unknown_project_parameter():
         assert '_runsFilterProject = "Mi Proyecto"' in _get("/?project=" + urllib.parse.quote("Mi Proyecto"))
         assert '_runsFilterProject = "por-defecto"' in _get("/")
     finally:
+        _stop_server(servers, t)
         paths_mod.HOME_DIR = orig_home
         paths_mod.DB_PATH = orig_db
         db_mod._local = threading.local()

@@ -285,6 +285,8 @@ function _refreshContexts() {
 
 // ── Context detail overlay ───────────────────────────────────────────────────
 function openContextDetail(ctxId) {
+  ctxId = Number(ctxId);
+  if (!Number.isInteger(ctxId)) return;
   const overlay = document.getElementById("ctxDetailOverlay");
   const content = document.getElementById("ctxDetailContent");
   overlay.classList.add("open");
@@ -296,20 +298,20 @@ function openContextDetail(ctxId) {
       const stepsHtml=(data.steps||[]).map(s=>{
         const sc=STEP_CLR[s.status]||"#71717a";
         const aligns=(s.alignments||[]).map(a=>`<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--border-faint);display:flex;gap:8px">
-          <span style="color:var(--text-faint);white-space:nowrap">${a.ts?new Date(a.ts).toLocaleString("es",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}):"—"}</span>
+          <span style="color:var(--text-faint);white-space:nowrap">${escHtml(a.ts?new Date(a.ts).toLocaleString("es",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}):"—")}</span>
           <span style="color:${a.confirmed?"#22c55e":"#f87171"};font-weight:700">${a.confirmed?"✓":"✗"}</span>
           <span style="color:var(--text-secondary)">${escHtml(a.checkpoint||"")}</span>
           <span style="color:var(--text-faint)">${escHtml(a.agent||"")}</span>
         </div>`).join("") || '<span style="font-size:11px;color:var(--text-faint)">Sin alineamientos.</span>';
         const tools=(s.tool_calls||[]).map(tc=>`<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--border-faint);display:flex;gap:8px">
-          <span style="color:var(--text-faint);white-space:nowrap">${tc.ts?new Date(tc.ts).toLocaleString("es",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}):"—"}</span>
+          <span style="color:var(--text-faint);white-space:nowrap">${escHtml(tc.ts?new Date(tc.ts).toLocaleString("es",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}):"—")}</span>
           <span style="font-family:'JetBrains Mono',monospace;color:var(--text-primary)">${escHtml(tc.tool_name||"")}</span>
           <span style="color:${tc.status==="ok"?"#22c55e":"#f87171"}">${escHtml(tc.status||"")}</span>
-          <span style="color:var(--text-faint)">${tc.duration_ms!=null?tc.duration_ms+"ms":""}</span>
+          <span style="color:var(--text-faint)">${tc.duration_ms!=null?safeNumber(tc.duration_ms)+"ms":""}</span>
         </div>`).join("") || '<span style="font-size:11px;color:var(--text-faint)">Sin tool calls.</span>';
         return `<div style="margin-bottom:14px;padding:10px;background:var(--bg-elevated);border-radius:10px;border-left:3px solid ${sc}">
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-            <span style="font-size:11px;font-weight:700;color:var(--text-faint);font-family:'JetBrains Mono',monospace">${s.order_idx||"?"}</span>
+            <span style="font-size:11px;font-weight:700;color:var(--text-faint);font-family:'JetBrains Mono',monospace">${safeNumber(s.order_idx,"?")}</span>
             <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${escHtml(s.title||"")}</span>
             <span style="font-size:10px;background:rgba(0,0,0,.2);color:${sc};padding:2px 8px;border-radius:20px;font-weight:600">${escHtml(s.status||"")}</span>
           </div>
@@ -321,7 +323,7 @@ function openContextDetail(ctxId) {
       const cs=CTX_CLR[data.status||"active"]||"#71717a";
       content.innerHTML=`
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-          <span class="chip-mono">#${data.id}</span>
+          <span class="chip-mono">#${safeNumber(data.id)}</span>
           <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${escHtml(data.title||"")}</span>
           <span style="font-size:10px;background:rgba(0,0,0,.2);color:${cs};padding:2px 8px;border-radius:20px;font-weight:600">${escHtml(data.status||"")}</span>
         </div>
@@ -435,7 +437,8 @@ function updateBudgetGauge(d) {
 }
 
 function openDetail(runId) {
-  if (!runId) return;
+  runId = Number(runId);
+  if (!Number.isInteger(runId)) return;
   const overlay = document.getElementById("detailOverlay");
   const content = document.getElementById("detailContent");
   overlay.classList.add("open");
@@ -447,10 +450,10 @@ function openDetail(runId) {
       const provBg = {"claude":"rgba(251,146,60,0.12)","deepseek":"rgba(34,197,94,0.12)","openai":"rgba(129,140,248,0.12)"}[data.provider] || "rgba(113,113,122,0.12)";
       content.innerHTML = `
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-          <span class="chip-mono">#${data.id}</span>
+          <span class="chip-mono">#${safeNumber(data.id)}</span>
           <span style="background:${provBg};color:${provColor};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(data.provider)}</span>
           <span class="chip-mono">${escHtml(data.model ? data.model.split('/').pop() : '—')}</span>
-          <span class="chip">${data.duration_ms ? (data.duration_ms/1000).toFixed(1)+"s" : "—"}</span>
+          <span class="chip">${Number.isFinite(Number(data.duration_ms)) ? (Number(data.duration_ms)/1000).toFixed(1)+"s" : "—"}</span>
           ${data.cost_usd ? `<span style="background:rgba(34,197,94,0.10);color:#22c55e;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${_fmtUsd(data.cost_usd)}</span>` : (data.status==="done" ? '<span style="background:rgba(245,158,11,0.10);color:#f59e0b;padding:3px 10px;border-radius:20px;font-size:11px" title="Modelo sin pricing registrado">sin precio</span>' : '')}
           ${data.router_cost_usd ? `<span style="background:rgba(56,189,248,0.08);color:#38bdf8;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500" title="Costo del router (DeepSeek routing)">router ${_fmtUsd(data.router_cost_usd)}</span>` : ''}
         </div>
@@ -485,7 +488,7 @@ function openDetail(runId) {
             </tr></thead>
             <tbody>
               ${data.alignments.map(a => `<tr class="detail-tbody-row">
-                <td class="td-sm-ts">${a.ts ? new Date(a.ts).toLocaleString("es",{hour12:false,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : '—'}</td>
+                <td class="td-sm-ts">${escHtml(a.ts ? new Date(a.ts).toLocaleString("es",{hour12:false,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : '—')}</td>
                 <td class="td-sm-text">${escHtml(a.checkpoint || '—')}</td>
                 <td class="td-sm-muted">${escHtml(a.agent || '—')}</td>
                 <td class="td-sm" style="text-align:center">${a.confirmed ? '<span style="color:#22c55e;font-weight:700;font-size:14px">✓</span>' : '<span style="color:#f87171;font-weight:700;font-size:14px">✗</span>'}</td>
@@ -506,10 +509,10 @@ function openDetail(runId) {
             </tr></thead>
             <tbody>
               ${data.tool_calls.map(tc => `<tr class="detail-tbody-row">
-                <td class="td-sm-ts">${tc.ts ? new Date(tc.ts).toLocaleString("es",{hour12:false,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : '—'}</td>
+                <td class="td-sm-ts">${escHtml(tc.ts ? new Date(tc.ts).toLocaleString("es",{hour12:false,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : '—')}</td>
                 <td class="td-sm-mono">${escHtml(tc.tool_name || '—')}</td>
                 <td class="td-sm" style="text-align:center"><span style="font-size:10px;padding:2px 7px;border-radius:20px;background:${tc.status==='ok'?'rgba(34,197,94,0.12)':'rgba(248,113,113,0.12)'};color:${tc.status==='ok'?'#22c55e':'#f87171'};font-weight:600">${escHtml(tc.status || '—')}</span></td>
-                <td class="td-sm text-muted" style="text-align:right;font-variant-numeric:tabular-nums">${tc.duration_ms != null ? tc.duration_ms : '—'}</td>
+                <td class="td-sm text-muted" style="text-align:right;font-variant-numeric:tabular-nums">${safeNumber(tc.duration_ms)}</td>
                 <td class="td-sm-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(tc.output ? String(tc.output).slice(0,80) : '')}</td>
               </tr>`).join('')}
             </tbody>
@@ -527,7 +530,7 @@ function openDetail(runId) {
               ${data.context_hits.map(h => '<tr class="detail-tbody-row">' +
                 '<td class="td-sm-muted">' + escHtml(h.collection || 'docs') + '</td>' +
                 '<td class="td-sm-mono" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(h.source || '') + '</td>' +
-                '<td class="td-sm text-muted" style="text-align:right;font-variant-numeric:tabular-nums">' + (h.score != null ? h.score.toFixed(4) : '—') + '</td>' +
+                '<td class="td-sm text-muted" style="text-align:right;font-variant-numeric:tabular-nums">' + (Number.isFinite(Number(h.score)) ? Number(h.score).toFixed(4) : '—') + '</td>' +
               '</tr>').join('')}
             </tbody>
           </table>
@@ -535,16 +538,16 @@ function openDetail(runId) {
         <div class="detail-section" style="padding-top:8px;border-top:1px solid var(--border-faint)">
           <label>Evaluacion del run</label>
           <div style="display:flex;gap:8px;margin-top:4px">
-            <button class="btn btn-secondary rate-btn" data-run="${data.id}" data-rating="useful"
+            <button class="btn btn-secondary rate-btn" data-run="${Number(data.id)}" data-rating="useful"
               style="font-size:13px;padding:5px 14px;${data.rating==='useful'?'opacity:1;border-color:#22c55e;color:#22c55e':'opacity:0.4'}"
-              onclick="rateRun(${data.id},'useful')">Util</button>
-            <button class="btn btn-secondary rate-btn" data-run="${data.id}" data-rating="partial"
+              onclick="rateRun(${Number(data.id)},'useful')">Util</button>
+            <button class="btn btn-secondary rate-btn" data-run="${Number(data.id)}" data-rating="partial"
               style="font-size:13px;padding:5px 14px;${data.rating==='partial'?'opacity:1;border-color:#f59e0b;color:#f59e0b':'opacity:0.4'}"
-              onclick="rateRun(${data.id},'partial')">Parcial</button>
-            <button class="btn btn-secondary rate-btn" data-run="${data.id}" data-rating="wrong"
+              onclick="rateRun(${Number(data.id)},'partial')">Parcial</button>
+            <button class="btn btn-secondary rate-btn" data-run="${Number(data.id)}" data-rating="wrong"
               style="font-size:13px;padding:5px 14px;${data.rating==='wrong'?'opacity:1;border-color:#f87171;color:#f87171':'opacity:0.4'}"
-              onclick="rateRun(${data.id},'wrong')">Incorrecto</button>
-            ${data.rating ? '<button class="btn btn-secondary" style="font-size:11px;opacity:0.5;padding:5px 10px" onclick="rateRun(' + data.id + ',\\'\\')">Quitar</button>' : ''}
+              onclick="rateRun(${Number(data.id)},'wrong')">Incorrecto</button>
+            ${data.rating ? '<button class="btn btn-secondary" style="font-size:11px;opacity:0.5;padding:5px 10px" onclick="rateRun(' + Number(data.id) + ',\\'\\')">Quitar</button>' : ''}
           </div>
         </div>
       `;
@@ -714,6 +717,11 @@ function setTheme(name) {
 function escHtml(s) {
   if (s == null) return "";
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function safeNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? String(number) : (fallback === undefined ? "—" : fallback);
 }
 
 // ── Activity bar ─────────────────────────────────────────────────────────────
@@ -1154,7 +1162,7 @@ function renderDatos(data, el) {
         ctxProjList.map(p => {
           const info = ctxByProj[p];
           const byStatus = Object.entries(info.by_status||{})
-            .map(([s,n]) => '<span style="font-size:10px;color:var(--text-muted)">' + (STATUS_LABELS[s]||s) + ': ' + n + '</span>')
+            .map(([s,n]) => '<span style="font-size:10px;color:var(--text-muted)">' + escHtml(STATUS_LABELS[s] || s) + ': ' + safeNumber(n, "0") + '</span>')
             .join(' · ');
           return '<div style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated)">' +
             '<div style="font-size:12px;font-family:monospace;color:var(--text-primary)">' + escHtml(p) + '</div>' +

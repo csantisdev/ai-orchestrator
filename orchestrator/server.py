@@ -45,7 +45,15 @@ def mcp_json_from_example(example_text: str, is_windows: bool | None = None) -> 
     return json_mod.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
-def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -> None:
+def serve(
+    port: int,
+    project: Optional[str],
+    open_browser: bool,
+    config: dict,
+    *,
+    on_server_ready=None,
+    start_background: bool = True,
+) -> None:
     """Servidor HTTP del dashboard en http://127.0.0.1:<port>."""
     def _chroma_age_seconds() -> float | None:
         if not _chroma_cache["updated_at"]:
@@ -78,6 +86,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
     _chroma_cache: dict = {"stats": None, "updated_at": None}
 
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
+        _MAX_REJECT_BODY = 1024 * 1024
+
         def log_message(self, fmt, *args):
             pass
 
@@ -89,7 +99,9 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
-            if not self.path.startswith("/static/"):
+            # send_error(414) can run before parse_request(), when ``path``
+            # has not been populated by BaseHTTPRequestHandler yet.
+            if not getattr(self, "path", "").startswith("/static/"):
                 self.send_header("Cache-Control", "no-store")
             super().end_headers()
 
@@ -99,14 +111,24 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 self.raw_requestline = self.rfile.readline(65537)
                 if len(self.raw_requestline) > 65536:
                     self.requestline = ""; self.request_version = "HTTP/1.1"; self.command = ""
-                    self.send_error(414); return
+                    # The peer may already have sent the rest of this line.
+                    # Explicitly close after a flushed response instead of
+                    # allowing Windows to reset a socket with unread bytes.
+                    self._discard_oversize_request_line()
+                    self._reject({"error": "request URI too long"}, 414, force_close=True); return
                 if not self.raw_requestline:
                     self.close_connection = True; return
                 if not self.parse_request(): return
                 if not self._valid_host():
-                    self._json({"error": "invalid Host"}, 421); return
+                    self._reject({"error": "invalid Host"}, 421); return
+                if self.command == "POST":
+                    body_length = self._post_body_length()
+                    if body_length is None:
+                        self._reject({"error": "Content-Length required"}, 400, force_close=True); return
+                    if body_length > self._MAX_REJECT_BODY:
+                        self._reject({"error": "request body too large"}, 413, force_close=True); return
                 if self.command not in ("GET", "POST"):
-                    self._json({"error": "method not allowed"}, 405); return
+                    self._reject({"error": "method not allowed"}, 405); return
                 method = getattr(self, "do_" + self.command)
                 method()
                 self.wfile.flush()
@@ -138,12 +160,12 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 effective_port = parsed.port or (80 if parsed.scheme == "http" else None)
                 if (parsed.scheme != "http" or parsed.hostname not in ("localhost", "127.0.0.1")
                         or effective_port != self.server.server_address[1]):
-                    self._json({"error": "invalid origin"}, 403); return False
+                    self._reject({"error": "invalid origin"}, 403); return False
             if self.headers.get("Sec-Fetch-Site") not in (None, "same-origin"):
-                self._json({"error": "invalid fetch site"}, 403); return False
+                self._reject({"error": "invalid fetch site"}, 403); return False
             token = self.headers.get("X-Orchestrator-Session", "")
             if not hmac.compare_digest(token, _session_token):
-                self._json({"reason": "session_expired"}, 403); return False
+                self._reject({"reason": "session_expired"}, 403); return False
             return self._require_json_ct()
 
         def do_GET(self):
@@ -641,15 +663,74 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
         def _require_json_ct(self) -> bool:
             ct = self.headers.get("Content-Type", "")
             if ct.split(";", 1)[0].strip().lower() != "application/json":
-                try:
-                    length = int(self.headers.get("Content-Length", 0))
-                    if length > 0:
-                        self.rfile.read(length)
-                except (ValueError, OSError):
-                    pass
-                self._json({"error": "Content-Type: application/json required"}, 415)
+                self._reject({"error": "Content-Type: application/json required"}, 415)
                 return False
             return True
+
+        def _discard_request_body(self) -> bool:
+            """Consume a bounded rejected POST body before the connection closes.
+
+            Closing a Windows socket with unread request bytes sends an RST, so
+            clients lose the rejection response.  Large, malformed, or
+            lengthless bodies are deliberately not read: their response is
+            flushed with ``Connection: close`` instead.
+            """
+            if getattr(self, "command", None) != "POST":
+                return True
+            length = self._post_body_length()
+            if length is None:
+                length = -1
+            if length < 0 or length > self._MAX_REJECT_BODY:
+                self.close_connection = True
+                return False
+            remaining = length
+            previous_timeout = self.connection.gettimeout()
+            try:
+                # A peer may declare a small body and then never finish it.
+                # Bound the drain so a rejected request cannot strand a worker.
+                self.connection.settimeout(1.0)
+                while remaining:
+                    chunk = self.rfile.read(min(65536, remaining))
+                    if not chunk:
+                        self.close_connection = True
+                        return False
+                    remaining -= len(chunk)
+            except (OSError, TimeoutError):
+                self.close_connection = True
+                return False
+            finally:
+                self.connection.settimeout(previous_timeout)
+            return True
+
+        def _post_body_length(self) -> int | None:
+            """Return a valid declared POST length, without trusting its body."""
+            headers = getattr(self, "headers", None)
+            length_text = headers.get("Content-Length") if headers is not None else None
+            try:
+                length = int(length_text) if length_text is not None else -1
+            except ValueError:
+                return None
+            return length if length >= 0 else None
+
+        def _discard_oversize_request_line(self) -> None:
+            """Best-effort drain of bytes already sent after an overlong line."""
+            previous_timeout = self.connection.gettimeout()
+            remaining = self._MAX_REJECT_BODY
+            try:
+                self.connection.settimeout(0.05)
+                while remaining:
+                    chunk = self.rfile.read1(min(65536, remaining))
+                    if not chunk or b"\n" in chunk:
+                        return
+                    remaining -= len(chunk)
+            except (OSError, TimeoutError):
+                pass
+            finally:
+                self.connection.settimeout(previous_timeout)
+
+        def _reject(self, data: dict, status: int, *, force_close: bool = False) -> None:
+            drained = self._discard_request_body()
+            self._json(data, status, close=force_close or not drained)
 
         def do_POST(self):
             if not self._require_post_security():
@@ -688,7 +769,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/run":                     self._post_run,
             }.get(self.path)
             if handler is None:
-                self._json({"error": "not found"}, 404)
+                self._reject({"error": "not found"}, 404)
                 return
             if not self._require_json_ct():
                 return
@@ -1571,15 +1652,19 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             finally:
                 BUS.unsubscribe(q)
 
-        def _json(self, data: dict, status: int = 200) -> None:
+        def _json(self, data: dict, status: int = 200, *, close: bool = False) -> None:
             body = json_mod.dumps(data, ensure_ascii=False).encode("utf-8")
             try:
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Access-Control-Allow-Origin", f"http://127.0.0.1:{self.server.server_address[1]}")
+                if close:
+                    self.close_connection = True
+                    self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
+                self.wfile.flush()
             except (BrokenPipeError, ConnectionAbortedError, OSError):
                 pass
 
@@ -1629,7 +1714,11 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             _chroma_cache["updated_at"] = datetime.now(timezone.utc).isoformat()
         except Exception:
             pass
-    _threading.Thread(target=_prewarm_chroma, daemon=True).start()
+    if on_server_ready is not None:
+        on_server_ready(server)
+
+    if start_background:
+        _threading.Thread(target=_prewarm_chroma, daemon=True).start()
 
     _AUTOSYNC_INTERVAL_SEC = 900  # 15 min
 
@@ -1669,7 +1758,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 pass  # una iteracion fallida no debe matar el hilo
             _time.sleep(_AUTOSYNC_INTERVAL_SEC)
 
-    _threading.Thread(target=_periodic_sync, daemon=True).start()
+    if start_background:
+        _threading.Thread(target=_periodic_sync, daemon=True).start()
 
     if open_browser:
         webbrowser.open(url)
@@ -1679,3 +1769,5 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
     except KeyboardInterrupt:
         server.shutdown()
         _console.print("\n[dim]Dashboard detenido.[/dim]")
+    finally:
+        server.server_close()

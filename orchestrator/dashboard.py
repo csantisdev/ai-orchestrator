@@ -222,7 +222,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
                 )
             steps_html += (
                 f'<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;{left_border}{active_bg}border-radius:6px;margin-bottom:2px">'
-                f'<span class="step-idx">{step.get("order_idx","?")}</span>'
+                f'<span class="step-idx">{_escape(str(_int_or_none(step.get("order_idx")) if _int_or_none(step.get("order_idx")) is not None else "?"))}</span>'
                 f'<span class="step-title">{_escape(_text(step.get("title")))}</span>'
                 f'{prov_html}'
                 f'<span style="font-size:10px;background:{fbg};color:{fc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(st)}</span>'
