@@ -283,10 +283,27 @@ def test_runs_instant_indexes_serve_the_instant_ordering():
     plans = [
         " ".join(row[3] for row in _conn().execute("EXPLAIN QUERY PLAN " + query))
         for query in (
-            "SELECT * FROM runs ORDER BY julianday(ts) DESC, id DESC LIMIT 500",
-            "SELECT * FROM runs WHERE project = 'x' ORDER BY julianday(ts) DESC, id DESC LIMIT 500",
+            "SELECT * FROM runs ORDER BY julianday(ts) DESC, ts DESC, id DESC LIMIT 500",
+            "SELECT * FROM runs WHERE project = 'x' ORDER BY julianday(ts) DESC, ts DESC, id DESC LIMIT 500",
         )
     ]
 
     assert "idx_runs_instant" in plans[0]
     assert "idx_runs_project_instant" in plans[1]
+
+
+def test_read_runs_keeps_microsecond_order_within_the_same_millisecond(request):
+    """julianday() rounds to milliseconds. Two runs 500 microseconds apart,
+    inserted in reverse order, must still come back newest first."""
+    from orchestrator.db import read_runs
+
+    project = f"micro-{request.node.name}"
+    _insert(project, "2026-06-01T12:00:00.123900+00:00", 0.0)
+    _insert(project, "2026-06-01T12:00:00.123400+00:00", 0.0)
+
+    rows = read_runs(project=project)
+
+    assert [row["ts"] for row in rows] == [
+        "2026-06-01T12:00:00.123900+00:00",
+        "2026-06-01T12:00:00.123400+00:00",
+    ]

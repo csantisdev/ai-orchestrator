@@ -537,10 +537,12 @@ def run_migrations() -> None:
             if not _already_applied(conn, "add_runs_instant_indexes"):
                 # runs.ts mixes offsets (git keeps the committer's), so queries
                 # order and filter by julianday(ts). These expression indexes
-                # let SQLite serve those queries without a full sort.
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_instant ON runs(julianday(ts))")
+                # let SQLite serve those queries without a full sort. julianday()
+                # rounds to milliseconds, so ts (same offset within a run source)
+                # breaks ties at microsecond precision before falling back to id.
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_instant ON runs(julianday(ts), ts)")
                 conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_runs_project_instant ON runs(project, julianday(ts))"
+                    "CREATE INDEX IF NOT EXISTS idx_runs_project_instant ON runs(project, julianday(ts), ts)"
                 )
                 _mark_applied(conn, "add_runs_instant_indexes")
                 conn.commit()

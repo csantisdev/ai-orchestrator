@@ -52,7 +52,7 @@ def suggest_step_commits(
         params.append(since)
     ticket_pattern = re.compile(ticket_regex)
     commits = []
-    for commit in conn.execute(commits_query + " ORDER BY julianday(ts) DESC, id DESC", params):
+    for commit in conn.execute(commits_query + " ORDER BY julianday(ts) DESC, ts DESC, id DESC", params):
         task = commit["task"]
         references = {int(a or b) for a, b in _STEP_REFERENCE.findall(task)}
         commits.append((commit, references, set(ticket_pattern.findall(task))))
