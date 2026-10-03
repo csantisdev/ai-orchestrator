@@ -403,13 +403,16 @@ def activity(
         raw.append(_event("egress_decision", row_id, ts, _joined_tokens(phase, reason_code) or "egress",
                           decision, normalize_agent(provider)))
 
+    step_alignments: dict[int, list[tuple[object, int, str]]] = {}
     for row_id, ts, step_id, context_id, agent, confirmed in conn.execute(
         "SELECT a.id, a.ts, a.step_id, a.context_id, a.agent, a.confirmed FROM alignments a "
         "JOIN contexts c ON c.id = a.context_id WHERE c.project = ?",
         (project,),
     ).fetchall():
         state = "confirmed" if confirmed else "deviation"
-        raw.append(_event("alignment", row_id, ts, "alignment", state, normalize_agent(agent),
+        agent_id = normalize_agent(agent)
+        step_alignments.setdefault(step_id, []).append((ts, row_id, agent_id))
+        raw.append(_event("alignment", row_id, ts, "alignment", state, agent_id,
                           step_id, context_id))
 
     for row_id, ts, step_id, context_id, tool_name, status in conn.execute(
@@ -436,8 +439,8 @@ def activity(
             (project,),
         ).fetchall():
             label = f"paso {order_idx}" if type(order_idx) is int and order_idx >= 0 else "paso"
-            raw.append(_event(kind, step_id, ts, label, state, normalize_agent(provider),
-                              step_id, context_id))
+            lane, _ = step_lanes(provider, step_alignments.get(step_id, []))
+            raw.append(_event(kind, step_id, ts, label, state, lane, step_id, context_id))
 
     events = []
     skipped = 0

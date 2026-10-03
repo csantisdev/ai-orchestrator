@@ -585,6 +585,20 @@ class TestActivity:
         assert pages[0][2].startswith("run:") and pages[1][0].startswith("egress_decision:")
         assert [i for p in pages for i in p] == full
 
+    def test_step_events_use_the_same_lane_as_the_context_graph(self, conn):
+        ctx = _context(conn)
+        step = _step(conn, ctx, 1, provider="texto dañado", started_at="2026-06-01T10:00:00Z",
+                     completed_at="2026-06-01T11:00:00Z")
+        _alignment(conn, step, ctx, "copilot", ts="2026-06-01T10:30:00Z")
+        _alignment(conn, step, ctx, "codex_cli", ts="2026-06-01T10:10:00Z")
+
+        events = activity(conn, "mi-proyecto", now=NOW)["events"]
+        graph = context_graph(conn, ctx, commits=CommitIndex([]), now=NOW)
+
+        lane = graph["nodes"][1]["attrs"]["lane"]
+        assert lane == "codex"
+        assert {e["agent"] for e in events if e["kind"].startswith("step_")} == {lane}
+
     def test_egress_events_carry_the_normalized_provider(self, conn):
         self._seed(conn)
 
