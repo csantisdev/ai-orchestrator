@@ -82,7 +82,7 @@
         "alignments": {"type": "integer", "minimum": 0},
         "deviations": {"type": "integer", "minimum": 0},
         "runs": {"type": "integer", "minimum": 0},
-        "cost_usd": {"type": "number", "minimum": 0},
+        "cost_usd": {"type": ["number", "null"], "minimum": 0},
         "prs": {"type": "array", "items": {"type": "integer", "minimum": 0}, "uniqueItems": true},
         "unverified_shas": {"type": "integer", "minimum": 0},
         "mentions_tests": {"type": "boolean"}

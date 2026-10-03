@@ -126,14 +126,16 @@ class CommitIndex:
     @classmethod
     def from_db(cls, conn: sqlite3.Connection) -> "CommitIndex":
         rows = conn.execute(
-            "SELECT session_id FROM runs WHERE provider = ? AND session_id LIKE ?",
+            "SELECT project, session_id FROM runs WHERE provider = ? AND session_id LIKE ?",
             (GIT_PROVIDER, _GIT_SESSION_PREFIX + "%"),
         ).fetchall()
         shas = []
-        for (session_id,) in rows:
-            parts = session_id.split("::")
-            if len(parts) == 3 and parts[1]:
-                shas.append(parts[2])
+        for project, session_id in rows:
+            if not project:
+                continue
+            prefix = f"{_GIT_SESSION_PREFIX}{project}::"
+            if session_id.startswith(prefix):
+                shas.append(session_id[len(prefix):])
         return cls(shas)
 
     def resolve(self, token: str) -> Optional[str]:
@@ -246,10 +248,10 @@ def context_graph(
         run_counts[step_id] = run_counts.get(step_id, 0) + 1
         if isinstance(cost, (int, float)) and math.isfinite(cost) and cost >= 0:
             run_costs[step_id] = run_costs.get(step_id, 0.0) + float(cost)
-    run_totals = {
-        step_id: (count, round(run_costs.get(step_id, 0.0), 6))
-        for step_id, count in run_counts.items()
-    }
+    run_totals: dict[int, tuple[int, Optional[float]]] = {}
+    for step_id, count in run_counts.items():
+        total = run_costs.get(step_id, 0.0)
+        run_totals[step_id] = (count, round(total, 6) if math.isfinite(total) else None)
 
     context_node = f"context:{context[0]}"
     nodes = [

@@ -222,20 +222,22 @@ class TestCommitIndex:
     def test_reads_imported_commits_from_runs_and_skips_malformed_session_ids(self, conn):
         _commit(conn, SHA_A)
         _commit(conn, SHA_A, alias="otro-proyecto")
+        _commit(conn, SHA_B, alias="equipo::web")
         _commit(conn, SHA_256)
-        for session_id in ("git::roto", "git::mi-proyecto::texto libre privado", "git::::" + SHA_B,
-                           "git::a::b::" + SHA_B, "sesion-claude"):
+        for session_id in ("git::roto", "git::p::texto libre privado", "git::::" + SHA_C2,
+                           "git::a::b::" + SHA_C2, "git::otro::" + SHA_C2, "sesion-claude"):
             conn.execute("INSERT INTO runs (ts, project, provider, session_id) "
                          "VALUES ('2026-05-01', 'p', 'git', ?)", (session_id,))
         conn.execute("INSERT INTO runs (ts, project, provider, session_id) "
-                     "VALUES ('2026-05-01', 'p', 'claude-code', ?)", (f"git::mi-proyecto::{SHA_C1}",))
+                     "VALUES ('2026-05-01', 'mi-proyecto', 'claude-code', ?)", (f"git::mi-proyecto::{SHA_C1}",))
 
         index = CommitIndex.from_db(conn)
 
-        assert len(index) == 2
+        assert len(index) == 3
         assert index.resolve("a1b2c3d") == SHA_A
-        assert index.resolve(SHA_B[:7]) is None
-        assert index.resolve(SHA_C1[:7]) is None
+        assert index.resolve(SHA_B[:7]) == SHA_B
+        assert index.resolve(SHA_C2) is None
+        assert index.resolve(SHA_C1) is None
 
     def test_step_references_split_verified_and_unverified(self):
         refs = step_references(f"commits a1b2c3d, {SHA_A}, c0ffee1 y 9f9f9f9; PR #12; tests ok",
@@ -354,6 +356,19 @@ class TestContextGraph:
 
         attrs = graph["nodes"][1]["attrs"]
         assert (attrs["runs"], attrs["cost_usd"]) == (7, 1000000000000003.5)
+        _validate(graph, "project_graph.schema.json")
+
+    def test_a_sum_that_overflows_is_null_and_still_valid_json(self, conn):
+        ctx = _context(conn)
+        step = _step(conn, ctx, 1)
+        for _ in range(2):
+            conn.execute("INSERT INTO runs (ts, project, status, cost_usd, step_id) "
+                         "VALUES ('2026-05-02T00:00:00Z', 'mi-proyecto', 'done', 1e308, ?)", (step,))
+
+        graph = context_graph(conn, ctx, commits=CommitIndex([]), now=NOW)
+
+        assert graph["nodes"][1]["attrs"]["cost_usd"] is None
+        json.dumps(graph, allow_nan=False)
         _validate(graph, "project_graph.schema.json")
 
     def test_builds_the_commit_index_from_the_database_by_default(self, conn):
