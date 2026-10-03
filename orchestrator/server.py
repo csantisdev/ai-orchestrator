@@ -23,6 +23,39 @@ from orchestrator.venv_python import venv_python, venv_python_rel
 _console = Console(legacy_windows=False)
 
 
+def _host_allowed(values: list[str], server_port: int) -> bool:
+    """Return whether exactly one Host header names this local server."""
+    if len(values) != 1:
+        return False
+    value = values[0].strip().lower()
+    if ":" in value:
+        if value.count(":") != 1:
+            return False
+        host, port_text = value.rsplit(":", 1)
+        if not port_text.isdigit():
+            return False
+        effective_port = int(port_text)
+    else:
+        host, effective_port = value, 80
+    return host in ("localhost", "127.0.0.1") and effective_port == server_port
+
+
+def _origin_allowed(origin: str | None, server_port: int) -> bool:
+    """Return whether Origin is absent or names this local HTTP server."""
+    if not origin:
+        return True
+    parsed = urllib.parse.urlparse(origin)
+    try:
+        effective_port = parsed.port or (80 if parsed.scheme == "http" else None)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.hostname in ("localhost", "127.0.0.1")
+        and effective_port == server_port
+    )
+
+
 def mcp_json_from_example(example_text: str, is_windows: bool | None = None) -> str:
     """Adapta .mcp.json.example al SO: solo cambia el command de ai-orchestrator.
 
@@ -136,31 +169,12 @@ def serve(
                 self.log_error("Request timed out: %r", exc); self.close_connection = True
 
         def _valid_host(self) -> bool:
-            hosts = self.headers.get_all("Host", [])
-            if len(hosts) != 1:
-                return False
-            value = hosts[0].strip().lower()
-            if ":" in value:
-                if value.count(":") != 1:
-                    return False
-                host, port_text = value.rsplit(":", 1)
-                if not port_text.isdigit():
-                    return False
-                effective_port = int(port_text)
-            else:
-                host, effective_port = value, 80
-            if host not in ("localhost", "127.0.0.1"):
-                return False
-            return effective_port == self.server.server_address[1]
+            return _host_allowed(self.headers.get_all("Host", []), self.server.server_address[1])
 
         def _require_post_security(self) -> bool:
             origin = self.headers.get("Origin")
-            if origin:
-                parsed = urllib.parse.urlparse(origin)
-                effective_port = parsed.port or (80 if parsed.scheme == "http" else None)
-                if (parsed.scheme != "http" or parsed.hostname not in ("localhost", "127.0.0.1")
-                        or effective_port != self.server.server_address[1]):
-                    self._reject({"error": "invalid origin"}, 403); return False
+            if not _origin_allowed(origin, self.server.server_address[1]):
+                self._reject({"error": "invalid origin"}, 403); return False
             if self.headers.get("Sec-Fetch-Site") not in (None, "same-origin"):
                 self._reject({"error": "invalid fetch site"}, 403); return False
             token = self.headers.get("X-Orchestrator-Session", "")
@@ -779,11 +793,14 @@ def serve(
             self._get_pick_folder(None)
 
         def _post_chroma_stats_refresh(self):
-            from datetime import datetime, timezone
-            from orchestrator.rag import chroma_stats_isolated
-            _chroma_cache["stats"] = chroma_stats_isolated()
-            _chroma_cache["updated_at"] = datetime.now(timezone.utc).isoformat()
-            self._json({"chroma": _chroma_cache["stats"], "updated_at": _chroma_cache["updated_at"]})
+            try:
+                from datetime import datetime, timezone
+                from orchestrator.rag import chroma_stats_isolated
+                _chroma_cache["stats"] = chroma_stats_isolated()
+                _chroma_cache["updated_at"] = datetime.now(timezone.utc).isoformat()
+                self._json({"chroma": _chroma_cache["stats"], "updated_at": _chroma_cache["updated_at"]})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
 
         def _post_clean_unmapped(self):
             try:
@@ -1707,6 +1724,11 @@ def serve(
 
     import threading as _threading
     def _prewarm_chroma():
+        try:
+            from orchestrator.rag import _get_client
+            _get_client()
+        except Exception:
+            pass
         try:
             from datetime import datetime, timezone
             from orchestrator.rag import chroma_stats_isolated

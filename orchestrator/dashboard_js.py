@@ -25,7 +25,8 @@ function postJson(url, body) {
   }).then(async response => {
     if (response.status === 403) {
       const payload = await response.clone().json().catch(() => ({}));
-      if (payload.reason === "session_expired") {
+      if (payload.reason === "session_expired" && !window.__sessionExpiredNotified) {
+        window.__sessionExpiredNotified = true;
         alert("El servidor se reinició. Recargá la página para continuar.");
       }
     }
@@ -1855,7 +1856,7 @@ function refreshRate(btn) {
 function refreshStaleRateOnLoad() {
   fetch("/rates")
     .then(r => r.json())
-    .then(rate => { if (rate && rate.stale) refreshRate(); })
+    .then(rate => { if (!rate || rate.rate == null || rate.stale) refreshRate(); })
     .catch(() => {});
 }
 
