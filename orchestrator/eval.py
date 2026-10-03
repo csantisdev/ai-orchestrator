@@ -57,7 +57,7 @@ def offline_router_eval(
         f"""SELECT project, task, provider, rating, router_cost_usd
             FROM runs
             WHERE {' AND '.join(conditions)}
-            ORDER BY ts DESC
+            ORDER BY julianday(ts) DESC, ts DESC, id DESC
             LIMIT ?""",
         params,
     ).fetchall()

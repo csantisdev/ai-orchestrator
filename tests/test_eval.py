@@ -63,9 +63,10 @@ def _insert_run(
     rating=None,
     router_cost_usd=None,
     routing_source=True,
+    ts="2026-01-01T00:00:00Z",
 ):
     columns = "ts, project, provider, status, task, rating, router_cost_usd"
-    values = ["2026-01-01T00:00:00Z", project, provider, "done", task, rating, router_cost_usd]
+    values = [ts, project, provider, "done", task, rating, router_cost_usd]
     if routing_source:
         columns += ", routing_source"
         values.append("llm_router")
@@ -174,3 +175,18 @@ def test_offline_eval_falls_back_when_routing_source_column_missing(eval_db, mon
 
     assert report["evaluated_runs"] == 1
     assert report["agreement_rate"] == 1.0
+
+
+def test_offline_eval_limit_keeps_the_newest_instant(eval_db, monkeypatch):
+    """'2026-01-01T10:00:00-05:00' (15:00Z) is newer than
+    '2026-01-01T12:00:00+00:00', although its text sorts lower. With limit=1
+    the evaluation must keep the newer run."""
+    conn = eval_db()
+    _insert_run(conn, provider="claude", ts="2026-01-01T12:00:00+00:00")
+    _insert_run(conn, provider="openai", ts="2026-01-01T10:00:00-05:00")
+    _contexts(monkeypatch, {"alpha": ProjectContext(name="alpha", default_provider="claude")})
+
+    report = offline_router_eval(_CONFIG, project="alpha", limit=1)
+
+    assert report["evaluated_runs"] == 1
+    assert report["agreement_rate"] == 0.0
