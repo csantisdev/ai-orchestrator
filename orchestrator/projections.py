@@ -343,6 +343,19 @@ def _joined_tokens(*values: object) -> Optional[str]:
     return " ".join(tokens) if tokens else None
 
 
+def _sort_key(instant: datetime, kind: str, row_id: int) -> tuple:
+    return (instant, -ACTIVITY_KIND_ORDER.index(kind), row_id)
+
+
+def _parse_cursor(cursor: str) -> tuple:
+    """Clave de orden de un `next_cursor` (`<ts UTC>|<kind>|<id>`); ValueError si es inválido."""
+    parts = cursor.split("|")
+    instant = parse_instant(parts[0]) if len(parts) == 3 else None
+    if instant is None or parts[1] not in ACTIVITY_KIND_ORDER or not parts[2].isdigit():
+        raise ValueError(f"cursor inválido: {cursor!r}")
+    return _sort_key(instant, parts[1], int(parts[2]))
+
+
 def activity(
     conn: sqlite3.Connection,
     project: str,
@@ -350,6 +363,7 @@ def activity(
     until: Optional[str] = None,
     limit: int = 200,
     now: Optional[datetime] = None,
+    cursor: Optional[str] = None,
 ) -> dict:
     """Activity del proyecto (§10.4): hitos de la base ordenados por instante UTC.
 
@@ -357,7 +371,12 @@ def activity(
     mismo parser que normaliza los timestamps, así que un valor que no se puede
     parsear siempre se descarta y se cuenta en `metadata.skipped_invalid_ts`.
     Orden: instante descendente; en empate, `ACTIVITY_KIND_ORDER` y luego id descendente.
-    Los labels y estados son tokens validados; el texto libre se reemplaza por el tipo.
+    Paginación sin pérdidas: si el resultado se trunca, `metadata.next_cursor` lleva la
+    clave de orden completa del último evento y `cursor=` devuelve los siguientes, aunque
+    compartan instante. Los labels y estados son tokens validados.
+
+    Costo: lee toda la historia del proyecto en cada llamada (a escala actual, cientos de
+    ms para todos los proyectos). Acotarlo en SQL queda para D4 (§19.4 O4–O5).
     """
     since_dt = parse_instant(since) if since else None
     until_dt = parse_instant(until) if until else None
@@ -365,6 +384,7 @@ def activity(
         raise ValueError(f"since inválido: {since!r}")
     if until and until_dt is None:
         raise ValueError(f"until inválido: {until!r}")
+    cursor_key = _parse_cursor(cursor) if cursor else None
     limit = max(1, int(limit))
     raw: list[dict] = []
 
@@ -376,12 +396,12 @@ def activity(
         label = "/".join(t for t in (provider_token, model_token) if t) or "run"
         raw.append(_event("run", run_id, ts, label, status, normalize_agent(provider), step_id))
 
-    for row_id, ts, phase, decision, reason_code in conn.execute(
-        "SELECT id, ts, phase, decision, reason_code FROM egress_decisions WHERE project = ?",
+    for row_id, ts, provider, phase, decision, reason_code in conn.execute(
+        "SELECT id, ts, provider, phase, decision, reason_code FROM egress_decisions WHERE project = ?",
         (project,),
     ).fetchall():
         raw.append(_event("egress_decision", row_id, ts, _joined_tokens(phase, reason_code) or "egress",
-                          decision))
+                          decision, normalize_agent(provider)))
 
     for row_id, ts, step_id, context_id, agent, confirmed in conn.execute(
         "SELECT a.id, a.ts, a.step_id, a.context_id, a.agent, a.confirmed FROM alignments a "
@@ -432,15 +452,15 @@ def activity(
             continue
         events.append((instant, item))
 
-    events.sort(
-        key=lambda pair: (
-            pair[0],
-            -ACTIVITY_KIND_ORDER.index(pair[1]["kind"]),
-            pair[1]["row_id"],
-        ),
-        reverse=True,
-    )
+    events.sort(key=lambda pair: _sort_key(pair[0], pair[1]["kind"], pair[1]["row_id"]), reverse=True)
+    if cursor_key is not None:
+        events = [pair for pair in events
+                  if _sort_key(pair[0], pair[1]["kind"], pair[1]["row_id"]) < cursor_key]
     truncated = len(events) > limit
+    next_cursor = None
+    if truncated:
+        last_instant, last_item = events[limit - 1]
+        next_cursor = f"{last_instant.isoformat()}|{last_item['kind']}|{last_item['row_id']}"
     result = []
     for instant, item in events[:limit]:
         step_id = item["step_id"]
@@ -463,6 +483,7 @@ def activity(
             "generated_at": _now_utc(now),
             "since": since_dt.isoformat() if since_dt else None,
             "until": until_dt.isoformat() if until_dt else None,
+            "next_cursor": next_cursor,
             "limit": limit,
             "truncated": truncated,
             "skipped_invalid_ts": skipped,

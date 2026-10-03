@@ -568,6 +568,37 @@ class TestActivity:
         assert len(result["events"]) == 3
         assert result["metadata"]["truncated"] is True
 
+    def test_cursor_pages_through_ties_without_losing_or_repeating_events(self, conn):
+        self._seed(conn)
+        full = [e["id"] for e in activity(conn, "mi-proyecto", now=NOW)["events"]]
+
+        pages, cursor = [], None
+        while True:
+            page = activity(conn, "mi-proyecto", limit=3, cursor=cursor, now=NOW)
+            _validate(page, "activity.schema.json")
+            pages.append([e["id"] for e in page["events"]])
+            cursor = page["metadata"]["next_cursor"]
+            if cursor is None:
+                break
+
+        assert [len(p) for p in pages] == [3, 3, 2]
+        assert pages[0][2].startswith("run:") and pages[1][0].startswith("egress_decision:")
+        assert [i for p in pages for i in p] == full
+
+    def test_egress_events_carry_the_normalized_provider(self, conn):
+        self._seed(conn)
+
+        event = next(e for e in activity(conn, "mi-proyecto", now=NOW)["events"]
+                     if e["kind"] == "egress_decision")
+
+        assert event["agent"] == "claude"
+
+    @pytest.mark.parametrize("bad", ["x", "2026-06-01T12:00:00Z|run", "ayer|run|1",
+                                     "2026-06-01T12:00:00Z|otro|1", "2026-06-01T12:00:00Z|run|-1"])
+    def test_rejects_an_invalid_cursor(self, conn, bad):
+        with pytest.raises(ValueError):
+            activity(conn, "mi-proyecto", cursor=bad)
+
     @pytest.mark.parametrize("bad", [{"since": "ayer"}, {"until": "2026-13-01"}])
     def test_rejects_invalid_window_bounds(self, conn, bad):
         with pytest.raises(ValueError):

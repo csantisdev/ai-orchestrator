@@ -10,11 +10,12 @@
     "events": {"type": "array", "items": {"$ref": "#/$defs/event"}},
     "metadata": {
       "type": "object",
-      "required": ["generated_at", "since", "until", "limit", "truncated", "skipped_invalid_ts"],
+      "required": ["generated_at", "since", "until", "next_cursor", "limit", "truncated", "skipped_invalid_ts"],
       "properties": {
         "generated_at": {"type": "string", "format": "date-time"},
         "since": {"type": ["string", "null"], "format": "date-time"},
         "until": {"type": ["string", "null"], "format": "date-time"},
+        "next_cursor": {"type": ["string", "null"], "pattern": "^[^|]+\\|[a-z_]+\\|[0-9]+$"},
         "limit": {"type": "integer", "minimum": 1},
         "truncated": {"type": "boolean"},
         "skipped_invalid_ts": {"type": "integer", "minimum": 0}
