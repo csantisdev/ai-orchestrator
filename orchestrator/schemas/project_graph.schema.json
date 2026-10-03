@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/project_graph.schema.json",
+  "title": "ProjectGraph",
+  "description": "Grafo neutral que devuelven las proyecciones (spec §10.1). Las representaciones (mapa, constelación) agregan su extensión en una clave propia.",
+  "type": "object",
+  "required": ["nodes", "edges", "metadata"],
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "edges": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/edge"}
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["project", "generated_at"],
+      "properties": {
+        "project": {"type": "string"},
+        "context_id": {"type": "integer"},
+        "generated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "map": {"type": "object"},
+    "constellation": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["id", "kind", "label"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(context:\\d+|step:\\d+|run:\\d+|commit:([0-9a-f]{40}|[0-9a-f]{64}))$"
+        },
+        "kind": {"enum": ["context", "step", "run", "commit"]},
+        "label": {"type": "string"},
+        "state": {"type": "string"},
+        "attrs": {"$ref": "#/$defs/step_attrs"}
+      },
+      "additionalProperties": false
+    },
+    "step_attrs": {
+      "type": "object",
+      "required": ["idx", "lane", "secondary", "alignments", "deviations", "runs", "cost_usd"],
+      "properties": {
+        "idx": {"type": "integer", "minimum": 1},
+        "order_idx": {"type": ["integer", "null"]},
+        "lane": {"$ref": "#/$defs/agent"},
+        "secondary": {"type": "array", "items": {"$ref": "#/$defs/agent"}, "uniqueItems": true},
+        "alignments": {"type": "integer", "minimum": 0},
+        "deviations": {"type": "integer", "minimum": 0},
+        "runs": {"type": "integer", "minimum": 0},
+        "cost_usd": {"type": "number", "minimum": 0},
+        "prs": {"type": "array", "items": {"type": "integer"}, "uniqueItems": true},
+        "unverified_shas": {"type": "integer", "minimum": 0},
+        "mentions_tests": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "required": ["source", "target", "relation_type", "origin", "confidence", "evidence_ref"],
+      "properties": {
+        "source": {"type": "string"},
+        "target": {"type": "string"},
+        "relation_type": {"enum": ["contains", "cites", "produced", "aligned"]},
+        "origin": {"enum": ["system", "verified_reference", "inferred", "recommended"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidence_ref": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "agent": {"enum": ["claude", "codex", "copilot", "gemini", "sin agente"]}
+  }
+}

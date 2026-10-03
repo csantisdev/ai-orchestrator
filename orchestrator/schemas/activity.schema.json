@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/activity.schema.json",
+  "title": "Activity",
+  "description": "Hitos del proyecto ordenados por instante UTC descendente (spec §10.4). Sin texto libre de notas, tareas ni respuestas.",
+  "type": "object",
+  "required": ["project", "events", "metadata"],
+  "properties": {
+    "project": {"type": "string"},
+    "events": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/event"}
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["generated_at", "since", "until", "limit", "truncated", "skipped_invalid_ts"],
+      "properties": {
+        "generated_at": {"type": "string", "format": "date-time"},
+        "since": {"type": ["string", "null"], "format": "date-time"},
+        "until": {"type": ["string", "null"], "format": "date-time"},
+        "limit": {"type": "integer", "minimum": 1},
+        "truncated": {"type": "boolean"},
+        "skipped_invalid_ts": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "event": {
+      "type": "object",
+      "required": ["id", "kind", "ts", "ref", "context_id", "agent", "label", "state"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z_]+:\\d+$"},
+        "kind": {
+          "enum": [
+            "run",
+            "egress_decision",
+            "tool_call",
+            "alignment",
+            "mcp_invocation",
+            "step_completed",
+            "step_started"
+          ]
+        },
+        "ts": {"type": "string", "format": "date-time", "pattern": "\\+00:00$"},
+        "ref": {"type": ["string", "null"], "pattern": "^step:\\d+$"},
+        "context_id": {"type": ["integer", "null"]},
+        "agent": {"enum": ["claude", "codex", "copilot", "gemini", "sin agente", null]},
+        "label": {"type": "string", "maxLength": 200},
+        "state": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  }
+}
