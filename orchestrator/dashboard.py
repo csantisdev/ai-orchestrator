@@ -51,6 +51,23 @@ def _escape(value: object) -> str:
     return html.escape(_text(value), quote=True)
 
 
+def _json_for_script(value: object) -> str:
+    """JSON safe to embed inside a <script> block.
+
+    json.dumps leaves "</script>" and "<!--" intact, so a run's text could
+    close the block and inject markup. Escaping <, > and & (plus the JS line
+    separators) keeps the same value once parsed.
+    """
+    return (
+        json.dumps(value, ensure_ascii=False, default=str)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
 def _fmt_ts(ts: object) -> str:
     value = _text(ts)
     try:
@@ -232,7 +249,8 @@ def _build_contexts_section(contexts: list[dict]) -> str:
         ctx_title_escaped = _escape(_text(ctx.get("title"), "(sin título)"))
         delete_btn = (
             f'<button class="ctx-step-btn ctx-delete-btn" '
-            f'onclick="deleteContext({ctx_id},\'{ctx_title_escaped}\')" '
+            f'data-ctx-id="{ctx_id}" data-ctx-title="{ctx_title_escaped}" '
+            f'onclick="deleteContextFromButton(this)" '
             f'title="Eliminar contexto">✕</button>'
         )
 
@@ -338,7 +356,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     all_models = sorted(by_model.keys())
     # Si hay proyecto seleccionado enviar solo sus runs; si no, todos (para filtro client-side)
     _runs_for_js = filtered if selected_project else runs
-    runs_json = _json.dumps(
+    runs_json = _json_for_script(
         [{"id": r.get("id"), "ts": _text(r.get("ts")), "project": _text(r.get("project")),
           "provider": _text(r.get("provider")), "model": _text(r.get("model")),
           "status": _text(r.get("status","done")), "duration_ms": r.get("duration_ms"),
@@ -346,8 +364,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
           "cost_usd": r.get("cost_usd"), "cache_read_tokens": r.get("cache_read_tokens"),
           "task_preview": _text(r.get("task_preview") or r.get("task","")),
           "routing_reason": _text(r.get("routing_reason",""))}
-         for r in _runs_for_js],
-        ensure_ascii=False, default=str
+         for r in _runs_for_js]
     )
 
     project_options = '<option value="">Todos los proyectos</option>'
@@ -673,7 +690,7 @@ try {{
 }}
 </script>
 <script>
-_runsFilterProject = {_json.dumps(selected_project)};
+_runsFilterProject = {_json_for_script(selected_project)};
 _runsFilterModel   = "";
 if (typeof renderRunsTable === "function") renderRunsTable();
 else console.error("renderRunsTable no definida — revisar errores de script anteriores");
