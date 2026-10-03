@@ -2,7 +2,7 @@
 id: RFC-009
 type: rfc
 title: Seguridad local del dashboard (token de sesión, Origin/Host y endpoints con efectos)
-status: draft
+status: accepted
 created: 2026-10-03
 updated: 2026-10-03
 supersedes: []
@@ -12,7 +12,7 @@ related: [RFC-008]
 
 # RFC-009 — Seguridad local del dashboard
 
-**Estado:** Draft
+**Estado:** Aceptado (2026-10-03; lista de verificación de §8 firmada por el responsable en el PR #30)
 **Versión:** 0.2
 **Fecha:** 2026-10-03
 **Repo de referencia:** `csantisdev/ai-orchestrator@production` = `985b74970477e729eda97ee0728ab6575b523014` (verificado 2026-10-03)
@@ -347,22 +347,24 @@ verde y la suite completa sin regresiones.
 ## 8. Criterios de merge
 
 - Este RFC pasa a `accepted` cuando el usuario firma la lista de verificación de abajo.
+  **Firmada el 2026-10-03** (PR #30). El arreglo inmediato del XSS (X01–X05) se mergeó antes, en el
+  PR #31 (`production@514fc25`).
 - Auditoría cruzada de dos rondas (ANL-003) sobre este documento.
 
 **Lista de verificación para el usuario:**
 
-- [ ] El modelo de amenazas de §3.1 (en alcance y fuera de alcance) es el correcto.
-- [ ] El token protege contra páginas web del navegador, no contra procesos o usuarios que puedan
+- [x] El modelo de amenazas de §3.1 (en alcance y fuera de alcance) es el correcto.
+- [x] El token protege contra páginas web del navegador, no contra procesos o usuarios que puedan
       conectarse a `127.0.0.1` (pueden leerlo del HTML); eso queda aceptado fuera de alcance.
-- [ ] El token de sesión vive solo en memoria y rota en cada reinicio, aceptando que las pestañas
+- [x] El token de sesión vive solo en memoria y rota en cada reinicio, aceptando que las pestañas
       abiertas tengan que recargarse.
-- [ ] Ningún GET refresca por red; el refresco del tipo de cambio pasa a ser explícito.
-- [ ] `/pick-folder` pasa a POST.
-- [ ] `/integrations/status` deja de mostrar el usuario de las credenciales.
-- [ ] El dashboard no se podrá embeber en ninguna otra página.
-- [ ] El XSS del dashboard actual se corrige: primero con un arreglo inmediato fuera de D0 (por su
+- [x] Ningún GET refresca por red; el refresco del tipo de cambio pasa a ser explícito.
+- [x] `/pick-folder` pasa a POST.
+- [x] `/integrations/status` deja de mostrar el usuario de las credenciales.
+- [x] El dashboard no se podrá embeber en ninguna otra página.
+- [x] El XSS del dashboard actual se corrige: primero con un arreglo inmediato fuera de D0 (por su
       severidad) y después con el inventario completo de C7 en D0.
-- [ ] Las invariantes I1 a I15 son el criterio de aceptación de D0.
+- [x] Las invariantes I1 a I15 son el criterio de aceptación de D0.
 
 ## Apéndice A — Referencias
 
