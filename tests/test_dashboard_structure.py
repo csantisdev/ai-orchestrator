@@ -87,7 +87,7 @@ def server(tmp_path, monkeypatch):
 
     monkeypatch.setattr(paths, "HOME_DIR", tmp_path)
     monkeypatch.setattr(paths, "DB_PATH", tmp_path / "runs.db")
-    db._local = threading.local()
+    monkeypatch.setattr(db, "_local", threading.local())
     db.init_db()
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

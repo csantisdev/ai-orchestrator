@@ -124,13 +124,23 @@ def split_page(page: str) -> tuple[str, str]:
 
 
 def js_chunks(js: str) -> list[str]:
+    """Bloques de nivel superior del JS, sin los que son solo comentarios.
+
+    Los comentarios no cambian el comportamiento; cualquier línea de código distinta
+    sí cambia algún bloque.
+    """
     chunks: list[list[str]] = []
     for line in js.split("\n"):
         if CHUNK_START.match(line) or not chunks:
             chunks.append([line])
         else:
             chunks[-1].append(line)
-    return ["\n".join(chunk).rstrip() for chunk in chunks if "\n".join(chunk).strip()]
+    result = []
+    for chunk in chunks:
+        text = "\n".join(chunk).rstrip()
+        if any(line.strip() and not line.startswith("//") for line in chunk):
+            result.append(text)
+    return result
 
 
 def _golden(name: str) -> str:

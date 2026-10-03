@@ -30,7 +30,7 @@ build-backend = "setuptools.build_meta"
 include = ["orchestrator*"]
 
 [tool.setuptools.package-data]
-orchestrator = ["schemas/*.json"]
+orchestrator = ["schemas/*.json", "legacy_dashboard/js/*.js"]
 
 [tool.pytest.ini_options]
 markers = [
