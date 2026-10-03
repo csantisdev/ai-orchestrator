@@ -293,17 +293,22 @@ def test_runs_instant_indexes_serve_the_instant_ordering():
 
 
 def test_read_runs_keeps_microsecond_order_within_the_same_millisecond(request):
-    """julianday() rounds to milliseconds. Two runs 500 microseconds apart,
-    inserted in reverse order, must still come back newest first."""
+    """julianday() rounds to milliseconds, so .123100 and .123400 share one
+    value. With the same offset the timestamp text breaks the tie; id DESC
+    alone would return the older run first.
+
+    Known limit: two runs with different offsets inside the same millisecond
+    can come back swapped. Writers in one source share an offset, and a
+    sub-millisecond swap across sources has no effect on any listing."""
     from orchestrator.db import read_runs
 
     project = f"micro-{request.node.name}"
-    _insert(project, "2026-06-01T12:00:00.123900+00:00", 0.0)
     _insert(project, "2026-06-01T12:00:00.123400+00:00", 0.0)
+    _insert(project, "2026-06-01T12:00:00.123100+00:00", 0.0)
 
     rows = read_runs(project=project)
 
     assert [row["ts"] for row in rows] == [
-        "2026-06-01T12:00:00.123900+00:00",
         "2026-06-01T12:00:00.123400+00:00",
+        "2026-06-01T12:00:00.123100+00:00",
     ]
