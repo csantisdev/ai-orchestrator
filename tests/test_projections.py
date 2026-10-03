@@ -189,6 +189,11 @@ class TestReferences:
 
         assert refs["prs"] == [29, 30, 31]
 
+    def test_pr_numbers_longer_than_nine_digits_are_ignored(self):
+        refs = extract_references("PR #" + "9" * 5000 + " y PR #1234567890, pero PR #123456789 sí")
+
+        assert refs["prs"] == [123456789]
+
     @pytest.mark.parametrize(
         "notes, expected",
         [("Suite: 536 passed", True), ("corrí pytest", True), ("agregué un test", True),
@@ -471,6 +476,16 @@ class TestActivity:
         assert result["metadata"]["since"] == "2026-06-01T12:00:00+00:00"
         assert result["metadata"]["until"] == "2026-06-01T12:59:00+00:00"
         assert result["metadata"]["skipped_invalid_ts"] == 1
+
+    def test_negative_or_non_integer_order_idx_keeps_the_label_inside_the_schema(self, conn):
+        ctx = _context(conn)
+        _step(conn, ctx, -1, started_at="2026-06-01T10:00:00Z")
+        _step(conn, ctx, "x", started_at="2026-06-01T10:00:01Z")
+
+        result = activity(conn, "mi-proyecto", now=NOW)
+
+        _validate(result, "activity.schema.json")
+        assert [e["label"] for e in result["events"]] == ["paso", "paso"]
 
     def test_every_row_is_either_returned_or_counted_as_invalid(self, conn):
         for ts in ("2026-06-01T12:00:00Z", "20260601T120000+0000", "2026-06-01 12:00:00", "mal"):

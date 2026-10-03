@@ -25,7 +25,7 @@ _ALIAS_TO_AGENT = {alias: agent for agent, aliases in AGENT_ALIASES.items() for 
 
 _SHA_CANDIDATE = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])")
 _FULL_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
-_PR_REFERENCE = re.compile(r"\bPR\s*#?(\d+)\b", re.I)
+_PR_REFERENCE = re.compile(r"\bPR\s*#?(\d{1,9})\b", re.I)
 _TEST_MENTION = re.compile(r"\b(?:pytest|tests?|passed)\b", re.I)
 _TOKEN = re.compile(r"[a-z0-9][a-z0-9_.:-]{0,63}")
 _GIT_SESSION_PREFIX = "git::"
@@ -401,7 +401,7 @@ def activity(
             f"JOIN contexts c ON c.id = s.context_id WHERE c.project = ? AND s.{column} IS NOT NULL",
             (project,),
         ).fetchall():
-            label = f"paso {order_idx}" if isinstance(order_idx, int) else "paso"
+            label = f"paso {order_idx}" if type(order_idx) is int and order_idx >= 0 else "paso"
             raw.append(_event(kind, step_id, ts, label, state, normalize_agent(provider),
                               step_id, context_id))
 
