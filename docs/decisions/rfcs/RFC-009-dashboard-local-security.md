@@ -13,16 +13,35 @@ related: [RFC-008]
 # RFC-009 — Seguridad local del dashboard
 
 **Estado:** Draft
-**Versión:** 0.1
+**Versión:** 0.2
 **Fecha:** 2026-10-03
 **Repo de referencia:** `csantisdev/ai-orchestrator@production` = `985b74970477e729eda97ee0728ab6575b523014` (verificado 2026-10-03)
-**Relación con la serie:** Es la fase R0 de la especificación del dashboard
-(`docs/backlog/DASHBOARD_VISUALIZACION_ESPECIFICACION.md`, §13, §24.4 y §24.5) y precede a la fase
-D0, que lo implementa. Complementa a RFC-008, que gobierna el acceso por MCP: este documento cubre
-solo el servidor HTTP del dashboard (`ai-orchestrator serve`). No cubre acceso remoto ni la
-extensión de VS Code, descartada por ahora.
+**Relación con la serie:** Es la fase R0 de la especificación del dashboard, propuesta en el PR #28
+(`docs/backlog/DASHBOARD_VISUALIZACION_ESPECIFICACION.md`, §13, §24.4 y §24.5; ese archivo no existe
+todavía en `production`). Precede a la fase D0, que lo implementa. Complementa a RFC-008, que
+gobierna el acceso por MCP: este documento cubre solo el servidor HTTP del dashboard
+(`ai-orchestrator serve`). No cubre acceso remoto ni la extensión de VS Code, descartada por ahora.
 
 *Todo ejemplo usa datos sintéticos. Ver "Regla de anonimización" en `../README.md`.*
+
+---
+
+## Changelog
+
+| Área | v0.1 | v0.2 |
+|---|---|---|
+| GET con efectos | `/pick-folder`, `/rates`, `/pricing` | `/pick-folder`, `/rates`, `/inspect`, `/metrics`, `/integrations/status`. `/pricing` no tiene efectos: usa `refresh=False` (auditoría Codex H-01, H-02) |
+| Inventario de GET | Lista general de datos sensibles | Clasificación ruta por ruta, con efectos, datos y caché (H-03) |
+| `/integrations/status` | Sin cambios | Deja de devolver el usuario de las credenciales del Banco Central (H-03) |
+| Validación de `Host` | "Exactamente" `127.0.0.1` o `localhost` | Parser canónico: un solo `Host`, puerto igual al del servidor, minúsculas; ausente, duplicado o sin puerto se rechaza; `[::1]` se rechaza mientras el bind sea IPv4 (H-05) |
+| Métodos | Solo GET y POST | Validación previa al despacho en todos los métodos; HEAD, PUT, DELETE, PATCH y OPTIONS responden `405` (H-04) |
+| Cabeceras de seguridad | En respuestas exitosas | En todas las respuestas, incluidos errores y archivos, desde un único punto (H-04, H-08) |
+| `Origin` ausente | No definido | Se permite solo si pasan token y `Content-Type` (H-06) |
+| Llamadas POST del JS | "Un envoltorio de `fetch`" | 26 llamadas para 25 endpoints, con un helper explícito y un test estático (H-07) |
+| Token viejo | Mensaje de recarga | Respuesta `403` con `reason: session_expired`, incluida la página restaurada desde el bfcache del navegador (H-08) |
+| Invariantes | I1–I9 | I1–I13 (H-09) |
+| Resumen | "Cinco controles" | Seis controles (H-10) |
+| Referencias | Ruta local de la especificación | PR #28, porque el archivo no existe en esta rama (H-11) |
 
 ---
 
@@ -31,10 +50,10 @@ extensión de VS Code, descartada por ahora.
 El dashboard escucha en `127.0.0.1` y ejecuta acciones con efectos (borrar contextos, purgar
 ChromaDB, lanzar runs con costo, ejecutar `doctor`/`fix`) sin autenticar quién las pide. Cualquier
 página abierta en el navegador del usuario puede disparar varias de esas acciones, y un ataque de DNS
-rebinding puede leer datos completos de runs. Este RFC propone cinco controles para D0: validación
-de `Host` en toda petición, token de sesión obligatorio en toda petición con efectos, `Origin`
-permitido, `Content-Type` exacto y eliminación de efectos en peticiones GET. Además agrega
-cabeceras que impiden embeber el dashboard en otra página.
+rebinding puede leer datos completos de runs. Este RFC propone **seis controles** para D0: validación
+de `Host` antes de despachar cualquier método, token de sesión obligatorio en toda petición con
+efectos, `Origin` permitido, `Content-Type` exacto, eliminación de efectos en peticiones GET y
+cabeceras de seguridad centralizadas que impiden embeber el dashboard y cachear datos.
 
 Lo que este documento **no** afirma: no protege contra otros procesos o usuarios con acceso al
 sistema de archivos (pueden leer `runs.db` directamente), no agrega autenticación de usuarios ni
@@ -48,30 +67,33 @@ Verificado en `orchestrator/server.py` del baseline:
    `_require_json_ct` (`server.py:560`), que exige `application/json` como **subcadena** del
    `Content-Type`. Un `fetch` desde otra página con `Content-Type: text/plain; x=application/json`
    es una petición CORS simple (sin preflight, porque la esencia MIME es `text/plain`) y pasa el
-   chequeo. El navegador envía la petición; la página atacante no puede leer la respuesta, pero el
-   efecto ocurre.
+   chequeo. La página atacante no puede leer la respuesta, pero el efecto ocurre.
 2. **Hay peticiones GET con efectos**, que se disparan con un simple `<img src>` desde cualquier
    página:
-   - `GET /pick-folder` lanza un proceso que abre un diálogo nativo de selección de carpeta.
-   - `GET /rates` consulta la red y escribe el caché de tipos de cambio si el dato está viejo y hay
-     credenciales (`rates.get_current_rate`).
-   - `GET /pricing` puede consultar el catálogo remoto y escribir su caché (`catalog.resolve_pricing`).
-3. **Hay GET con datos sensibles sin validar `Host`**: `/run/{id}` y `/export-csv` devuelven tareas
-   y respuestas completas; `/context/{id}`, `/contexts-html`, `/inspect` y `/events` exponen el plan
-   de trabajo y la actividad. Con DNS rebinding (un dominio del atacante que primero resuelve a su
-   servidor y después a `127.0.0.1`) una página puede leerlos, porque el navegador la considera del
-   mismo origen y el servidor no mira el `Host`.
+   - `GET /pick-folder` lanza un proceso que abre un diálogo nativo de selección de carpeta
+     (`server.py:167`).
+   - `GET /rates`, `GET /inspect`, `GET /metrics` y `GET /integrations/status` llaman a
+     `rates.get_current_rate` (`server.py:229`, `281`, `489`, `505`), que, si el dato está viejo y
+     hay credenciales, consulta la red y escribe el caché en SQLite (`rates.py:129-132`).
+3. **Hay GET con datos sensibles sin validar `Host`** (§2.1). Con DNS rebinding (un dominio del
+   atacante que primero resuelve a su servidor y después a `127.0.0.1`), una página puede leerlos,
+   porque el navegador la considera del mismo origen y el servidor no mira el `Host`.
+   `/integrations/status` además devuelve el usuario de las credenciales del Banco Central
+   (`server.py:491-495`).
 4. **El dashboard se puede embeber** en otra página: no envía `X-Frame-Options` ni
    `frame-ancestors`, lo que habilita clickjacking sobre sus botones.
+5. **Los métodos distintos de GET y POST** caen en la respuesta `501` por defecto de
+   `BaseHTTPRequestHandler`, sin validación ni cabeceras propias.
 
 Severidad: alta para (1) y (2), porque hay acciones destructivas (`/delete-contexts`,
-`/purge-chroma-*`) y con costo (`/run`). Media para (3) y (4).
+`/purge-chroma-*`), con costo (`/run`) y con red. Media para (3), (4) y (5).
 
 ## 2. Estado verificado del código
 
 ### 2.1 Inventario de endpoints
 
-**POST con efectos** (25), todos con `_require_json_ct` como única barrera:
+**POST con efectos** (25 endpoints, llamados desde 26 lugares de `dashboard_js.py`; `_syncOne`
+reutiliza una misma llamada para varias rutas y `/evaluate-run` no tiene llamada en el JS actual):
 
 | Categoría | Endpoints |
 |---|---|
@@ -81,20 +103,31 @@ Severidad: alta para (1) y (2), porque hay acciones destructivas (`/delete-conte
 | Lanzan procesos o tareas largas | `/sync-cc`, `/sync-git`, `/sync-codex`, `/index-docs`, `/run-doctor`, `/run-fix` |
 | Red o costo | `/run` (llama a un proveedor de IA), `/rates/refresh`, `/pricing/refresh`, `/models/refresh` |
 
-**GET con efectos** (3): `/pick-folder`, `/rates`, `/pricing`.
+**GET, ruta por ruta:**
 
-**GET con datos sensibles**: `/run/{id}`, `/export-csv`, `/context/{id}`, `/contexts-html`,
-`/inspect`, `/metrics`, `/preview-index`, `/clean-preview`, `/events` (SSE) y `/` (HTML con los
-últimos runs embebidos).
-
-**GET públicos del propio dashboard**: `/static/*`, `/favicon.ico`, `/robots.txt`, `/docs`, `/mcp`,
-`/security`, `/integrations/status`, `/models`, `/agents`.
+| Ruta | Efectos hoy | Datos | Tras D0 |
+|---|---|---|---|
+| `/` | — | Últimos runs (preview de la tarea), proyectos | `no-store` |
+| `/run/{id}` | — | Tarea y respuesta completas | `no-store` |
+| `/export-csv` | — | Tareas y respuestas completas | `no-store` |
+| `/context/{id}`, `/contexts-html` | — | Plan de trabajo | `no-store` |
+| `/inspect` | Red y escritura (tipo de cambio) | Estadísticas de base y ChromaDB, proyectos y rutas registradas | Solo caché; `no-store` |
+| `/metrics` | Red y escritura (tipo de cambio) | Costos agregados por proyecto y modelo | Solo caché; `no-store` |
+| `/integrations/status` | Red y escritura (tipo de cambio) | Proveedores configurados y **usuario** de credenciales | Solo caché; sin el usuario, solo `configured`; `no-store` |
+| `/rates` | Red y escritura (tipo de cambio) | Tipo de cambio | Solo caché; `no-store` |
+| `/pricing` | — (usa `refresh=False`) | Catálogo de precios | `no-store` |
+| `/models`, `/agents` | — | Modelos disponibles, presets de agentes | `no-store` |
+| `/preview-index`, `/clean-preview` | — | Archivos y conteos de los proyectos | `no-store` |
+| `/events` (SSE) | — | Actividad en vivo | `no-store` |
+| `/pick-folder` | **Lanza un proceso** | — | Pasa a POST con token; GET → `405` |
+| `/static/*`, `/favicon.ico`, `/robots.txt`, `/docs`, `/mcp`, `/security` | — | Públicos | Caché permitida |
 
 ### 2.2 Bind y CORS
 
-El servidor escucha en `127.0.0.1:<puerto>` (`server.py:1518`). El SSE responde con
+El servidor escucha solo en IPv4 `127.0.0.1:<puerto>` (`server.py:1518`). El SSE responde con
 `Access-Control-Allow-Origin: http://127.0.0.1:<puerto>` (`server.py:1462`, `1485`). No hay
-respuesta a `OPTIONS`, así que toda petición cross-origin que requiera preflight falla.
+respuesta a `OPTIONS`, así que toda petición cross-origin que requiera preflight falla. La CLI y el
+MCP no consumen este servidor HTTP.
 
 ## 3. Diseño propuesto
 
@@ -102,7 +135,7 @@ respuesta a `OPTIONS`, así que toda petición cross-origin que requiera preflig
 
 | Id | Amenaza | En alcance |
 |---|---|---|
-| T1 | Página maliciosa en el navegador del usuario dispara un POST con efectos (CSRF) | Sí |
+| T1 | Página maliciosa en el navegador del usuario dispara un POST con efectos (CSRF), incluido un formulario con navegación de nivel superior | Sí |
 | T2 | Página maliciosa dispara un GET con efectos (`<img>`, `<iframe>`, navegación) | Sí |
 | T3 | DNS rebinding para leer datos sensibles o usar el dashboard como si fuera la propia página | Sí |
 | T4 | Clickjacking: el dashboard embebido en otra página | Sí |
@@ -113,68 +146,87 @@ respuesta a `OPTIONS`, así que toda petición cross-origin que requiera preflig
 
 ### 3.2 Controles
 
-**C1 · `Host` permitido en toda petición** (GET, POST y SSE). El `Host` debe ser exactamente
-`127.0.0.1:<puerto>` o `localhost:<puerto>`. Si no, `421 Misdirected Request` sin ejecutar el
-handler. Cubre T3: en un DNS rebinding el `Host` es el dominio del atacante.
+**C1 · `Host` canónico, antes de despachar cualquier método.**
+
+- Debe haber exactamente un encabezado `Host`.
+- Se pasa a minúsculas y se separa en host y puerto. El host debe ser `127.0.0.1` o `localhost`; el
+  puerto, numérico e igual al del servidor.
+- Se rechaza con `421` si falta, si está duplicado, si no tiene puerto o si no coincide. `[::1]` se
+  rechaza mientras el servidor escuche solo en IPv4.
+- La validación corre antes del despacho en **todos** los métodos. GET y POST siguen al despacho;
+  HEAD, PUT, DELETE, PATCH y OPTIONS responden `405` (OPTIONS no habilita CORS).
 
 **C2 · Token de sesión en toda petición con efectos.**
 
 - Al iniciar, el servidor genera `secrets.token_urlsafe(32)` y lo guarda **solo en memoria**.
 - El HTML de `/` lo incluye en `<meta name="orchestrator-session" content="…">`.
-- El JS envía el token en la cabecera `X-Orchestrator-Session` en cada POST, a través de un único
-  envoltorio de `fetch` en el código heredado (`dashboard_js.py`) y, después, en `core/api.js`.
-- El servidor lo compara con `hmac.compare_digest`; si falta o no coincide, `403` sin efecto.
+- El JS envía el token en la cabecera `X-Orchestrator-Session` a través de un helper explícito
+  (`postJson`) que reemplaza las 26 llamadas POST actuales y conserva las cabeceras que cada una ya
+  envía. Un test estático falla si aparece un `fetch` con método POST fuera del helper.
+- El servidor lo compara con `hmac.compare_digest`. Si falta o no coincide responde `403` con
+  `{"reason": "session_expired"}` y no ejecuta el handler.
 - Una cabecera propia obliga al navegador a hacer preflight en peticiones cross-origin, que el
-  servidor no responde: una página ajena no puede ni siquiera enviar la petición.
-- El token no aparece en URLs, logs, respuestas JSON ni en el SSE. Rota en cada reinicio: si el
-  servidor se reinicia, una pestaña abierta recibe `403` y muestra "El servidor se reinició.
-  Recargá la página para continuar."
+  servidor no responde: una página ajena no puede enviar la petición. Un formulario HTML no puede
+  agregar la cabecera, así que la navegación de nivel superior también queda bloqueada.
+- El token no aparece en URLs, logs, respuestas JSON ni en el SSE. Rota en cada reinicio. Cuando el
+  JS recibe `session_expired` (incluida una página restaurada desde el bfcache del navegador con el
+  token anterior) muestra "El servidor se reinició. Recargá la página para continuar."
 - Se descarta una cookie `SameSite`: otro puerto de `localhost` cuenta como el mismo sitio, así que
   no cubre T5.
 
-**C3 · `Origin` permitido en peticiones con efectos.** Si el navegador envía `Origin`, debe ser
-`http://127.0.0.1:<puerto>` o `http://localhost:<puerto>`. Si envía `Sec-Fetch-Site`, debe ser
-`same-origin`. Es defensa en profundidad sobre C2.
+**C3 · `Origin` y `Sec-Fetch-Site` en peticiones con efectos.** Si el navegador envía `Origin`, debe
+ser `http://127.0.0.1:<puerto>` o `http://localhost:<puerto>`; si envía `Sec-Fetch-Site`, debe ser
+`same-origin`. Si faltan (clientes que no son navegadores, o navegadores viejos), la petición se
+acepta **solo si pasan C2 y C4**. Es defensa en profundidad sobre C2.
 
-**C4 · `Content-Type` exacto.** Se compara la esencia MIME (`application/json`), sin parámetros ni
-subcadenas. `text/plain; x=application/json` se rechaza con `415`.
+**C4 · `Content-Type` exacto.** Se compara la esencia MIME (`application/json`) sin parámetros ni
+subcadenas. `text/plain; x=application/json` y `application/x-www-form-urlencoded` se rechazan con
+`415`.
 
 **C5 · Sin efectos en GET.**
 
-- `/pick-folder` pasa a `POST` con token. `GET /pick-folder` responde `405`.
-- `GET /rates` y `GET /pricing` leen **solo el caché**. El refresco por red queda exclusivamente en
-  los POST existentes `/rates/refresh` y `/pricing/refresh`.
+- `/pick-folder` pasa a `POST` con token; `GET /pick-folder` responde `405`.
+- `rates.py` expone una lectura **solo de caché** que usan `GET /rates`, `/inspect`, `/metrics` e
+  `/integrations/status`. El refresco por red queda exclusivamente en `POST /rates/refresh`; el
+  dashboard lo pide de forma explícita cuando el dato está viejo.
+- `/integrations/status` devuelve solo `configured` para el Banco Central, sin el usuario.
+- `GET /pricing` mantiene su comportamiento actual (caché o catálogo estático).
 
-**C6 · Cabeceras de respuesta.** En todas las respuestas: `X-Content-Type-Options: nosniff`,
-`X-Frame-Options: DENY` y `Content-Security-Policy: frame-ancestors 'none'` (cubre T4). En las
-respuestas con datos (`/`, `/run/{id}`, `/export-csv`, `/context/{id}` y los JSON): `Cache-Control:
-no-store`. El SSE conserva su `Access-Control-Allow-Origin` actual, nunca `*`.
+**C6 · Cabeceras de seguridad centralizadas.** Un único punto de envío de cabeceras (por ejemplo,
+`end_headers` sobrescrito) agrega en **todas** las respuestas, también en `4xx`, `5xx` y archivos:
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` y
+`Content-Security-Policy: frame-ancestors 'none'`. Toda respuesta dinámica (HTML, fragmentos HTML,
+JSON, CSV y SSE) lleva además `Cache-Control: no-store`. Los archivos de `/static/*` pueden
+cachearse. El SSE conserva su `Access-Control-Allow-Origin` actual, nunca `*`.
 
 ### 3.3 Orden de validación
 
-Antes de despachar cualquier handler: C1 (`Host`). En POST, además y en este orden: C3 (`Origin`),
-C2 (token) y C4 (`Content-Type`). La validación está centralizada en un solo punto de
-`do_GET`/`do_POST`, no en cada handler.
+En todos los métodos, primero C1. En GET, después el despacho. En POST, en este orden: C3, C2, C4 y
+el despacho. Las cabeceras de C6 se agregan en todos los casos, incluidas las respuestas de rechazo.
 
 ## 4. Invariantes / Requisitos falsables
 
 | Id | Invariante | Prueba |
 |---|---|---|
 | I1 | Ningún POST sin token válido produce efectos | Test HTTP por cada uno de los 25 POST: sin token, con token inválido y con token válido; la base y los archivos no cambian en los dos primeros casos |
-| I2 | Ninguna ruta responde con `Host` no permitido | Test con `Host: atacante.example` en GET, POST y SSE → `421` |
-| I3 | El bypass por subcadena ya no funciona | POST con `Content-Type: text/plain; x=application/json` y token válido → `415` |
+| I2 | Ninguna petición con `Host` no permitido llega al despacho | Para GET, POST, SSE y HEAD/PUT/DELETE/PATCH/OPTIONS: `Host` ajeno, ausente, duplicado, sin puerto, con otro puerto, en mayúsculas válidas (se acepta) y `[::1]` → `421` salvo el caso válido |
+| I3 | El bypass por subcadena ya no funciona | POST con token válido y `Content-Type: text/plain; x=application/json` o `application/x-www-form-urlencoded` → `415` |
 | I4 | `GET /pick-folder` no lanza procesos | `GET` → `405`; `subprocess` no se invoca (mock) |
-| I5 | `GET /rates` y `GET /pricing` no usan la red | Con caché viejo y credenciales configuradas, la función de red no se llama (mock) |
-| I6 | El token no se filtra | No aparece en logs, en respuestas JSON ni en el SSE; solo en el `<meta>` de `/` |
-| I7 | El dashboard sigue funcionando | Test que recorre las acciones del dashboard con el token del HTML; prueba manual de cada botón |
-| I8 | `Origin` ajeno se rechaza | POST con token válido y `Origin: http://localhost:9999` → `403` |
-| I9 | El dashboard no se puede embeber | Cabeceras `X-Frame-Options: DENY` y `frame-ancestors 'none'` presentes en `/` |
+| I5 | Ningún GET usa la red ni escribe | Con caché viejo y credenciales configuradas, `GET /rates`, `/inspect`, `/metrics`, `/integrations/status` y `/pricing` no llaman a la red ni escriben (mock) |
+| I6 | El token no se filtra | No aparece en logs, respuestas JSON ni en el SSE; solo en el `<meta>` de `/` |
+| I7 | El dashboard sigue funcionando | Test que recorre las acciones con el token del HTML; prueba manual de cada botón |
+| I8 | `Origin` y `Sec-Fetch-Site` se aplican | POST con token válido y `Origin` ajeno → `403`; `Sec-Fetch-Site: cross-site` → `403`; sin ambos y con token válido → aceptado |
+| I9 | Las cabeceras de seguridad están en toda respuesta | `X-Frame-Options`, `frame-ancestors` y `nosniff` presentes en `200`, `403`, `405`, `415`, `421` y `500`; `no-store` en toda respuesta dinámica |
+| I10 | Los métodos no soportados no exponen nada | HEAD, PUT, DELETE, PATCH y OPTIONS → `405` con las cabeceras de C6 |
+| I11 | Un token viejo se trata como sesión vencida | Tras reiniciar el servidor, un POST con el token anterior → `403 session_expired`; el JS muestra el mensaje de recarga |
+| I12 | No se exponen identificadores de credenciales | `/integrations/status` no incluye el usuario del Banco Central |
+| I13 | Todas las llamadas POST envían el token | Test estático: ningún `fetch` con método POST fuera de `postJson` en el JS del dashboard |
 
 ## 5. Alcance
 
 **Dentro:** `orchestrator/server.py`, `orchestrator/dashboard.py`, `orchestrator/dashboard_js.py`
-(envoltorio de `fetch` y `<meta>`), `orchestrator/rates.py` y `orchestrator/catalog.py` (separar
-lectura de caché y refresco), y `tests/test_server_security.py`.
+(helper `postJson` y `<meta>`), `orchestrator/rates.py` (lectura solo de caché) y
+`tests/test_server_security.py`.
 
 **Fuera:** autenticación de usuarios, TLS, acceso remoto, la extensión de VS Code y el acceso por
 MCP (RFC-008).
@@ -183,16 +235,16 @@ MCP (RFC-008).
 
 | Riesgo | Mitigación |
 |---|---|
-| Pestañas abiertas fallan tras reiniciar el servidor | Mensaje explícito para recargar; el token no se persiste a propósito |
-| Algún botón del dashboard actual no pasa por el envoltorio de `fetch` | El test de I7 recorre las acciones; búsqueda de `fetch(` con método POST en `dashboard_js.py` sin el envoltorio |
-| Herramientas que hoy llaman al dashboard por HTTP | Ninguna en el repo (verificado: la CLI y el MCP no usan el servidor HTTP); scripts externos del usuario necesitarían el token, que solo existe en memoria |
-| `GET /rates` deja de refrescar solo | El dashboard llama a `POST /rates/refresh` cuando el dato está viejo, de forma explícita |
+| Pestañas abiertas fallan tras reiniciar el servidor | `session_expired` con mensaje de recarga; el token no se persiste a propósito |
+| Alguna llamada POST queda fuera del helper | I13 (test estático) e I7 (recorrido de acciones) |
+| Herramientas externas que hoy llaman al dashboard por HTTP | Ninguna en el repo; scripts externos del usuario necesitarían el token, que solo existe en memoria |
+| El tipo de cambio deja de refrescarse solo | El dashboard llama a `POST /rates/refresh` cuando el dato está viejo |
 
 ## 7. Plan de implementación
 
 Fase D0 de la especificación, implementada por Codex CLI en un worktree, con auditoría de Copilot
-CLI (ronda 1) y Claude (ronda 2) (§24.5). Un solo PR con los archivos de §5. Criterio de salida:
-I1 a I9 en verde y la suite completa sin regresiones.
+CLI (ronda 1) y Claude (ronda 2). Un solo PR con los archivos de §5. Criterio de salida: I1 a I13 en
+verde y la suite completa sin regresiones.
 
 ## 8. Criterios de merge
 
@@ -204,15 +256,16 @@ I1 a I9 en verde y la suite completa sin regresiones.
 - [ ] El modelo de amenazas de §3.1 (en alcance y fuera de alcance) es el correcto.
 - [ ] El token de sesión vive solo en memoria y rota en cada reinicio, aceptando que las pestañas
       abiertas tengan que recargarse.
-- [ ] `GET /rates` y `GET /pricing` dejan de refrescar por red; el refresco es explícito.
+- [ ] Ningún GET refresca por red; el refresco del tipo de cambio pasa a ser explícito.
 - [ ] `/pick-folder` pasa a POST.
+- [ ] `/integrations/status` deja de mostrar el usuario de las credenciales.
 - [ ] El dashboard no se podrá embeber en ninguna otra página.
-- [ ] Las invariantes I1 a I9 son el criterio de aceptación de D0.
+- [ ] Las invariantes I1 a I13 son el criterio de aceptación de D0.
 
 ## Apéndice A — Referencias
 
-- `docs/backlog/DASHBOARD_VISUALIZACION_ESPECIFICACION.md` §13 (estado y objetivo), §24.4 (token en
-  el frontend) y §24.5 (unidad D0).
+- PR #28, `docs/backlog/DASHBOARD_VISUALIZACION_ESPECIFICACION.md` §13 (estado y objetivo), §24.4
+  (token en el frontend) y §24.5 (unidad D0).
 - RFC-008: acceso MCP gobernado.
 - ANL-003: auditoría cruzada por cambio.
-- Especificación Fetch, cabeceras con lista segura para CORS (esencia MIME de `Content-Type`).
+- Especificación Fetch: cabeceras con lista segura para CORS (esencia MIME de `Content-Type`).
