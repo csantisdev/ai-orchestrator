@@ -39,7 +39,8 @@ gobierna el acceso por MCP: este documento cubre solo el servidor HTTP del dashb
 | `Origin` ausente | No definido | Se permite solo si pasan token y `Content-Type` (H-06) |
 | Llamadas POST del JS | "Un envoltorio de `fetch`" | 26 llamadas para 25 endpoints, con un helper explícito y un test estático (H-07) |
 | Token viejo | Mensaje de recarga | Respuesta `403` con `reason: session_expired`, incluida la página restaurada desde el bfcache del navegador (H-08) |
-| Invariantes | I1–I9 | I1–I13 (H-09); I9 incluye `404` y `/static/*` (ronda 2) |
+| Invariantes | I1–I9 | I1–I13 (H-09); I9 incluye `404` y `/static/*` (ronda 2); I1 cubre 26 POST con `/pick-folder` e I2/I10 cualquier verbo (review del PR #30) |
+| Alcance del token | "Otros procesos con acceso al sistema de archivos" | Cualquier cliente que pueda conectarse a loopback queda fuera de alcance: el token protege del navegador, no autentica clientes locales (review del PR #30) |
 | Resumen | "Cinco controles" | Seis controles (H-10) |
 | Referencias | Ruta local de la especificación | PR #28, porque el archivo no existe en esta rama (H-11) |
 
@@ -55,9 +56,11 @@ de `Host` antes de despachar cualquier método, token de sesión obligatorio en 
 efectos, `Origin` permitido, `Content-Type` exacto, eliminación de efectos en peticiones GET y
 cabeceras de seguridad centralizadas que impiden embeber el dashboard y cachear datos.
 
-Lo que este documento **no** afirma: no protege contra otros procesos o usuarios con acceso al
-sistema de archivos (pueden leer `runs.db` directamente), no agrega autenticación de usuarios ni
-TLS, y no habilita el acceso desde otra máquina.
+Lo que este documento **no** afirma: el token **no autentica clientes locales**. Protege contra
+páginas web abiertas en el navegador (CSRF, DNS rebinding, clickjacking). Cualquier proceso o usuario
+que pueda conectarse a `127.0.0.1` puede pedir `/`, leer el token del HTML y usarlo; eso queda fuera
+de alcance, igual que el acceso directo a `runs.db`. Tampoco agrega autenticación de usuarios ni TLS,
+ni habilita el acceso desde otra máquina.
 
 ## 1. El problema
 
@@ -140,7 +143,7 @@ MCP no consumen este servidor HTTP.
 | T3 | DNS rebinding para leer datos sensibles o usar el dashboard como si fuera la propia página | Sí |
 | T4 | Clickjacking: el dashboard embebido en otra página | Sí |
 | T5 | Otro puerto de `localhost` (otra app local comprometida) | Sí: cuenta como otro origen |
-| T6 | Proceso local con acceso al sistema de archivos del usuario | No: puede leer `runs.db` y `config.yaml` |
+| T6 | Cualquier proceso o usuario que pueda conectarse a `127.0.0.1` (con o sin acceso al sistema de archivos) | No: puede leer el token del HTML de `/` sin autenticarse, y también `runs.db` y `config.yaml` si tiene acceso a disco. El token es una defensa contra páginas web del navegador, no autenticación de clientes locales |
 | T7 | Atacante en la red | No: el servidor solo escucha en `127.0.0.1` |
 | T8 | Extensión maliciosa del navegador | No |
 
@@ -153,8 +156,12 @@ MCP no consumen este servidor HTTP.
   puerto, numérico e igual al del servidor.
 - Se rechaza con `421` si falta, si está duplicado, si no tiene puerto o si no coincide. `[::1]` se
   rechaza mientras el servidor escuche solo en IPv4.
-- La validación corre antes del despacho en **todos** los métodos. GET y POST siguen al despacho;
-  HEAD, PUT, DELETE, PATCH y OPTIONS responden `405` (OPTIONS no habilita CORS).
+- La validación corre antes del despacho en **cualquier verbo**. `BaseHTTPRequestHandler` despacha
+  por nombre (`do_<VERBO>`) y responde `501` a los que no conoce, así que la validación va en un hook
+  genérico previo al despacho (por ejemplo, sobrescribiendo `handle_one_request` después de
+  `parse_request`), no en métodos `do_*` sueltos. GET y POST siguen al despacho; **todo otro verbo**
+  (HEAD, PUT, DELETE, PATCH, OPTIONS, TRACE, CONNECT o uno desconocido) responde `405` después de
+  validar el `Host` (OPTIONS no habilita CORS).
 
 **C2 · Token de sesión en toda petición con efectos.**
 
@@ -210,8 +217,8 @@ rutas (`server.py:574-578`), pasa por el mismo pipeline: la validación va antes
 
 | Id | Invariante | Prueba |
 |---|---|---|
-| I1 | Ningún POST sin token válido produce efectos | Test HTTP por cada uno de los 25 POST: sin token, con token inválido y con token válido; la base y los archivos no cambian en los dos primeros casos |
-| I2 | Ninguna petición con `Host` no permitido llega al despacho | Para GET, POST, SSE y HEAD/PUT/DELETE/PATCH/OPTIONS: `Host` ajeno, ausente, duplicado, sin puerto, con otro puerto, en mayúsculas válidas (se acepta) y `[::1]` → `421` salvo el caso válido |
+| I1 | Ningún POST sin token válido produce efectos | Test HTTP por cada uno de los **26** POST de D0 (los 25 actuales más `/pick-folder`): sin token, con token inválido y con token válido; la base y los archivos no cambian en los dos primeros casos, y en `/pick-folder` `subprocess` no se invoca (mock) en los dos casos rechazados |
+| I2 | Ninguna petición con `Host` no permitido llega al despacho | Para GET, POST, SSE, HEAD, PUT, DELETE, PATCH, OPTIONS, TRACE, CONNECT y un verbo inventado: `Host` ajeno, ausente, duplicado, sin puerto, con otro puerto, en mayúsculas válidas (se acepta) y `[::1]` → `421` salvo el caso válido |
 | I3 | El bypass por subcadena ya no funciona | POST con token válido y `Content-Type: text/plain; x=application/json` o `application/x-www-form-urlencoded` → `415` |
 | I4 | `GET /pick-folder` no lanza procesos | `GET` → `405`; `subprocess` no se invoca (mock) |
 | I5 | Ningún GET usa la red ni escribe | Con caché viejo y credenciales configuradas, `GET /rates`, `/inspect`, `/metrics`, `/integrations/status` y `/pricing` no llaman a la red ni escriben (mock) |
@@ -219,7 +226,7 @@ rutas (`server.py:574-578`), pasa por el mismo pipeline: la validación va antes
 | I7 | El dashboard sigue funcionando | Test que recorre las acciones con el token del HTML; prueba manual de cada botón |
 | I8 | `Origin` y `Sec-Fetch-Site` se aplican | POST con token válido y `Origin` ajeno → `403`; `Sec-Fetch-Site: cross-site` → `403`; sin ambos y con token válido → aceptado |
 | I9 | Las cabeceras de seguridad están en toda respuesta | `X-Frame-Options`, `frame-ancestors` y `nosniff` presentes en `200`, `403`, `404` (POST a ruta desconocida), `405`, `415`, `421` y `500`, y en un archivo de `/static/*`; `no-store` en toda respuesta dinámica |
-| I10 | Los métodos no soportados no exponen nada | HEAD, PUT, DELETE, PATCH y OPTIONS → `405` con las cabeceras de C6 |
+| I10 | Los métodos no soportados no exponen nada | HEAD, PUT, DELETE, PATCH, OPTIONS, TRACE, CONNECT y un verbo inventado (con `Host` válido) → `405` con las cabeceras de C6, nunca `501` |
 | I11 | Un token viejo se trata como sesión vencida | Tras reiniciar el servidor, un POST con el token anterior → `403 session_expired`; el JS muestra el mensaje de recarga |
 | I12 | No se exponen identificadores de credenciales | `/integrations/status` no incluye el usuario del Banco Central |
 | I13 | Todas las llamadas POST envían el token | Test estático: ningún `fetch` con método POST fuera de `postJson` en el JS del dashboard |
@@ -235,12 +242,13 @@ MCP (RFC-008).
 
 ## 6. Riesgos
 
-| Riesgo | Mitigación |
-|---|---|
-| Pestañas abiertas fallan tras reiniciar el servidor | `session_expired` con mensaje de recarga; el token no se persiste a propósito |
-| Alguna llamada POST queda fuera del helper | I13 (test estático) e I7 (recorrido de acciones) |
-| Herramientas externas que hoy llaman al dashboard por HTTP | Ninguna en el repo; scripts externos del usuario necesitarían el token, que solo existe en memoria |
-| El tipo de cambio deja de refrescarse solo | El dashboard llama a `POST /rates/refresh` cuando el dato está viejo |
+| Riesgo | Severidad | Estado/Mitigación |
+|---|---|---|
+| Pestañas abiertas fallan tras reiniciar el servidor | Baja | Aceptado: `session_expired` con mensaje de recarga; el token no se persiste a propósito |
+| Alguna llamada POST queda fuera del helper | Media | Mitigado por I13 (test estático) e I7 (recorrido de acciones) |
+| Un proceso local lee el token del HTML y lo usa | Media | Aceptado y fuera de alcance (T6): el token no es autenticación de clientes locales |
+| Herramientas externas que hoy llaman al dashboard por HTTP | Baja | Verificado: ninguna en el repo; un script externo del usuario tendría que leer el token de `/` |
+| El tipo de cambio deja de refrescarse solo | Baja | Mitigado: el dashboard llama a `POST /rates/refresh` cuando el dato está viejo |
 
 ## 7. Plan de implementación
 
