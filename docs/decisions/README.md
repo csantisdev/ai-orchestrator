@@ -53,9 +53,9 @@ Incidente que originó esta regla (2026-07-13): la serie RFC-001…006, escrita 
 - **Correcciones no normativas** (typos, links rotos, alineación de header con el ID de archivo): sí se permiten, siempre en un commit propio y explicable.
 - **Metadata operativa** (`status`, `implementation_status`, `updated`, rutas en `support`/`evidence`): sí se actualiza a medida que el código avanza — de lo contrario el documento miente sobre el estado real apenas el código cambia. Es exactamente lo que le pasó a ADR-002 (ver abajo).
 
-## Estado actual (2026-09-26)
+## Estado actual (2026-10-03)
 
-**Vigentes** (`rfcs/`): RFC-006 (diseño validado del egress gate — fuente de verdad de invariantes; **aceptado**, implementado vía RFC-007 con el PR #2), RFC-007 (documento rector del Control Plane + plan de implementación ejecutable; **aceptado**, Fases 0 y 1 implementadas y mergeadas con el PR #2 el 2026-07-18), RFC-008 (acceso MCP gobernado; **aceptado**, implementación parcial por fases vía PR #9-#11, #14 y #15 — el desglose está en su header).
+**Vigentes** (`rfcs/`): RFC-006 (diseño validado del egress gate — fuente de verdad de invariantes; **aceptado**, implementado vía RFC-007 con el PR #2), RFC-007 (documento rector del Control Plane + plan de implementación ejecutable; **aceptado**, Fases 0 y 1 implementadas y mergeadas con el PR #2 el 2026-07-18), RFC-008 (acceso MCP gobernado; **aceptado**, implementación parcial por fases vía PR #9-#11, #14 y #15 — el desglose está en su header), RFC-009 (seguridad local del dashboard: token de sesión, Origin/Host, endpoints con efectos y XSS; **aceptado** el 2026-10-03, fase R0 de la especificación del dashboard; arreglo inmediato del XSS mergeado con el PR #31, el resto se implementa en D0).
 
 **Archivadas** (`archive/`): RFC-001 a RFC-005 (rondas previas del egress gate, cada una superseded por la siguiente), RFC-007 v0.3 (superseded por la versión vigente).
 
