@@ -105,6 +105,23 @@ def refresh_rate(config: dict) -> dict:
     return {"date": today_str, "rate": rate, "currency": _CURRENCY_KEY, "fetched_at": fetched_at}
 
 
+def get_cached_rate() -> Optional[dict]:
+    """Lee la última tasa guardada sin red ni escrituras."""
+    try:
+        from orchestrator.db import _conn
+        row = _conn().execute(
+            "SELECT date, rate, fetched_at FROM exchange_rates WHERE currency=? ORDER BY date DESC LIMIT 1",
+            (_CURRENCY_KEY,),
+        ).fetchone()
+        if not row:
+            return None
+        return {"date": row["date"], "rate": row["rate"], "currency": _CURRENCY_KEY,
+                "fetched_at": row["fetched_at"], "from_cache": True,
+                "stale": row["date"] < (date.today() - timedelta(days=1)).isoformat()}
+    except Exception:
+        return None
+
+
 def get_current_rate(config: dict) -> Optional[dict]:
     """Retorna la tasa desde caché (o refresca si no hay dato de hoy).
 

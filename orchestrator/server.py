@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import http.server
+import hmac
 import json as json_mod
 import queue
 import socket
 import socketserver
 import sys
+import secrets
 import urllib.parse
 import webbrowser
 from pathlib import Path
@@ -19,6 +21,39 @@ from orchestrator.paths import HOME_DIR
 from orchestrator.venv_python import venv_python, venv_python_rel
 
 _console = Console(legacy_windows=False)
+
+
+def _host_allowed(values: list[str], server_port: int) -> bool:
+    """Return whether exactly one Host header names this local server."""
+    if len(values) != 1:
+        return False
+    value = values[0].strip().lower()
+    if ":" in value:
+        if value.count(":") != 1:
+            return False
+        host, port_text = value.rsplit(":", 1)
+        if not (port_text.isascii() and port_text.isdigit()) or len(port_text) > 5:
+            return False
+        effective_port = int(port_text)
+    else:
+        host, effective_port = value, 80
+    return host in ("localhost", "127.0.0.1") and effective_port == server_port
+
+
+def _origin_allowed(origin: str | None, server_port: int) -> bool:
+    """Return whether Origin is absent or names this local HTTP server."""
+    if not origin:
+        return True
+    try:
+        parsed = urllib.parse.urlparse(origin)
+        effective_port = parsed.port or (80 if parsed.scheme == "http" else None)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.hostname in ("localhost", "127.0.0.1")
+        and effective_port == server_port
+    )
 
 
 def mcp_json_from_example(example_text: str, is_windows: bool | None = None) -> str:
@@ -43,8 +78,22 @@ def mcp_json_from_example(example_text: str, is_windows: bool | None = None) -> 
     return json_mod.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
-def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -> None:
+def serve(
+    port: int,
+    project: Optional[str],
+    open_browser: bool,
+    config: dict,
+    *,
+    on_server_ready=None,
+    start_background: bool = True,
+) -> None:
     """Servidor HTTP del dashboard en http://127.0.0.1:<port>."""
+    def _chroma_age_seconds() -> float | None:
+        if not _chroma_cache["updated_at"]:
+            return None
+        from datetime import datetime, timezone
+        return max(0.0, (datetime.now(timezone.utc) - datetime.fromisoformat(_chroma_cache["updated_at"])).total_seconds())
+
     import threading as _threading
     from orchestrator import background as bg_module
     from orchestrator import context as context_module
@@ -66,17 +115,94 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
     # hacer que el perdedor de la carrera indexara con un run_id ajeno; ver
     # el fallback via SELECT session_id en git_scanner/watcher/codex_watcher.
     _sync_lock = _threading.Lock()
+    _session_token = secrets.token_urlsafe(32)
+    _chroma_cache: dict = {"stats": None, "updated_at": None}
+
+    def _store_chroma_stats() -> bool:
+        """Calcula las estadísticas de ChromaDB y solo las guarda si el cálculo funcionó.
+
+        `chroma_stats_isolated` devuelve `{}` cuando el subproceso falla; en ese caso
+        se conserva la última instantánea válida.
+        """
+        from datetime import datetime, timezone
+        from orchestrator.rag import chroma_stats_isolated
+        stats = chroma_stats_isolated()
+        if not stats:
+            return False
+        _chroma_cache["stats"] = stats
+        _chroma_cache["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return True
 
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
+        _MAX_REJECT_BODY = 1024 * 1024
+
         def log_message(self, fmt, *args):
             pass
 
         def handle_error(self, request, client_address):
             pass
 
+        def end_headers(self):
+            """Security headers belong on every response, including errors/files."""
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+            # send_error(414) can run before parse_request(), when ``path``
+            # has not been populated by BaseHTTPRequestHandler yet.
+            if not getattr(self, "path", "").startswith("/static/"):
+                self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
+        def handle_one_request(self):
+            """Validate Host before BaseHTTPRequestHandler dispatches do_<method>."""
+            try:
+                self.raw_requestline = self.rfile.readline(65537)
+                if len(self.raw_requestline) > 65536:
+                    self.requestline = ""; self.request_version = "HTTP/1.1"; self.command = ""
+                    # The peer may already have sent the rest of this line.
+                    # Explicitly close after a flushed response instead of
+                    # allowing Windows to reset a socket with unread bytes.
+                    self._discard_oversize_request_line()
+                    self._reject({"error": "request URI too long"}, 414, force_close=True); return
+                if not self.raw_requestline:
+                    self.close_connection = True; return
+                if not self.parse_request(): return
+                if not self._valid_host():
+                    self._reject({"error": "invalid Host"}, 421); return
+                if self.command == "POST":
+                    body_length = self._post_body_length()
+                    if body_length is None:
+                        self._reject({"error": "Content-Length required"}, 400, force_close=True); return
+                    if body_length > self._MAX_REJECT_BODY:
+                        self._reject({"error": "request body too large"}, 413, force_close=True); return
+                if self.command not in ("GET", "POST"):
+                    self._reject({"error": "method not allowed"}, 405); return
+                method = getattr(self, "do_" + self.command)
+                method()
+                self.wfile.flush()
+            except TimeoutError as exc:
+                self.log_error("Request timed out: %r", exc); self.close_connection = True
+
+        def _valid_host(self) -> bool:
+            return _host_allowed(self.headers.get_all("Host", []), self.server.server_address[1])
+
+        def _require_post_security(self) -> bool:
+            origin = self.headers.get("Origin")
+            if not _origin_allowed(origin, self.server.server_address[1]):
+                self._reject({"error": "invalid origin"}, 403); return False
+            if self.headers.get("Sec-Fetch-Site") not in (None, "same-origin"):
+                self._reject({"error": "invalid fetch site"}, 403); return False
+            token = self.headers.get("X-Orchestrator-Session", "")
+            if not token.isascii() or not hmac.compare_digest(token, _session_token):
+                self._reject({"reason": "session_expired"}, 403); return False
+            return self._require_json_ct()
+
         def do_GET(self):
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
+            if path == "/pick-folder":
+                self._json({"error": "method not allowed"}, 405)
+                return
             if path.startswith("/run/"):
                 return self._get_run(parsed)
             if path.startswith("/context/") and not path.endswith("/delete"):
@@ -92,7 +218,6 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/mcp":                      self._get_docs,
                 "/security":                 self._get_docs,
                 "/events":                   self._get_events,
-                "/pick-folder":              self._get_pick_folder,
                 "/inspect":                  self._get_inspect,
                 "/metrics":                  self._get_metrics,
                 "/preview-index":            self._get_preview_index,
@@ -207,12 +332,13 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
         def _get_inspect(self, parsed):
             try:
                 from orchestrator.db import read_inspector_data
-                from orchestrator.rag import chroma_stats_isolated
                 from orchestrator.tracer import span as _span
                 with _span("Inspector · SQLite"):
                     payload = read_inspector_data()
                 with _span("Inspector · ChromaDB"):
-                    payload["chroma"] = chroma_stats_isolated()
+                    payload["chroma"] = _chroma_cache["stats"]
+                    payload["chroma_updated_at"] = _chroma_cache["updated_at"]
+                    payload["chroma_stats_age_s"] = _chroma_age_seconds()
                 try:
                     registered = set(index_module.list_projects().keys())
                 except Exception:
@@ -225,8 +351,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 payload["registered_project_index"] = index_module.list_projects()
                 payload["all_projects"] = sorted(registered | from_runs)
                 try:
-                    from orchestrator.rates import get_current_rate
-                    payload["rate_info"] = get_current_rate(config)
+                    from orchestrator.rates import get_cached_rate
+                    payload["rate_info"] = get_cached_rate()
                 except Exception:
                     payload["rate_info"] = None
             except Exception as exc:
@@ -277,8 +403,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                        FROM runs WHERE date(ts) >= date('now','-14 days')
                        GROUP BY day ORDER BY day"""
                 ).fetchall()
-                from orchestrator.rates import get_current_rate
-                rate_info = get_current_rate(config)
+                from orchestrator.rates import get_cached_rate
+                rate_info = get_cached_rate()
                 self._json({
                     "by_project": [dict(r) for r in by_proj],
                     "by_model":   [dict(r) for r in by_model],
@@ -431,7 +557,6 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             try:
                 from orchestrator.db import _conn
                 from orchestrator.index import list_projects
-                from orchestrator.rag import chroma_stats_isolated
                 conn = _conn()
                 registered = set(list_projects().keys())
                 rows = conn.execute(
@@ -463,12 +588,13 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                     ctx_by_proj[p]["total"] += r["n"]
                     ctx_by_proj[p]["by_status"][r["status"]] = r["n"]
                 # ChromaDB stats
-                cs = chroma_stats_isolated()
+                cs = _chroma_cache["stats"]
                 self._json({
                     "projects": list(projects_info.values()),
                     "registered": sorted(registered),
                     "contexts_by_project": ctx_by_proj,
                     "chroma": cs,
+                    "chroma_stats_age_s": _chroma_age_seconds(),
                 })
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
@@ -484,14 +610,13 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                         "configured": bool(cfg.get("api_key", "").strip()),
                         "model": cfg.get("model", ""),
                     })
-                from orchestrator.rates import get_current_rate, get_bcentral_config
+                from orchestrator.rates import get_cached_rate, get_bcentral_config
                 bc = get_bcentral_config(config)
-                rate_info = get_current_rate(config)
+                rate_info = get_cached_rate()
                 self._json({
                     "providers": providers_status,
                     "bcentral": {
                         "configured": bool(bc.get("user") and bc.get("pass")),
-                        "user": bc.get("user", ""),
                         "rate": rate_info,
                     },
                 })
@@ -501,8 +626,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
 
         def _get_rates(self, parsed):
             try:
-                from orchestrator.rates import get_current_rate
-                rate_info = get_current_rate(config)
+                from orchestrator.rates import get_cached_rate
+                rate_info = get_cached_rate()
                 self._json(rate_info or {"rate": None, "error": "Sin datos ni credenciales"})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
@@ -550,7 +675,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             # Siempre traer todos los proyectos por separado para el selector
             runs_list = history_module.read_runs(project=sel_project or None, last=500)
             extra_projects = sorted(known_projects)
-            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects)
+            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects,
+                              session_token=_session_token)
             body = html.encode("utf-8")
             try:
                 self.send_response(200)
@@ -565,18 +691,79 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
 
         def _require_json_ct(self) -> bool:
             ct = self.headers.get("Content-Type", "")
-            if "application/json" not in ct:
-                try:
-                    length = int(self.headers.get("Content-Length", 0))
-                    if length > 0:
-                        self.rfile.read(length)
-                except (ValueError, OSError):
-                    pass
-                self._json({"error": "Content-Type: application/json required"}, 415)
+            if ct.split(";", 1)[0].strip().lower() != "application/json":
+                self._reject({"error": "Content-Type: application/json required"}, 415)
                 return False
             return True
 
+        def _discard_request_body(self) -> bool:
+            """Consume a bounded rejected POST body before the connection closes.
+
+            Closing a Windows socket with unread request bytes sends an RST, so
+            clients lose the rejection response.  Large, malformed, or
+            lengthless bodies are deliberately not read: their response is
+            flushed with ``Connection: close`` instead.
+            """
+            if getattr(self, "command", None) != "POST":
+                return True
+            length = self._post_body_length()
+            if length is None:
+                length = -1
+            if length < 0 or length > self._MAX_REJECT_BODY:
+                self.close_connection = True
+                return False
+            remaining = length
+            previous_timeout = self.connection.gettimeout()
+            try:
+                # A peer may declare a small body and then never finish it.
+                # Bound the drain so a rejected request cannot strand a worker.
+                self.connection.settimeout(1.0)
+                while remaining:
+                    chunk = self.rfile.read(min(65536, remaining))
+                    if not chunk:
+                        self.close_connection = True
+                        return False
+                    remaining -= len(chunk)
+            except (OSError, TimeoutError):
+                self.close_connection = True
+                return False
+            finally:
+                self.connection.settimeout(previous_timeout)
+            return True
+
+        def _post_body_length(self) -> int | None:
+            """Return a valid declared POST length, without trusting its body."""
+            headers = getattr(self, "headers", None)
+            length_text = headers.get("Content-Length") if headers is not None else None
+            try:
+                length = int(length_text) if length_text is not None else -1
+            except ValueError:
+                return None
+            return length if length >= 0 else None
+
+        def _discard_oversize_request_line(self) -> None:
+            """Best-effort drain of bytes already sent after an overlong line."""
+            previous_timeout = self.connection.gettimeout()
+            remaining = self._MAX_REJECT_BODY
+            try:
+                self.connection.settimeout(0.05)
+                while remaining:
+                    chunk = self.rfile.read1(min(65536, remaining))
+                    if not chunk or b"\n" in chunk:
+                        return
+                    remaining -= len(chunk)
+            except (OSError, TimeoutError):
+                pass
+            finally:
+                self.connection.settimeout(previous_timeout)
+
+        def _reject(self, data: dict, status: int, *, force_close: bool = False) -> None:
+            drained = self._discard_request_body()
+            self._json(data, status, close=force_close or not drained)
+
         def do_POST(self):
+            if not self._require_post_security():
+                return
             if self.path.startswith("/context/") and self.path.endswith("/delete"):
                 if not self._require_json_ct():
                     return
@@ -595,6 +782,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/sync-git":                self._post_sync_git,
                 "/sync-codex":              self._post_sync_codex,
                 "/rates/refresh":           self._post_rates_refresh,
+                "/pick-folder":             self._post_pick_folder,
+                "/chroma-stats/refresh":    self._post_chroma_stats_refresh,
                 "/pricing/refresh":         self._post_pricing_refresh,
                 "/models/refresh":          self._post_models_refresh,
                 "/config/bcentral":         self._post_config_bcentral,
@@ -609,11 +798,23 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/run":                     self._post_run,
             }.get(self.path)
             if handler is None:
-                self._json({"error": "not found"}, 404)
+                self._reject({"error": "not found"}, 404)
                 return
             if not self._require_json_ct():
                 return
             handler()
+
+        def _post_pick_folder(self):
+            self._get_pick_folder(None)
+
+        def _post_chroma_stats_refresh(self):
+            try:
+                if not _store_chroma_stats():
+                    self._json({"error": "No se pudieron calcular las estadísticas de ChromaDB"}, 500)
+                    return
+                self._json({"chroma": _chroma_cache["stats"], "updated_at": _chroma_cache["updated_at"]})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
 
         def _post_clean_unmapped(self):
             try:
@@ -1482,15 +1683,19 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             finally:
                 BUS.unsubscribe(q)
 
-        def _json(self, data: dict, status: int = 200) -> None:
+        def _json(self, data: dict, status: int = 200, *, close: bool = False) -> None:
             body = json_mod.dumps(data, ensure_ascii=False).encode("utf-8")
             try:
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Access-Control-Allow-Origin", f"http://127.0.0.1:{self.server.server_address[1]}")
+                if close:
+                    self.close_connection = True
+                    self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
+                self.wfile.flush()
             except (BrokenPipeError, ConnectionAbortedError, OSError):
                 pass
 
@@ -1538,7 +1743,15 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             _get_client()
         except Exception:
             pass
-    _threading.Thread(target=_prewarm_chroma, daemon=True).start()
+        try:
+            _store_chroma_stats()
+        except Exception:
+            pass
+    if on_server_ready is not None:
+        on_server_ready(server)
+
+    if start_background:
+        _threading.Thread(target=_prewarm_chroma, daemon=True).start()
 
     _AUTOSYNC_INTERVAL_SEC = 900  # 15 min
 
@@ -1578,7 +1791,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 pass  # una iteracion fallida no debe matar el hilo
             _time.sleep(_AUTOSYNC_INTERVAL_SEC)
 
-    _threading.Thread(target=_periodic_sync, daemon=True).start()
+    if start_background:
+        _threading.Thread(target=_periodic_sync, daemon=True).start()
 
     if open_browser:
         webbrowser.open(url)
@@ -1588,3 +1802,5 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
     except KeyboardInterrupt:
         server.shutdown()
         _console.print("\n[dim]Dashboard detenido.[/dim]")
+    finally:
+        server.server_close()
