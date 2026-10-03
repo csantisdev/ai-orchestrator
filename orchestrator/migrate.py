@@ -544,6 +544,9 @@ def run_migrations() -> None:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_runs_project_instant ON runs(project, julianday(ts), ts)"
                 )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_status_instant ON runs(status, julianday(ts), ts)"
+                )
                 _mark_applied(conn, "add_runs_instant_indexes")
                 conn.commit()
 

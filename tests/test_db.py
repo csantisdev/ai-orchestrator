@@ -285,11 +285,14 @@ def test_runs_instant_indexes_serve_the_instant_ordering():
         for query in (
             "SELECT * FROM runs ORDER BY julianday(ts) DESC, ts DESC, id DESC LIMIT 500",
             "SELECT * FROM runs WHERE project = 'x' ORDER BY julianday(ts) DESC, ts DESC, id DESC LIMIT 500",
+            "SELECT * FROM runs WHERE status = 'done' ORDER BY julianday(ts) DESC, ts DESC, id DESC LIMIT 500",
         )
     ]
 
     assert "idx_runs_instant" in plans[0]
     assert "idx_runs_project_instant" in plans[1]
+    assert "idx_runs_status_instant" in plans[2]
+    assert all("TEMP B-TREE" not in plan for plan in plans)
 
 
 def test_read_runs_keeps_microsecond_order_within_the_same_millisecond(request):
