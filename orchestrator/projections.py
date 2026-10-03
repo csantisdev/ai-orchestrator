@@ -1,0 +1,494 @@
+"""Proyecciones puras de la base hacia los DTO del dashboard (spec §10, §20, §21).
+
+Leen SQLite y devuelven estructuras serializables; no escriben ni modifican los
+datos de origen. La normalización de agentes y timestamps vive solo acá (§20.4).
+Los DTO no llevan texto libre: solo identificadores, conteos y tokens validados.
+"""
+
+from __future__ import annotations
+
+import bisect
+import math
+import re
+import sqlite3
+from datetime import datetime, timezone
+from typing import Iterable, Optional
+
+from orchestrator.git_scanner import PROVIDER_NAME as GIT_PROVIDER
+
+AGENT_ALIASES = {
+    "claude": ("claude", "claude-code", "claude_code"),
+    "codex": ("codex", "codex_cli"),
+    "copilot": ("copilot", "copilot-cli", "github-copilot"),
+    "otros": ("deepseek", "openai", "gemini"),
+}
+AGENT_CATALOG = tuple(AGENT_ALIASES)
+NO_AGENT = "sin agente"
+_ALIAS_TO_AGENT = {alias: agent for agent, aliases in AGENT_ALIASES.items() for alias in aliases}
+
+_SHA_CANDIDATE = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])")
+_FULL_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+_PR_REFERENCE = re.compile(r"\bPR\s*#?(\d{1,9})\b", re.I)
+_TEST_MENTION = re.compile(r"\b(?:pytest|tests?|passed)\b", re.I)
+_TOKEN = re.compile(r"[a-z0-9][a-z0-9_.:-]{0,63}")
+_GIT_SESSION_PREFIX = "git::"
+OTHER = "otro"
+
+ACTIVITY_KIND_ORDER = (
+    "run",
+    "egress_decision",
+    "tool_call",
+    "alignment",
+    "mcp_invocation",
+    "step_completed",
+    "step_started",
+)
+
+
+def parse_instant(value: object) -> Optional[datetime]:
+    """Parsea un timestamp ISO a un datetime UTC; sin zona se interpreta como UTC."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text[-1:] in ("Z", "z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except (OverflowError, ValueError):
+        return None
+
+
+def to_utc(value: object) -> Optional[str]:
+    """Timestamp ISO normalizado a UTC (`+00:00`), o None si no se puede parsear."""
+    instant = parse_instant(value)
+    return instant.isoformat() if instant is not None else None
+
+
+def normalize_agent(value: object) -> str:
+    """Agente del catálogo de §21.1 (alias exactos); lo demás cae en `sin agente`."""
+    if not isinstance(value, str):
+        return NO_AGENT
+    return _ALIAS_TO_AGENT.get(value.strip().lower(), NO_AGENT)
+
+
+def _token(value: object) -> Optional[str]:
+    """Identificador corto en minúsculas, o None si es texto libre."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip().lower()
+    return text if _TOKEN.fullmatch(text) else None
+
+
+def extract_references(notes: object) -> dict:
+    """Referencias citadas en las notas de un paso, con la gramática de §20.0."""
+    text = notes if isinstance(notes, str) else ""
+    shas: list[str] = []
+    for match in _SHA_CANDIDATE.finditer(text):
+        token = match.group(0).lower()
+        if not any(ch.isdigit() for ch in token) or not any(ch in "abcdef" for ch in token):
+            continue
+        if token not in shas:
+            shas.append(token)
+    prs: list[int] = []
+    for match in _PR_REFERENCE.finditer(text):
+        number = int(match.group(1))
+        if number not in prs:
+            prs.append(number)
+    return {
+        "sha_candidates": shas,
+        "prs": prs,
+        "mentions_tests": bool(_TEST_MENTION.search(text)),
+    }
+
+
+class CommitIndex:
+    """SHAs completos de los commits importados (`runs.session_id = git::<alias>::<sha>`).
+
+    Solo se aceptan SHAs hexadecimales completos de 40 o 64 caracteres.
+    """
+
+    def __init__(self, shas: Iterable[str]):
+        valid = set()
+        for sha in shas:
+            if isinstance(sha, str) and _FULL_SHA.fullmatch(sha.strip().lower()):
+                valid.add(sha.strip().lower())
+        self._shas = sorted(valid)
+
+    def __len__(self) -> int:
+        return len(self._shas)
+
+    @classmethod
+    def from_db(cls, conn: sqlite3.Connection) -> "CommitIndex":
+        rows = conn.execute(
+            "SELECT project, session_id FROM runs WHERE provider = ? AND session_id LIKE ?",
+            (GIT_PROVIDER, _GIT_SESSION_PREFIX + "%"),
+        ).fetchall()
+        shas = []
+        for project, session_id in rows:
+            if not project:
+                continue
+            prefix = f"{_GIT_SESSION_PREFIX}{project}::"
+            if session_id.startswith(prefix):
+                shas.append(session_id[len(prefix):])
+        return cls(shas)
+
+    def resolve(self, token: str) -> Optional[str]:
+        """SHA completo si `token` es prefijo de exactamente un commit; si no, None."""
+        token = token.lower()
+        start = bisect.bisect_left(self._shas, token)
+        matches = []
+        for sha in self._shas[start:]:
+            if not sha.startswith(token):
+                break
+            matches.append(sha)
+            if len(matches) > 1:
+                return None
+        return matches[0] if matches else None
+
+
+def step_references(notes: object, commits: CommitIndex) -> dict:
+    """Referencias de un paso separadas en SHAs verificados y candidatos sin verificar."""
+    refs = extract_references(notes)
+    verified: list[str] = []
+    unverified: list[str] = []
+    for token in refs["sha_candidates"]:
+        full = commits.resolve(token)
+        if full is None:
+            unverified.append(token)
+        elif full not in verified:
+            verified.append(full)
+    return {
+        "verified_commits": verified,
+        "unverified_shas": unverified,
+        "prs": refs["prs"],
+        "mentions_tests": refs["mentions_tests"],
+    }
+
+
+def _now_utc(now: Optional[datetime]) -> str:
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).isoformat()
+
+
+def _alignment_sort_key(ts: object, row_id: int) -> tuple:
+    instant = parse_instant(ts)
+    return (instant is None, instant or datetime.min.replace(tzinfo=timezone.utc), row_id)
+
+
+def step_lanes(provider: object, alignments: list[tuple[object, int, str]]) -> tuple[str, list[str]]:
+    """Carril principal y agentes secundarios de un paso (regla de §21.1).
+
+    `alignments` son tuplas `(ts, id, agente_normalizado)`. Principal: `provider` si está
+    en el catálogo; si no, el agente con más alineamientos y, en empate, el del primer
+    alineamiento por instante y luego id; sin alineamientos, `sin agente`.
+    """
+    ordered = sorted(alignments, key=lambda item: _alignment_sort_key(item[0], item[1]))
+    counts: dict[str, int] = {}
+    first_seen: dict[str, int] = {}
+    for position, (_, _, agent) in enumerate(ordered):
+        if agent == NO_AGENT:
+            continue
+        counts[agent] = counts.get(agent, 0) + 1
+        first_seen.setdefault(agent, position)
+    lane = normalize_agent(provider)
+    if lane == NO_AGENT and counts:
+        lane = min(counts, key=lambda agent: (-counts[agent], first_seen[agent]))
+    secondary = [agent for agent in AGENT_CATALOG if agent in counts and agent != lane]
+    return lane, secondary
+
+
+def context_graph(
+    conn: sqlite3.Connection,
+    context_id: int,
+    commits: Optional[CommitIndex] = None,
+    now: Optional[datetime] = None,
+) -> Optional[dict]:
+    """ProjectGraph (§10.1) de un contexto: el contexto, sus pasos y los commits citados.
+
+    Sin texto de notas, títulos de commits ni contenido de runs (§21.4). Las
+    representaciones (mapa, constelación) agregan su extensión con su propio esquema.
+    """
+    context = conn.execute(
+        "SELECT id, project, status FROM contexts WHERE id = ?", (context_id,)
+    ).fetchone()
+    if context is None:
+        return None
+    commits = commits if commits is not None else CommitIndex.from_db(conn)
+    steps = conn.execute(
+        "SELECT id, order_idx, status, provider, notes FROM steps "
+        "WHERE context_id = ? ORDER BY order_idx, id",
+        (context_id,),
+    ).fetchall()
+
+    alignments: dict[int, list[tuple[object, int, str]]] = {}
+    confirmations: dict[int, list[int]] = {}
+    for row_id, step_id, ts, agent, confirmed in conn.execute(
+        "SELECT a.id, a.step_id, a.ts, a.agent, a.confirmed FROM alignments a "
+        "JOIN steps s ON s.id = a.step_id WHERE s.context_id = ?",
+        (context_id,),
+    ).fetchall():
+        alignments.setdefault(step_id, []).append((ts, row_id, normalize_agent(agent)))
+        confirmations.setdefault(step_id, []).append(confirmed)
+
+    run_counts: dict[int, int] = {}
+    run_costs: dict[int, float] = {}
+    for step_id, cost in conn.execute(
+        "SELECT r.step_id, r.cost_usd FROM runs r "
+        "JOIN steps s ON s.id = r.step_id WHERE s.context_id = ?",
+        (context_id,),
+    ).fetchall():
+        run_counts[step_id] = run_counts.get(step_id, 0) + 1
+        if isinstance(cost, (int, float)) and math.isfinite(cost) and cost >= 0:
+            run_costs[step_id] = run_costs.get(step_id, 0.0) + float(cost)
+    run_totals: dict[int, tuple[int, Optional[float]]] = {}
+    for step_id, count in run_counts.items():
+        total = run_costs.get(step_id, 0.0)
+        run_totals[step_id] = (count, round(total, 6) if math.isfinite(total) else None)
+
+    context_node = f"context:{context[0]}"
+    nodes = [
+        {
+            "id": context_node,
+            "kind": "context",
+            "label": f"Contexto {context[0]}",
+            "state": _token(context[2]) or OTHER,
+        }
+    ]
+    edges = []
+    commit_nodes: dict[str, dict] = {}
+    for position, (step_id, order_idx, status, provider, notes) in enumerate(steps, start=1):
+        lane, secondary = step_lanes(provider, alignments.get(step_id, []))
+        runs, cost = run_totals.get(step_id, (0, 0.0))
+        refs = step_references(notes, commits)
+        node_id = f"step:{step_id}"
+        nodes.append(
+            {
+                "id": node_id,
+                "kind": "step",
+                "label": f"Paso {position}",
+                "state": _token(status) or OTHER,
+                "attrs": {
+                    "idx": position,
+                    "order_idx": order_idx if isinstance(order_idx, int) else None,
+                    "lane": lane,
+                    "secondary": secondary,
+                    "alignments": len(confirmations.get(step_id, [])),
+                    "deviations": sum(1 for confirmed in confirmations.get(step_id, []) if not confirmed),
+                    "runs": runs,
+                    "cost_usd": cost,
+                    "prs": refs["prs"],
+                    "unverified_shas": len(refs["unverified_shas"]),
+                    "mentions_tests": refs["mentions_tests"],
+                },
+            }
+        )
+        edges.append(
+            {
+                "source": context_node,
+                "target": node_id,
+                "relation_type": "contains",
+                "origin": "system",
+                "confidence": 1.0,
+                "evidence_ref": "steps.context_id",
+            }
+        )
+        for sha in refs["verified_commits"]:
+            commit_id = f"commit:{sha}"
+            commit_nodes.setdefault(sha, {"id": commit_id, "kind": "commit", "label": sha[:7]})
+            edges.append(
+                {
+                    "source": node_id,
+                    "target": commit_id,
+                    "relation_type": "cites",
+                    "origin": "verified_reference",
+                    "confidence": 1.0,
+                    "evidence_ref": "steps.notes",
+                }
+            )
+    nodes.extend(commit_nodes[sha] for sha in sorted(commit_nodes))
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "metadata": {
+            "project": context[1] or "",
+            "context_id": context[0],
+            "generated_at": _now_utc(now),
+        },
+    }
+
+
+def _event(kind, row_id, ts, label, state, agent=None, step_id=None, context_id=None) -> dict:
+    return {
+        "kind": kind,
+        "row_id": row_id,
+        "ts": ts,
+        "label": label,
+        "state": _token(state) or OTHER,
+        "agent": agent,
+        "step_id": step_id,
+        "context_id": context_id,
+    }
+
+
+def _joined_tokens(*values: object) -> Optional[str]:
+    tokens = [token for token in (_token(value) for value in values) if token]
+    return " ".join(tokens) if tokens else None
+
+
+def _sort_key(instant: datetime, kind: str, row_id: int) -> tuple:
+    return (instant, -ACTIVITY_KIND_ORDER.index(kind), row_id)
+
+
+def _parse_cursor(cursor: str) -> tuple:
+    """Clave de orden de un `next_cursor` (`<ts UTC>|<kind>|<id>`); ValueError si es inválido."""
+    parts = cursor.split("|")
+    instant = parse_instant(parts[0]) if len(parts) == 3 else None
+    if instant is None or parts[1] not in ACTIVITY_KIND_ORDER or not parts[2].isdigit():
+        raise ValueError(f"cursor inválido: {cursor!r}")
+    return _sort_key(instant, parts[1], int(parts[2]))
+
+
+def activity(
+    conn: sqlite3.Connection,
+    project: str,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    limit: int = 200,
+    now: Optional[datetime] = None,
+    cursor: Optional[str] = None,
+) -> dict:
+    """Activity del proyecto (§10.4): hitos de la base ordenados por instante UTC.
+
+    `since` es inclusivo y `until` exclusivo. La ventana se aplica en Python, con el
+    mismo parser que normaliza los timestamps, así que un valor que no se puede
+    parsear siempre se descarta y se cuenta en `metadata.skipped_invalid_ts`.
+    Orden: instante descendente; en empate, `ACTIVITY_KIND_ORDER` y luego id descendente.
+    Paginación sin pérdidas: si el resultado se trunca, `metadata.next_cursor` lleva la
+    clave de orden completa del último evento y `cursor=` devuelve los siguientes, aunque
+    compartan instante. Los labels y estados son tokens validados.
+
+    Costo: lee toda la historia del proyecto en cada llamada (a escala actual, cientos de
+    ms para todos los proyectos). Acotarlo en SQL queda para D4 (§19.4 O4–O5).
+    """
+    since_dt = parse_instant(since) if since else None
+    until_dt = parse_instant(until) if until else None
+    if since and since_dt is None:
+        raise ValueError(f"since inválido: {since!r}")
+    if until and until_dt is None:
+        raise ValueError(f"until inválido: {until!r}")
+    cursor_key = _parse_cursor(cursor) if cursor else None
+    limit = max(1, int(limit))
+    raw: list[dict] = []
+
+    for run_id, ts, provider, model, status, step_id in conn.execute(
+        "SELECT id, ts, provider, model, status, step_id FROM runs WHERE project = ?", (project,)
+    ).fetchall():
+        provider_token = _token(provider)
+        model_token = None if provider_token == GIT_PROVIDER else _token(model)
+        label = "/".join(t for t in (provider_token, model_token) if t) or "run"
+        raw.append(_event("run", run_id, ts, label, status, normalize_agent(provider), step_id))
+
+    for row_id, ts, provider, phase, decision, reason_code in conn.execute(
+        "SELECT id, ts, provider, phase, decision, reason_code FROM egress_decisions WHERE project = ?",
+        (project,),
+    ).fetchall():
+        raw.append(_event("egress_decision", row_id, ts, _joined_tokens(phase, reason_code) or "egress",
+                          decision, normalize_agent(provider)))
+
+    step_alignments: dict[int, list[tuple[object, int, str]]] = {}
+    for row_id, ts, step_id, context_id, agent, confirmed in conn.execute(
+        "SELECT a.id, a.ts, a.step_id, a.context_id, a.agent, a.confirmed FROM alignments a "
+        "JOIN contexts c ON c.id = a.context_id WHERE c.project = ?",
+        (project,),
+    ).fetchall():
+        state = "confirmed" if confirmed else "deviation"
+        agent_id = normalize_agent(agent)
+        step_alignments.setdefault(step_id, []).append((ts, row_id, agent_id))
+        raw.append(_event("alignment", row_id, ts, "alignment", state, agent_id,
+                          step_id, context_id))
+
+    for row_id, ts, step_id, context_id, tool_name, status in conn.execute(
+        "SELECT t.id, t.ts, t.step_id, t.context_id, t.tool_name, t.status FROM tool_calls t "
+        "JOIN contexts c ON c.id = t.context_id WHERE c.project = ?",
+        (project,),
+    ).fetchall():
+        raw.append(_event("tool_call", row_id, ts, _token(tool_name) or "tool_call", status, None,
+                          step_id, context_id))
+
+    for row_id, ts, surface, tool_name, status in conn.execute(
+        "SELECT id, ts, client_surface, tool_name, status FROM mcp_invocations "
+        "WHERE project = ? AND COALESCE(tool_category, '') <> 'read'",
+        (project,),
+    ).fetchall():
+        raw.append(_event("mcp_invocation", row_id, ts, _token(tool_name) or "mcp", status,
+                          normalize_agent(surface)))
+
+    for column, kind, state in (("started_at", "step_started", "started"),
+                                ("completed_at", "step_completed", "completed")):
+        for step_id, ts, context_id, order_idx, provider in conn.execute(
+            f"SELECT s.id, s.{column}, s.context_id, s.order_idx, s.provider FROM steps s "
+            f"JOIN contexts c ON c.id = s.context_id WHERE c.project = ? AND s.{column} IS NOT NULL",
+            (project,),
+        ).fetchall():
+            label = f"paso {order_idx}" if type(order_idx) is int and order_idx >= 0 else "paso"
+            lane, _ = step_lanes(provider, step_alignments.get(step_id, []))
+            raw.append(_event(kind, step_id, ts, label, state, lane, step_id, context_id))
+
+    events = []
+    skipped = 0
+    for item in raw:
+        instant = parse_instant(item["ts"])
+        if instant is None:
+            skipped += 1
+            continue
+        if since_dt is not None and instant < since_dt:
+            continue
+        if until_dt is not None and instant >= until_dt:
+            continue
+        events.append((instant, item))
+
+    events.sort(key=lambda pair: _sort_key(pair[0], pair[1]["kind"], pair[1]["row_id"]), reverse=True)
+    if cursor_key is not None:
+        events = [pair for pair in events
+                  if _sort_key(pair[0], pair[1]["kind"], pair[1]["row_id"]) < cursor_key]
+    truncated = len(events) > limit
+    next_cursor = None
+    if truncated:
+        last_instant, last_item = events[limit - 1]
+        next_cursor = f"{last_instant.isoformat()}|{last_item['kind']}|{last_item['row_id']}"
+    result = []
+    for instant, item in events[:limit]:
+        step_id = item["step_id"]
+        result.append(
+            {
+                "id": f"{item['kind']}:{item['row_id']}",
+                "kind": item["kind"],
+                "ts": instant.isoformat(),
+                "ref": f"step:{step_id}" if isinstance(step_id, int) else None,
+                "context_id": item["context_id"],
+                "agent": item["agent"],
+                "label": item["label"],
+                "state": item["state"],
+            }
+        )
+    return {
+        "project": project,
+        "events": result,
+        "metadata": {
+            "generated_at": _now_utc(now),
+            "since": since_dt.isoformat() if since_dt else None,
+            "until": until_dt.isoformat() if until_dt else None,
+            "next_cursor": next_cursor,
+            "limit": limit,
+            "truncated": truncated,
+            "skipped_invalid_ts": skipped,
+        },
+    }

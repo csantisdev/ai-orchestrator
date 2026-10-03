@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/activity.schema.json",
+  "title": "Activity",
+  "description": "Hitos del proyecto ordenados por instante UTC descendente (spec §10.4). Labels y estados son tokens validados; nunca texto libre de notas, tareas, respuestas ni nombres no validados.",
+  "type": "object",
+  "required": ["project", "events", "metadata"],
+  "properties": {
+    "project": {"type": "string"},
+    "events": {"type": "array", "items": {"$ref": "#/$defs/event"}},
+    "metadata": {
+      "type": "object",
+      "required": ["generated_at", "since", "until", "next_cursor", "limit", "truncated", "skipped_invalid_ts"],
+      "properties": {
+        "generated_at": {"type": "string", "format": "date-time"},
+        "since": {"type": ["string", "null"], "format": "date-time"},
+        "until": {"type": ["string", "null"], "format": "date-time"},
+        "next_cursor": {"type": ["string", "null"], "pattern": "^[^|]+\\|[a-z_]+\\|[0-9]+$"},
+        "limit": {"type": "integer", "minimum": 1},
+        "truncated": {"type": "boolean"},
+        "skipped_invalid_ts": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "token": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}$"},
+    "event": {
+      "type": "object",
+      "required": ["id", "kind", "ts", "ref", "context_id", "agent", "label", "state"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z_]+:[0-9]+$"},
+        "kind": {
+          "enum": [
+            "run", "egress_decision", "tool_call", "alignment", "mcp_invocation",
+            "step_completed", "step_started"
+          ]
+        },
+        "ts": {"type": "string", "format": "date-time", "pattern": "\\+00:00$"},
+        "ref": {"type": ["string", "null"], "pattern": "^step:[0-9]+$"},
+        "context_id": {"type": ["integer", "null"]},
+        "agent": {"enum": ["claude", "codex", "copilot", "otros", "sin agente", null]},
+        "label": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}([ /][a-z0-9][a-z0-9_.:-]{0,63})?$"
+        },
+        "state": {"$ref": "#/$defs/token"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

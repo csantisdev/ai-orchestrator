@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/project_graph.schema.json",
+  "title": "ProjectGraph",
+  "description": "Grafo neutral de las proyecciones (spec §10.1), cerrado. Las representaciones (mapa D6, constelación D7) definen su propio esquema versionado que reutiliza estos $defs y agrega su extensión ('map', 'constellation') y sus tipos de nodo (p. ej. portal).",
+  "type": "object",
+  "required": ["nodes", "edges", "metadata"],
+  "properties": {
+    "nodes": {"type": "array", "items": {"$ref": "#/$defs/node"}},
+    "edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "metadata": {"$ref": "#/$defs/metadata"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "node_id": {
+      "type": "string",
+      "pattern": "^(context:[0-9]+|step:[0-9]+|commit:([0-9a-f]{40}|[0-9a-f]{64}))$"
+    },
+    "token": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}$"},
+    "agent": {"enum": ["claude", "codex", "copilot", "otros", "sin agente"]},
+    "metadata": {
+      "type": "object",
+      "required": ["project", "generated_at"],
+      "properties": {
+        "project": {"type": "string"},
+        "context_id": {"type": "integer"},
+        "generated_at": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "kind", "label"],
+      "properties": {
+        "id": {"$ref": "#/$defs/node_id"},
+        "kind": {"enum": ["context", "step", "commit"]},
+        "label": {"type": "string", "pattern": "^(Contexto [0-9]+|Paso [0-9]+|[0-9a-f]{7})$"},
+        "state": {"$ref": "#/$defs/token"},
+        "attrs": {"$ref": "#/$defs/step_attrs"}
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "step"}}},
+          "then": {
+            "required": ["state", "attrs"],
+            "properties": {"id": {"pattern": "^step:"}, "label": {"pattern": "^Paso "}}
+          },
+          "else": {"not": {"required": ["attrs"]}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "context"}}},
+          "then": {
+            "required": ["state"],
+            "properties": {"id": {"pattern": "^context:"}, "label": {"pattern": "^Contexto "}}
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "commit"}}},
+          "then": {
+            "properties": {"id": {"pattern": "^commit:"}, "label": {"pattern": "^[0-9a-f]{7}$"}},
+            "not": {"required": ["state"]}
+          }
+        }
+      ]
+    },
+    "step_attrs": {
+      "type": "object",
+      "required": [
+        "idx", "order_idx", "lane", "secondary", "alignments", "deviations", "runs",
+        "cost_usd", "prs", "unverified_shas", "mentions_tests"
+      ],
+      "properties": {
+        "idx": {"type": "integer", "minimum": 1},
+        "order_idx": {"type": ["integer", "null"]},
+        "lane": {"$ref": "#/$defs/agent"},
+        "secondary": {
+          "type": "array",
+          "items": {"enum": ["claude", "codex", "copilot", "otros"]},
+          "uniqueItems": true
+        },
+        "alignments": {"type": "integer", "minimum": 0},
+        "deviations": {"type": "integer", "minimum": 0},
+        "runs": {"type": "integer", "minimum": 0},
+        "cost_usd": {"type": ["number", "null"], "minimum": 0},
+        "prs": {"type": "array", "items": {"type": "integer", "minimum": 0}, "uniqueItems": true},
+        "unverified_shas": {"type": "integer", "minimum": 0},
+        "mentions_tests": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "required": ["source", "target", "relation_type", "origin", "confidence", "evidence_ref"],
+      "properties": {
+        "source": {"$ref": "#/$defs/node_id"},
+        "target": {"$ref": "#/$defs/node_id"},
+        "relation_type": {"enum": ["contains", "cites"]},
+        "origin": {"enum": ["system", "verified_reference"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidence_ref": {"enum": ["steps.context_id", "steps.notes"]}
+      },
+      "additionalProperties": false
+    }
+  }
+}
