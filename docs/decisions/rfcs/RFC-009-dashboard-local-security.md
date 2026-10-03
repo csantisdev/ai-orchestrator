@@ -44,6 +44,7 @@ gobierna el acceso por MCP: este documento cubre solo el servidor HTTP del dashb
 | Resumen | "Cinco controles" | Siete controles: seis (H-10) más C7, serialización segura contra XSS (review del PR #30) |
 | XSS | No contemplado | Problema 6 (XSS almacenado y reflejado en `/`, reproducido), amenaza T9, control C7 e invariantes I14–I15 (review del PR #30) |
 | `Origin` en el puerto 80 | Puerto literal | Puerto efectivo; un origen sin puerto equivale al 80 (review del PR #30) |
+| Adaptaciones del frontend | No contempladas | Panel del Banco Central sin usuario, refresco automático del tipo de cambio vencido y llamadas GET a `/pick-folder` detectadas por el test estático; cubiertas en I7 e I13 (review del PR #30) |
 | Referencias | Ruta local de la especificación | PR #28, porque el archivo no existe en esta rama (H-11) |
 
 ---
@@ -237,12 +238,16 @@ subcadenas. `text/plain; x=application/json` y `application/x-www-form-urlencode
 - `/pick-folder` pasa a `POST` con token; `GET /pick-folder` responde `405`.
 - `rates.py` expone una lectura **solo de caché** que usan `GET /rates`, `/inspect`, `/metrics` e
   `/integrations/status`. El refresco por red queda exclusivamente en `POST /rates/refresh`; el
-  dashboard lo pide de forma explícita cuando el dato está viejo.
+  dashboard lo pide de forma explícita cuando el dato está viejo. Hoy solo existe el botón manual
+  (`refreshRate`, `dashboard_js.py:1797-1801`): D0 agrega la llamada automática al cargar.
 - Las estadísticas de ChromaDB dejan de calcularse en los GET. El servidor guarda el último
   resultado con su fecha; se recalcula al iniciar y con el endpoint nuevo `POST /chroma-stats/refresh`, con token (botón "Actualizar" de
   la sección Datos). `GET /inspect` y `GET /clean-preview` devuelven ese valor y su antigüedad, sin
   lanzar procesos.
-- `/integrations/status` devuelve solo `configured` para el Banco Central, sin el usuario.
+- `/integrations/status` devuelve solo `configured` para el Banco Central, sin el usuario. El panel
+  de configuración (`renderConfig`, `dashboard_js.py:1376-1379`) hoy muestra `Cuenta: <usuario>` y
+  rellena el campo de usuario con ese valor; D0 lo cambia para mostrar solo el estado configurado y
+  dejar vacíos los campos de credenciales.
 - `GET /pricing` mantiene su comportamiento actual (caché o catálogo estático).
 
 **C6 · Cabeceras de seguridad centralizadas.** Un único punto de envío de cabeceras (por ejemplo,
@@ -302,13 +307,13 @@ rutas (`server.py:574-578`), pasa por el mismo pipeline: la validación va antes
 | I4 | `GET /pick-folder` no lanza procesos ni abre el selector | `GET` → `405`; ni `subprocess.run` ni `tkinter.filedialog.askdirectory` (o el helper `_pick_folder()`) se invocan (mocks), de modo que el test no es vacío en el CI de Linux |
 | I5 | Ningún GET usa la red, escribe ni lanza procesos | Con caché viejo y credenciales configuradas, `GET /rates`, `/inspect`, `/metrics`, `/integrations/status` y `/pricing` no llaman a la red ni escriben; `GET /inspect` y `/clean-preview` no invocan `subprocess` (mocks) |
 | I6 | El token no se filtra | No aparece en logs, respuestas JSON ni en el SSE; solo en el `<meta>` de `/` |
-| I7 | El dashboard sigue funcionando | Test que recorre las acciones con el token del HTML; prueba manual de cada botón |
+| I7 | El dashboard sigue funcionando | Test que recorre las acciones con el token del HTML; prueba manual de cada botón; con el tipo de cambio vencido en caché, al cargar el dashboard se emite un `POST /rates/refresh` (mock de `fetch`); con el Banco Central configurado, el panel no muestra cuenta ni rellena el campo de usuario |
 | I8 | `Origin` y `Sec-Fetch-Site` se aplican | POST con token válido y `Origin` ajeno → `403`; `Sec-Fetch-Site: cross-site` → `403`; sin ambos y con token válido → aceptado; con el servidor en el puerto 80, `Origin: http://localhost` y `Origin: http://127.0.0.1` (sin `:80`) → aceptados, y `Origin: http://localhost:8080` o `http://atacante.example` → `403` |
 | I9 | Las cabeceras de seguridad están en toda respuesta | `X-Frame-Options`, `frame-ancestors` y `nosniff` presentes en `200`, `403`, `404` (POST a ruta desconocida), `405`, `415`, `421` y `500`, y en un archivo de `/static/*`; `no-store` en toda respuesta dinámica |
 | I10 | Los métodos no soportados no exponen nada | HEAD, PUT, DELETE, PATCH, OPTIONS, TRACE, CONNECT y un verbo inventado (con `Host` válido) → `405` con las cabeceras de C6, nunca `501` |
 | I11 | Un token viejo se trata como sesión vencida | Tras reiniciar el servidor, un POST con el token anterior → `403 session_expired`; el JS muestra el mensaje de recarga |
 | I12 | No se exponen identificadores de credenciales | `/integrations/status` no incluye el usuario del Banco Central |
-| I13 | Todas las llamadas POST envían el token | Test estático: ningún `fetch` con método POST fuera de `postJson` en el JS del dashboard |
+| I13 | Todas las llamadas POST envían el token | Test estático: ningún `fetch` con método POST fuera de `postJson` en el JS del dashboard; ninguna llamada a `/pick-folder` queda fuera de `postJson` (las dos actuales, `dashboard_js.py:1529` y `1574`, son GET y el test las detecta) |
 | I14 | Ningún dato rompe un bloque `<script>` | Test con un run cuyo `task_preview` contiene `</script><script>…</script>`, `<!--` y U+2028, y con `?project=` malicioso: el HTML no contiene `</script>` fuera de los cierres propios, y en un navegador headless el script inyectado no se ejecuta |
 | I15 | Los sumideros de HTML escapan los datos según su contexto | Un test por cada sumidero del inventario de C7 que recibe datos de runs, contextos, pasos, alias o URL; un título de contexto y un alias con `'` y `);alert(1);//` no ejecutan código; ningún handler en línea recibe datos |
 
