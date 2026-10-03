@@ -116,6 +116,19 @@ para (3), (4) y (5).
 
 ## 2. Estado verificado del código
 
+Resumen por control, contra el baseline (`server.py` y `dashboard.py` de `production@985b749`); el
+detalle por ruta está en §2.1 y §2.2.
+
+| Componente | implementation_status | evidence_status | Detalle |
+|---|---|---|---|
+| Validación de `Host` (C1) | absent | verifiable | `do_GET` (`server.py:77`) y `do_POST` (`server.py:573`) despachan sin leer `Host` |
+| Token de sesión (C2) | absent | verifiable | Ninguna ruta lee una cabecera propia; el HTML de `/` no incluye token |
+| `Origin` / `Sec-Fetch-Site` (C3) | absent | verifiable | `do_POST` no lee `Origin`; `Access-Control-Allow-Origin` fijo en el SSE (`server.py:1462`) y en toda respuesta JSON (`_json`, `server.py:1485`) |
+| `Content-Type` exacto (C4) | partial | verifiable | Exige `application/json` como subcadena (`server.py:562`) |
+| GET sin efectos (C5) | absent | verifiable | `/pick-folder` lanza el diálogo (`server.py:167-202`); `/rates`, `/inspect`, `/metrics`, `/integrations/status`, `/clean-preview` con efectos (§2.2) |
+| Cabeceras de seguridad (C6) | partial | verifiable | Solo `Cache-Control: no-store` en `/` (`server.py:552`); sin `X-Frame-Options`, CSP ni `X-Content-Type-Options`; los errores salen sin cabeceras propias |
+| Serialización segura (C7) | partial | verifiable | `_escape` cubre HTML (`dashboard.py:50`); `json.dumps` dentro de `<script>` (`dashboard.py:341`, `676`) y datos en handlers en línea (X01–X05). El arreglo inmediato (PR #31) cubre X01–X05 |
+
 ### 2.1 Inventario de endpoints
 
 **POST con efectos** (25 endpoints, llamados desde 26 lugares de `dashboard_js.py`; `_syncOne`
@@ -283,10 +296,10 @@ rutas (`server.py:574-578`), pasa por el mismo pipeline: la validación va antes
 
 | Id | Invariante | Prueba |
 |---|---|---|
-| I1 | Ningún POST sin token válido produce efectos | Test HTTP por cada uno de los **27** POST de D0 (los 25 actuales más `/pick-folder` y `/chroma-stats/refresh`): sin token, con token inválido y con token válido; la base y los archivos no cambian en los dos primeros casos, y en `/pick-folder` `subprocess` no se invoca (mock) en los dos casos rechazados |
+| I1 | Ningún POST sin token válido produce efectos | Test HTTP por cada uno de los **27** POST de D0 (los 25 actuales más `/pick-folder` y `/chroma-stats/refresh`): sin token, con token inválido y con token válido; la base y los archivos no cambian en los dos primeros casos, y en `/pick-folder` no se abre el selector en los dos casos rechazados: se mockea el punto de entrada de cada plataforma (`subprocess.run` en Windows, `tkinter.filedialog.askdirectory` en Linux y macOS, `server.py:167-202`) o un helper `_pick_folder()` extraído en D0 |
 | I2 | Ninguna petición con `Host` no permitido llega al despacho | Para GET, POST, SSE, HEAD, PUT, DELETE, PATCH, OPTIONS, TRACE, CONNECT y un verbo inventado: `Host` ajeno, ausente, duplicado, sin puerto con el servidor en 8080 (→ `421`), sin puerto con el servidor en 80 (se acepta), con otro puerto, en mayúsculas válidas (se acepta) y `[::1]` → `421` salvo los casos válidos |
 | I3 | El bypass por subcadena ya no funciona | POST con token válido y `Content-Type: text/plain; x=application/json` o `application/x-www-form-urlencoded` → `415` |
-| I4 | `GET /pick-folder` no lanza procesos | `GET` → `405`; `subprocess` no se invoca (mock) |
+| I4 | `GET /pick-folder` no lanza procesos ni abre el selector | `GET` → `405`; ni `subprocess.run` ni `tkinter.filedialog.askdirectory` (o el helper `_pick_folder()`) se invocan (mocks), de modo que el test no es vacío en el CI de Linux |
 | I5 | Ningún GET usa la red, escribe ni lanza procesos | Con caché viejo y credenciales configuradas, `GET /rates`, `/inspect`, `/metrics`, `/integrations/status` y `/pricing` no llaman a la red ni escriben; `GET /inspect` y `/clean-preview` no invocan `subprocess` (mocks) |
 | I6 | El token no se filtra | No aparece en logs, respuestas JSON ni en el SSE; solo en el `<meta>` de `/` |
 | I7 | El dashboard sigue funcionando | Test que recorre las acciones con el token del HTML; prueba manual de cada botón |
