@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import http.server
 import hmac
+import io
 import json as json_mod
 import queue
 import socket
 import socketserver
 import sys
+import time
 import secrets
 import urllib.parse
 import webbrowser
@@ -135,6 +137,7 @@ def serve(
 
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
         _MAX_REJECT_BODY = 1024 * 1024
+        _BODY_READ_DEADLINE_S = 10.0
 
         def log_message(self, fmt, *args):
             pass
@@ -696,6 +699,48 @@ def serve(
                 return False
             return True
 
+        def _buffer_post_body(self, length: int) -> bool:
+            """Read the whole POST body from the socket and serve it to the handler from memory.
+
+            Several handlers answer without reading the body. With HTTP/1.0 the server
+            closes after each response, and on Windows closing a socket with unread
+            request bytes sends an RST: the client loses a response that was already
+            written. Reading the declared length (bounded by the 1 MiB check) leaves
+            nothing unread, whatever the handler does. It runs only after Origin, the
+            session token and the media type are valid, and within a total deadline, so
+            an unauthenticated client cannot hold a worker or a buffer.
+            """
+            chunks = []
+            remaining = length
+            deadline = time.monotonic() + self._BODY_READ_DEADLINE_S
+            previous_timeout = self.connection.gettimeout()
+            try:
+                while remaining:
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        return False
+                    self.connection.settimeout(left)
+                    chunk = self.rfile.read1(min(65536, remaining))
+                    if not chunk:
+                        return False
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+            except (OSError, TimeoutError):
+                return False
+            finally:
+                self.connection.settimeout(previous_timeout)
+            self._socket_rfile = self.rfile
+            self.rfile = io.BytesIO(b"".join(chunks))
+            return True
+
+        def finish(self):
+            try:
+                super().finish()
+            finally:
+                socket_rfile = getattr(self, "_socket_rfile", None)
+                if socket_rfile is not None:
+                    socket_rfile.close()
+
         def _discard_request_body(self) -> bool:
             """Consume a bounded rejected POST body before the connection closes.
 
@@ -734,12 +779,15 @@ def serve(
         def _post_body_length(self) -> int | None:
             """Return a valid declared POST length, without trusting its body."""
             headers = getattr(self, "headers", None)
-            length_text = headers.get("Content-Length") if headers is not None else None
-            try:
-                length = int(length_text) if length_text is not None else -1
-            except ValueError:
+            if headers is None or headers.get("Transfer-Encoding") is not None:
                 return None
-            return length if length >= 0 else None
+            values = headers.get_all("Content-Length") or []
+            if len(values) != 1:
+                return None
+            length_text = values[0].strip()
+            if not (length_text.isascii() and length_text.isdigit()):
+                return None
+            return int(length_text)
 
         def _discard_oversize_request_line(self) -> None:
             """Best-effort drain of bytes already sent after an overlong line."""
@@ -763,6 +811,9 @@ def serve(
 
         def do_POST(self):
             if not self._require_post_security():
+                return
+            if not self._buffer_post_body(self._post_body_length() or 0):
+                self._json({"error": "incomplete request body"}, 400, close=True)
                 return
             if self.path.startswith("/context/") and self.path.endswith("/delete"):
                 if not self._require_json_ct():
