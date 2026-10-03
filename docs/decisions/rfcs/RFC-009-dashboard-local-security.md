@@ -252,16 +252,22 @@ cachearse. El SSE conserva su `Access-Control-Allow-Origin` actual, nunca `*`.
   handler los lee con `dataset`, o se usa delegación de eventos.
 - Inventario de sumideros del baseline (auditoría de Codex), que D0 cierra:
 
-  | Id | Ubicación | Sumidero | Dato | Severidad |
-  |---|---|---|---|---|
-  | X01 | `dashboard.py:341-350`, `661-663` | JSON en `<script>` | `task_preview` y demás campos de runs | Crítica |
-  | X02 | `dashboard.py:676` | JSON en `<script>` | Parámetro `?project=` | Crítica |
-  | X03 | `dashboard.py:235` | `onclick` con el título del contexto | Título de contexto | Alta |
-  | X04 | `server.py:325-338` y `dashboard_js.py:253-257` | `/contexts-html` interpretado con `innerHTML` | Hereda X03 | Alta |
-  | X05 | `dashboard_js.py:1915-1919` | `onclick`/`onkeydown` con el alias entre comillas simples | Alias de proyecto (sin validar en `/add-project` y `/project/rename`) | Alta |
-  | X06–X11 | `dashboard.py`, `dashboard_js.py` | IDs, fechas, conteos y estados sin escape; mensaje de error en `insertAdjacentHTML` | Valores hoy numéricos o internos | Baja (a revisar) |
+  | Id | Ubicación | Sumidero | Dato | Severidad | Codificación esperada |
+  |---|---|---|---|---|---|
+  | X01 | `dashboard.py:341-350`, `661-663` | JSON en `<script>` | `task_preview` y demás campos de runs | Crítica | Helper de JSON para `<script>` |
+  | X02 | `dashboard.py:676` | JSON en `<script>` | Parámetro `?project=` | Crítica | Helper de JSON para `<script>` y validación contra proyectos conocidos |
+  | X03 | `dashboard.py:235` | `onclick` con el título del contexto | Título de contexto | Alta | Atributo `data-*` escapado como HTML, leído con `dataset` |
+  | X04 | `server.py:325-338` y `dashboard_js.py:253-257` | `/contexts-html` interpretado con `innerHTML` | Hereda X03 | Alta | Se cierra con X03 |
+  | X05 | `dashboard_js.py:1915-1919` | `onclick`/`onkeydown` con el alias entre comillas simples | Alias de proyecto (sin validar en `/add-project` y `/project/rename`) | Alta | Atributos `data-*` y listeners delegados |
+  | X06 | `dashboard.py:199-200`, `246`; `dashboard_js.py:92`, `513-522` | IDs en `onclick`, `data-*` y selectores | IDs de run, contexto y paso (enteros de SQLite) | Baja | Convertir con `Number()` (JS) o `int()` (Python) antes de interpolar; sin handlers en línea |
+  | X07 | `dashboard_js.py:271-305`, `423-525` | `innerHTML` de detalle de contexto y de run | IDs, índices, duraciones y fechas de `/context/{id}` y `/run/{id}` | Baja | `escHtml` en todo campo, también los estructurales |
+  | X08 | `dashboard_js.py:728-733` | `innerHTML` de eventos SSE | Fecha formateada de `d.ts` (`/events`) | Baja | `escHtml` sobre la fecha formateada |
+  | X09 | `dashboard_js.py:1120-1129` | HTML de estados, con respaldo `STATUS_LABELS[s] \|\| s` | Estado de contexto desde SQLite | Baja | `escHtml` sobre el respaldo `s` |
+  | X10 | `dashboard_js.py:1689-1703` | `innerHTML` de la vista previa de indexación | `f.file_count` de `/preview-index` | Baja | `escHtml(String(...))` o `Number()` |
+  | X11 | `dashboard.py:669-672` | `insertAdjacentHTML` del error de JavaScript | `e.message` y `e.stack` | Media | `textContent` en lugar de HTML |
 
-  Los X01–X05 entran en el arreglo inmediato; los X06–X11 se revisan en D0.
+  Los X01–X05 entran en el arreglo inmediato; los X06–X11 se corrigen en D0, con un test cada uno
+  (I15). Las líneas son del baseline y se reubican al implementar.
 - El parámetro `project` de la URL se valida contra los alias registrados antes de usarse.
 - Una política `Content-Security-Policy` con `script-src` basada en nonce queda para D1, cuando los
   scripts salgan del HTML en línea (§23.7); hasta entonces, C7 es la defensa.
