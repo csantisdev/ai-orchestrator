@@ -21,14 +21,14 @@ def _normalize_since(since: str) -> str:
         value = value[:-1] + "+00:00"
     try:
         parsed = datetime.fromisoformat(value)
-    except ValueError:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat()
+    except (ValueError, OverflowError):
         raise ValueError(
             f"since inválido: {since!r}. Usá una fecha ISO, por ejemplo 2026-06-02 "
             "o 2026-06-02T00:00:00+00:00 (sin zona horaria se interpreta como UTC)."
         ) from None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat()
 
 
 def suggest_step_commits(
