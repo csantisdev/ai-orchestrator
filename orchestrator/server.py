@@ -32,7 +32,7 @@ def _host_allowed(values: list[str], server_port: int) -> bool:
         if value.count(":") != 1:
             return False
         host, port_text = value.rsplit(":", 1)
-        if not (port_text.isascii() and port_text.isdigit()):
+        if not (port_text.isascii() and port_text.isdigit()) or len(port_text) > 5:
             return False
         effective_port = int(port_text)
     else:
@@ -117,6 +117,21 @@ def serve(
     _sync_lock = _threading.Lock()
     _session_token = secrets.token_urlsafe(32)
     _chroma_cache: dict = {"stats": None, "updated_at": None}
+
+    def _store_chroma_stats() -> bool:
+        """Calcula las estadísticas de ChromaDB y solo las guarda si el cálculo funcionó.
+
+        `chroma_stats_isolated` devuelve `{}` cuando el subproceso falla; en ese caso
+        se conserva la última instantánea válida.
+        """
+        from datetime import datetime, timezone
+        from orchestrator.rag import chroma_stats_isolated
+        stats = chroma_stats_isolated()
+        if not stats:
+            return False
+        _chroma_cache["stats"] = stats
+        _chroma_cache["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return True
 
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
         _MAX_REJECT_BODY = 1024 * 1024
@@ -794,10 +809,9 @@ def serve(
 
         def _post_chroma_stats_refresh(self):
             try:
-                from datetime import datetime, timezone
-                from orchestrator.rag import chroma_stats_isolated
-                _chroma_cache["stats"] = chroma_stats_isolated()
-                _chroma_cache["updated_at"] = datetime.now(timezone.utc).isoformat()
+                if not _store_chroma_stats():
+                    self._json({"error": "No se pudieron calcular las estadísticas de ChromaDB"}, 500)
+                    return
                 self._json({"chroma": _chroma_cache["stats"], "updated_at": _chroma_cache["updated_at"]})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
@@ -1730,10 +1744,7 @@ def serve(
         except Exception:
             pass
         try:
-            from datetime import datetime, timezone
-            from orchestrator.rag import chroma_stats_isolated
-            _chroma_cache["stats"] = chroma_stats_isolated()
-            _chroma_cache["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _store_chroma_stats()
         except Exception:
             pass
     if on_server_ready is not None:

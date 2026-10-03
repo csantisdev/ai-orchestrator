@@ -146,6 +146,7 @@ def test_i8_origin_and_fetch_site(dashboard_server):
     (["localhost"], 8080, False), (["127.0.0.1"], 8080, False), (["[::1]:80"], 80, False),
     (["localhost.:80"], 80, False), (["localhost:abc"], 80, False), (["localhost:²"], 80, False),
     (["localhost:80", "localhost:80"], 80, False), ([], 80, False),
+    (["localhost:" + "9" * 5000], 80, False), (["localhost:000080"], 80, False),
 ))
 def test_host_allowed(values, server_port, allowed):
     from orchestrator.server import _host_allowed
@@ -197,6 +198,17 @@ def test_i4_chroma_stats_failure_is_json_500(dashboard_server, monkeypatch):
     response, body = request("POST", "/chroma-stats/refresh", b"{}", _headers(token))
     assert response.status == 500
     assert json.loads(body) == {"error": "chroma failed"}
+
+
+def test_failed_chroma_probe_keeps_the_last_valid_snapshot(dashboard_server, monkeypatch):
+    import orchestrator.rag as rag
+    _, request, token = dashboard_server
+    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda: {"docs": 3})
+    assert request("POST", "/chroma-stats/refresh", b"{}", _headers(token))[0].status == 200
+    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda: {})
+    assert request("POST", "/chroma-stats/refresh", b"{}", _headers(token))[0].status == 500
+    _, body = request("GET", "/inspect")
+    assert json.loads(body)["chroma"] == {"docs": 3}
 
 
 def test_i9_security_headers_and_414(dashboard_server):
