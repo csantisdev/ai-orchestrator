@@ -96,6 +96,30 @@ class ScriptInjectionTest(unittest.TestCase):
         self.assertIn('data-ctx-title="x&#x27;);window.__xss=1;//"', output)
 
 
+class JsonForScriptTest(unittest.TestCase):
+    def test_escapes_every_sequence_that_can_end_or_alter_a_script_block(self):
+        import json
+
+        from orchestrator.dashboard import _json_for_script
+
+        value = {"t": "</script><script>a</SCRIPT><!-- b --> & c \u2028 d \u2029"}
+        encoded = _json_for_script(value)
+
+        for raw in ("<", ">", "&", "\u2028", "\u2029"):
+            self.assertNotIn(raw, encoded)
+        self.assertEqual(value, json.loads(encoded))
+
+    def test_selected_project_round_trips(self):
+        import json
+
+        output = build_html([], selected_project=_SCRIPT_BREAKOUT)
+        marker = "<script>\n_runsFilterProject = "
+        start = output.index(marker) + len(marker)
+        end = output.index(";", start)
+
+        self.assertEqual(_SCRIPT_BREAKOUT, json.loads(output[start:end]))
+
+
 class InlineHandlerSinkTest(unittest.TestCase):
     """Free text (aliases, titles) never goes inside an inline JS handler."""
 

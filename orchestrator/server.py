@@ -535,22 +535,21 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
 
         def _get_dashboard(self, parsed):
             params = urllib.parse.parse_qs(parsed.query)
-            sel_project = params.get("project", [project or ""])[0]
-            if sel_project:
-                try:
-                    _known = set(projects_list()) | set(index_module.list_projects().keys())
-                except Exception:
-                    _known = set()
-                if sel_project not in _known:
-                    sel_project = ""
-            # Pre-filtrar en DB: si hay proyecto seleccionado, traer solo sus runs
-            # Siempre traer todos los proyectos por separado para el selector
-            runs_list = history_module.read_runs(project=sel_project or None, last=500)
             try:
                 _registered = list(index_module.list_projects().keys())
             except Exception:
                 _registered = []
-            extra_projects = sorted(set(projects_list()) | set(_registered))
+            known_projects = set(projects_list()) | set(_registered)
+            # El ?project= de la URL solo se acepta si es un proyecto conocido;
+            # el proyecto por defecto de serve() lo eligió el usuario y se conserva.
+            sel_project = project or ""
+            requested = params.get("project")
+            if requested is not None:
+                sel_project = requested[0] if requested[0] in known_projects else ""
+            # Pre-filtrar en DB: si hay proyecto seleccionado, traer solo sus runs
+            # Siempre traer todos los proyectos por separado para el selector
+            runs_list = history_module.read_runs(project=sel_project or None, last=500)
+            extra_projects = sorted(known_projects)
             html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects)
             body = html.encode("utf-8")
             try:

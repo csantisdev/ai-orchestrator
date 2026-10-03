@@ -426,23 +426,30 @@ def test_dashboard_ignores_an_unknown_project_parameter():
         paths_mod.DB_PATH = tmp_path / "runs.db"
         db_mod._local = threading.local()
         db_mod.init_db()
-        serve(port, None, False, {})
+        db_mod.insert_run("Mi Proyecto", "tarea", "deepseek", "deepseek-v4-flash")
+        serve(port, "por-defecto", False, {})
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
 
-    try:
-        assert _wait_for_port(port), "server did not start in time"
-        payload = "x</script><script>window.__xss=1</script>"
+    def _get(path):
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/?project=" + urllib.parse.quote(payload))
+        conn.request("GET", path)
         resp = conn.getresponse()
         html = resp.read().decode("utf-8")
         conn.close()
-
         assert resp.status == 200
+        return html
+
+    try:
+        assert _wait_for_port(port), "server did not start in time"
+        payload = "x</script><script>window.__xss=1</script>"
+        html = _get("/?project=" + urllib.parse.quote(payload))
         assert "window.__xss" not in html
         assert '_runsFilterProject = ""' in html
+
+        assert '_runsFilterProject = "Mi Proyecto"' in _get("/?project=" + urllib.parse.quote("Mi Proyecto"))
+        assert '_runsFilterProject = "por-defecto"' in _get("/")
     finally:
         paths_mod.HOME_DIR = orig_home
         paths_mod.DB_PATH = orig_db
