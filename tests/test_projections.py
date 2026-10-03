@@ -13,6 +13,7 @@ from orchestrator.projections import (
     context_graph,
     extract_references,
     normalize_agent,
+    step_lanes,
     step_references,
     to_utc,
 )
@@ -24,6 +25,7 @@ SHA_A = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
 SHA_B = "b1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
 SHA_C1 = "c0ffee1234567890abcdef1234567890abcdef12"
 SHA_C2 = "c0ffee1299999999abcdef1234567890abcdef12"
+SHA_256 = "d" * 10 + "0123456789abcdef" * 3 + "e" * 6
 
 
 def _schema(name):
@@ -36,20 +38,24 @@ def _validate(instance, name):
     )
 
 
-@pytest.fixture
-def conn():
-    """Base vacía con el esquema real de la aplicación (sin datos de otros tests)."""
+def _empty_db():
+    """Base en memoria con el esquema real de la aplicación y sin datos."""
     from orchestrator.db import _conn
 
-    source = _conn()
     target = sqlite3.connect(":memory:")
-    for (sql,) in source.execute(
+    for (sql,) in _conn().execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL "
         "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%'"
     ).fetchall():
         target.execute(sql)
-    yield target
-    target.close()
+    return target
+
+
+@pytest.fixture
+def conn():
+    db = _empty_db()
+    yield db
+    db.close()
 
 
 def _context(conn, project="mi-proyecto", status="active"):
@@ -70,6 +76,14 @@ def _step(conn, context_id, order_idx, provider="", notes="", status="completed"
     return cur.lastrowid
 
 
+def _alignment(conn, step_id, context_id, agent, ts="2026-05-02T00:00:00Z", confirmed=1):
+    return conn.execute(
+        "INSERT INTO alignments (ts, step_id, context_id, agent, confirmed, checkpoint) "
+        "VALUES (?, ?, ?, ?, ?, 'checkpoint privado')",
+        (ts, step_id, context_id, agent, confirmed),
+    ).lastrowid
+
+
 def _commit(conn, sha, alias="mi-proyecto"):
     conn.execute(
         "INSERT INTO runs (ts, project, provider, status, session_id) VALUES (?, ?, 'git', 'done', ?)",
@@ -77,14 +91,14 @@ def _commit(conn, sha, alias="mi-proyecto"):
     )
 
 
-def _mcp(conn, ts, request_id, tool_name, category, surface):
-    conn.execute(
+def _mcp(conn, ts, request_id, tool_name, category, surface, project="mi-proyecto"):
+    return conn.execute(
         "INSERT INTO mcp_invocations (ts, request_id, server_instance_id, client_surface, transport, "
         "capability_profile, tool_name, tool_category, project, input_hash, output_hash, status, "
-        "created_at) VALUES (?, ?, 'srv', ?, 'stdio', 'workflow_operator', ?, ?, 'mi-proyecto', "
-        "'h', 'h', 'ok', ?)",
-        (ts, request_id, surface, tool_name, category, ts),
-    )
+        "created_at) VALUES (?, ?, 'srv', ?, 'stdio', 'workflow_operator', ?, ?, ?, 'h', 'h', "
+        "'success', ?)",
+        (ts, request_id, surface, tool_name, category, project, ts),
+    ).lastrowid
 
 
 class TestTimestamps:
@@ -95,6 +109,7 @@ class TestTimestamps:
             ("2026-06-01T08:00:00-04:00", "2026-06-01T12:00:00+00:00"),
             ("2026-06-01T12:00:00Z", "2026-06-01T12:00:00+00:00"),
             ("2026-06-01T12:00:00", "2026-06-01T12:00:00+00:00"),
+            ("2026-06-01 12:00:00-03:00", "2026-06-01T15:00:00+00:00"),
             ("2026-06-01T12:00:00.123456+00:00", "2026-06-01T12:00:00.123456+00:00"),
         ],
     )
@@ -111,23 +126,48 @@ class TestAgents:
     @pytest.mark.parametrize(
         "raw, expected",
         [
-            ("claude", "claude"),
-            ("claude-code", "claude"),
-            ("Claude_Code", "claude"),
-            ("codex", "codex"),
-            ("codex-cli", "codex"),
-            ("copilot", "copilot"),
-            ("copilot-cli", "copilot"),
-            ("github-copilot", "copilot"),
-            ("gemini", "gemini"),
+            ("claude", "claude"), ("claude-code", "claude"), ("claude_code", "claude"),
+            ("  Claude-Code ", "claude"), ("codex", "codex"), ("CODEX_CLI", "codex"),
+            ("copilot", "copilot"), ("copilot-cli", "copilot"), ("github-copilot", "copilot"),
+            ("deepseek", "otros"), ("openai", "otros"), ("gemini", "otros"),
         ],
     )
-    def test_maps_known_aliases_to_the_catalog(self, raw, expected):
+    def test_maps_the_section_21_1_aliases_exactly(self, raw, expected):
         assert normalize_agent(raw) == expected
 
-    @pytest.mark.parametrize("raw", [None, "", "deepseek", "texto libre de otra cosa", 7])
-    def test_unknown_values_fall_into_no_agent(self, raw):
+    @pytest.mark.parametrize("raw", [None, "", "codex-cli", "claude code", "my-claude-bot", "other",
+                                     "texto dañado con datos", 7])
+    def test_anything_outside_the_catalog_is_no_agent(self, raw):
         assert normalize_agent(raw) == "sin agente"
+
+
+class TestStepLanes:
+    def test_provider_in_catalog_wins(self):
+        lane, secondary = step_lanes("codex", [("2026-05-02T00:00:00Z", 1, "claude"),
+                                               ("2026-05-02T00:01:00Z", 2, "claude")])
+
+        assert (lane, secondary) == ("codex", ["claude"])
+
+    def test_most_alignments_wins_without_provider(self):
+        lane, secondary = step_lanes("", [("2026-05-02T00:00:00Z", 1, "copilot"),
+                                          ("2026-05-02T00:01:00Z", 2, "codex"),
+                                          ("2026-05-02T00:02:00Z", 3, "codex")])
+
+        assert (lane, secondary) == ("codex", ["copilot"])
+
+    def test_tie_goes_to_the_first_alignment_by_instant_then_id(self):
+        alignments = [
+            ("2026-05-02T00:00:00-03:00", 1, "claude"),
+            ("2026-05-02T01:00:00Z", 2, "copilot"),
+        ]
+
+        assert step_lanes(None, alignments)[0] == "copilot"
+        assert step_lanes(None, list(reversed(alignments)))[0] == "copilot"
+        same_instant = [("2026-05-02T00:00:00Z", 9, "codex"), ("2026-05-02T00:00:00Z", 4, "claude")]
+        assert step_lanes(None, same_instant)[0] == "claude"
+
+    def test_unknown_provider_is_ignored_and_no_alignments_is_no_agent(self):
+        assert step_lanes("texto dañado", []) == ("sin agente", [])
 
 
 class TestReferences:
@@ -139,11 +179,9 @@ class TestReferences:
             f"completo {SHA_A}."
         )
 
-        refs = extract_references(notes)
+        assert extract_references(notes)["sha_candidates"] == ["5be88d0", "7d03e1b", SHA_A]
 
-        assert refs["sha_candidates"] == ["5be88d0", "7d03e1b", SHA_A]
-
-    def test_ignores_tokens_longer_than_a_sha(self):
+    def test_ignores_tokens_longer_than_40(self):
         assert extract_references("a" * 20 + "1" * 21)["sha_candidates"] == []
 
     def test_pr_grammar(self):
@@ -162,23 +200,34 @@ class TestReferences:
 
 class TestCommitIndex:
     def test_resolves_a_unique_prefix_and_rejects_an_ambiguous_one(self):
-        index = CommitIndex([SHA_A, SHA_C1, SHA_C2])
+        index = CommitIndex([SHA_A, SHA_C1, SHA_C2, SHA_256])
 
         assert index.resolve("a1b2c3d") == SHA_A
         assert index.resolve("A1B2C3D") == SHA_A
         assert index.resolve("c0ffee1") is None
         assert index.resolve("c0ffee12345") == SHA_C1
+        assert index.resolve(SHA_256[:12]) == SHA_256
         assert index.resolve("fffffff") is None
 
-    def test_reads_imported_commits_from_runs(self, conn):
+    def test_only_accepts_full_hex_shas(self):
+        index = CommitIndex([SHA_A, "a1b2c3d", "texto libre", SHA_A.upper(), "g" * 40, None])
+
+        assert len(index) == 1
+
+    def test_reads_imported_commits_from_runs_and_skips_malformed_session_ids(self, conn):
         _commit(conn, SHA_A)
         _commit(conn, SHA_A, alias="otro-proyecto")
-        conn.execute("INSERT INTO runs (ts, project, session_id) VALUES ('2026-05-01', 'p', 'git::roto')")
-        conn.execute("INSERT INTO runs (ts, project, session_id) VALUES ('2026-05-01', 'p', 'sesion-claude')")
+        _commit(conn, SHA_256)
+        for session_id in ("git::roto", "git::mi-proyecto::texto libre privado", "git::::" + SHA_B,
+                           "git::a::b::" + SHA_B, "sesion-claude"):
+            conn.execute("INSERT INTO runs (ts, project, session_id) VALUES ('2026-05-01', 'p', ?)",
+                         (session_id,))
 
         index = CommitIndex.from_db(conn)
 
+        assert len(index) == 2
         assert index.resolve("a1b2c3d") == SHA_A
+        assert index.resolve(SHA_B[:7]) is None
 
     def test_step_references_split_verified_and_unverified(self):
         refs = step_references(f"commits a1b2c3d, {SHA_A}, c0ffee1 y 9f9f9f9; PR #12; tests ok",
@@ -199,12 +248,9 @@ class TestContextGraph:
         s2 = _step(conn, ctx, 2, provider="", notes=f"Sigue {SHA_A[:9]} y {SHA_B[:8]}; c0ffee1 ambiguo")
         s3 = _step(conn, ctx, 2, provider="texto dañado con datos privados", notes="sin referencias",
                    status="pending")
-        conn.execute("INSERT INTO alignments (ts, step_id, context_id, agent, confirmed, checkpoint) "
-                     "VALUES ('2026-05-02T00:00:00Z', ?, ?, 'codex', 1, 'checkpoint privado')", (s2, ctx))
-        conn.execute("INSERT INTO alignments (ts, step_id, context_id, agent, confirmed, checkpoint) "
-                     "VALUES ('2026-05-02T00:01:00Z', ?, ?, 'github-copilot', 0, 'x')", (s2, ctx))
-        conn.execute("INSERT INTO alignments (ts, step_id, context_id, agent, confirmed, checkpoint) "
-                     "VALUES ('2026-05-02T00:02:00Z', ?, ?, 'codex-cli', 1, 'y')", (s1, ctx))
+        _alignment(conn, s2, ctx, "codex", ts="2026-05-02T00:00:00Z")
+        _alignment(conn, s2, ctx, "github-copilot", ts="2026-05-02T00:01:00Z", confirmed=0)
+        _alignment(conn, s1, ctx, "codex_cli", ts="2026-05-02T00:02:00Z")
         conn.execute("INSERT INTO runs (ts, project, provider, status, cost_usd, step_id, task, response) "
                      "VALUES ('2026-05-02T00:00:00Z', 'mi-proyecto', 'claude', 'done', 1.25, ?, "
                      "'tarea privada', 'respuesta privada')", (s1,))
@@ -235,6 +281,18 @@ class TestContextGraph:
         assert nodes[f"step:{s3}"]["attrs"]["lane"] == "sin agente"
         assert nodes[f"step:{s3}"]["state"] == "pending"
 
+    def test_duplicate_order_idx_is_broken_by_step_id(self, conn):
+        ctx = _context(conn)
+        later = _step(conn, ctx, 5)
+        first = _step(conn, ctx, 1)
+        same = _step(conn, ctx, 5)
+
+        graph = context_graph(conn, ctx, commits=CommitIndex([]), now=NOW)
+
+        steps = [n for n in graph["nodes"] if n["kind"] == "step"]
+        assert [n["id"] for n in steps] == [f"step:{first}", f"step:{later}", f"step:{same}"]
+        assert [n["attrs"]["idx"] for n in steps] == [1, 2, 3]
+
     def test_shared_commit_is_one_node_with_one_edge_per_citing_step(self, conn):
         ctx, (s1, s2, _), index = self._build(conn)
 
@@ -251,16 +309,28 @@ class TestContextGraph:
             (f"step:{s2}", f"commit:{SHA_A}"),
             (f"step:{s2}", f"commit:{SHA_B}"),
         ]
-        assert {e["origin"] for e in graph["edges"] if e["relation_type"] == "cites"} == {"verified_reference"}
 
     def test_contains_no_free_text(self, conn):
         ctx, _, index = self._build(conn)
+        conn.execute("UPDATE contexts SET status = 'estado con texto libre' WHERE id = ?", (ctx,))
 
-        payload = json.dumps(context_graph(conn, ctx, commits=index, now=NOW), ensure_ascii=False)
+        graph = context_graph(conn, ctx, commits=index, now=NOW)
+        payload = json.dumps(graph, ensure_ascii=False)
 
         for text in ("titulo privado", "titulo de paso", "Hecho en", "checkpoint privado",
-                     "tarea privada", "respuesta privada", "texto dañado"):
+                     "tarea privada", "respuesta privada", "texto dañado", "texto libre"):
             assert text not in payload
+        assert graph["nodes"][0]["state"] == "otro"
+        _validate(graph, "project_graph.schema.json")
+
+    def test_context_without_steps(self, conn):
+        ctx = _context(conn)
+
+        graph = context_graph(conn, ctx, commits=CommitIndex([]), now=NOW)
+
+        assert [n["kind"] for n in graph["nodes"]] == ["context"]
+        assert graph["edges"] == []
+        _validate(graph, "project_graph.schema.json")
 
     def test_unknown_context_returns_none(self, conn):
         assert context_graph(conn, 999, commits=CommitIndex([]), now=NOW) is None
@@ -273,6 +343,30 @@ class TestContextGraph:
         graph = context_graph(conn, ctx, now=NOW)
 
         assert f"commit:{SHA_B}" in {n["id"] for n in graph["nodes"]}
+
+    @pytest.mark.parametrize(
+        "mutate",
+        [
+            lambda g: g["nodes"].append({"id": f"commit:{SHA_A}", "kind": "commit", "label": "a1b2c3d",
+                                         "attrs": {}}),
+            lambda g: g["nodes"].append({"id": "step:1", "kind": "step", "label": "Paso 1"}),
+            lambda g: g["nodes"].append({"id": "commit:texto", "kind": "commit", "label": "texto"}),
+            lambda g: g["nodes"][0].update(label="titulo privado"),
+            lambda g: g["metadata"].update(extra="x"),
+            lambda g: g.update(map={}),
+            lambda g: g["edges"].append({"source": "step:1", "target": "portal:otro", "relation_type": "cites",
+                                         "origin": "verified_reference", "confidence": 1.0,
+                                         "evidence_ref": "steps.notes"}),
+        ],
+    )
+    def test_schema_rejects_contract_violations(self, conn, mutate):
+        ctx, _, index = self._build(conn)
+        graph = context_graph(conn, ctx, commits=index, now=NOW)
+
+        mutate(graph)
+
+        with pytest.raises(jsonschema.ValidationError):
+            _validate(graph, "project_graph.schema.json")
 
 
 class TestActivity:
@@ -294,14 +388,13 @@ class TestActivity:
                      "('2026-06-01T11:30:00+00:00', 'otro-proyecto', 'claude', 'done')")
         conn.execute("INSERT INTO runs (ts, project, provider, status) VALUES "
                      "('no es fecha', 'mi-proyecto', 'claude', 'done')")
-        conn.execute("INSERT INTO alignments (ts, step_id, context_id, agent, confirmed, checkpoint) VALUES "
-                     "('2026-06-01T12:00:00Z', ?, ?, 'claude-code', 0, 'checkpoint privado')", (step, ctx))
+        _alignment(conn, step, ctx, "claude-code", ts="2026-06-01T12:00:00Z", confirmed=0)
         conn.execute("INSERT INTO tool_calls (ts, step_id, context_id, tool_name, status) VALUES "
                      "('2026-06-01T12:00:00Z', ?, ?, 'pytest', 'ok')", (step, ctx))
         conn.execute("INSERT INTO egress_decisions (ts, project, provider, phase, decision, reason_code) VALUES "
                      "('2026-06-01T12:00:00Z', 'mi-proyecto', 'claude', 'pre', 'allow', 'policy_ok')")
-        _mcp(conn, "2026-06-01T11:45:00Z", "r1", "advance_step", "workflow", "claude-code")
-        _mcp(conn, "2026-06-01T11:46:00Z", "r2", "get_context", "read", "codex")
+        _mcp(conn, "2026-06-01T11:45:00Z", "r1", "advance_step", "workflow_transition", "claude_code")
+        _mcp(conn, "2026-06-01T11:46:00Z", "r2", "get_context", "read", "codex_cli")
         return ctx, step, ids
 
     def test_orders_by_utc_instant_across_offsets_and_sources(self, conn):
@@ -341,6 +434,32 @@ class TestActivity:
         assert "tarea privada" not in payload
         assert "checkpoint privado" not in payload
 
+    def test_free_text_in_identifier_columns_never_reaches_the_dto(self, conn):
+        ctx = _context(conn)
+        step = _step(conn, ctx, 1, provider="texto dañado del proveedor",
+                     started_at="2026-06-01T10:00:00Z")
+        conn.execute("INSERT INTO runs (ts, project, provider, model, status) VALUES "
+                     "('2026-06-01T10:00:01Z', 'mi-proyecto', 'proveedor con espacios', "
+                     "'modelo <script>', 'estado libre privado')")
+        conn.execute("INSERT INTO tool_calls (ts, step_id, context_id, tool_name, status) VALUES "
+                     "('2026-06-01T10:00:02Z', ?, ?, 'Revisé el archivo privado', 'hecho a mano')",
+                     (step, ctx))
+        conn.execute("INSERT INTO egress_decisions (ts, project, provider, phase, decision, reason_code) VALUES "
+                     "('2026-06-01T10:00:03Z', 'mi-proyecto', 'x', 'fase libre', 'deny', 'motivo libre')")
+        _mcp(conn, "2026-06-01T10:00:04Z", "r", "herramienta inventada!", "workflow_mutation", "otro cliente")
+
+        result = activity(conn, "mi-proyecto", now=NOW)
+
+        _validate(result, "activity.schema.json")
+        payload = json.dumps(result, ensure_ascii=False)
+        for text in ("dañado", "espacios", "script", "libre", "privado", "inventada", "otro cliente"):
+            assert text not in payload
+        labels = {e["kind"]: (e["label"], e["state"]) for e in result["events"]}
+        assert labels["run"] == ("run", "otro")
+        assert labels["tool_call"] == ("tool_call", "otro")
+        assert labels["egress_decision"] == ("egress", "deny")
+        assert labels["mcp_invocation"] == ("mcp", "success")
+
     def test_window_is_inclusive_since_and_exclusive_until_by_instant(self, conn):
         self._seed(conn)
 
@@ -351,6 +470,39 @@ class TestActivity:
             "step_completed", "run", "egress_decision", "tool_call", "alignment"]
         assert result["metadata"]["since"] == "2026-06-01T12:00:00+00:00"
         assert result["metadata"]["until"] == "2026-06-01T12:59:00+00:00"
+        assert result["metadata"]["skipped_invalid_ts"] == 1
+
+    def test_every_row_is_either_returned_or_counted_as_invalid(self, conn):
+        for ts in ("2026-06-01T12:00:00Z", "20260601T120000+0000", "2026-06-01 12:00:00", "mal"):
+            conn.execute("INSERT INTO runs (ts, project, status) VALUES (?, 'mi-proyecto', 'done')", (ts,))
+
+        result = activity(conn, "mi-proyecto", now=NOW)
+
+        assert len(result["events"]) + result["metadata"]["skipped_invalid_ts"] == 4
+        assert result["metadata"]["skipped_invalid_ts"] >= 1
+
+    def test_ties_are_deterministic_regardless_of_insertion_order(self):
+        def build(reverse):
+            db = _empty_db()
+            ctx = _context(db)
+            step = _step(db, ctx, 1, completed_at="2026-06-01T12:00:00Z")
+            inserts = [
+                lambda: db.execute("INSERT INTO runs (id, ts, project, status) VALUES "
+                                   "(7, '2026-06-01T09:00:00-03:00', 'mi-proyecto', 'done')"),
+                lambda: db.execute("INSERT INTO runs (id, ts, project, status) VALUES "
+                                   "(3, '2026-06-01T12:00:00Z', 'mi-proyecto', 'done')"),
+                lambda: _alignment(db, step, ctx, "codex", ts="2026-06-01T08:00:00-04:00"),
+                lambda: _mcp(db, "2026-06-01T12:00:00Z", "r", "add_step", "workflow_mutation", "codex_cli"),
+            ]
+            for insert in (reversed(inserts) if reverse else inserts):
+                insert()
+            events = [e["id"] for e in activity(db, "mi-proyecto", now=NOW)["events"]]
+            db.close()
+            return events
+
+        expected = ["run:7", "run:3", "alignment:1", "mcp_invocation:1", "step_completed:1"]
+        assert build(False) == expected
+        assert build(True) == expected
 
     def test_limit_truncates_and_reports_it(self, conn):
         self._seed(conn)

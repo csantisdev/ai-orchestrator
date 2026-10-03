@@ -1,7 +1,8 @@
-"""Proyecciones puras de la base hacia los DTO del dashboard (spec §10, §20, §21.4).
+"""Proyecciones puras de la base hacia los DTO del dashboard (spec §10, §20, §21).
 
 Leen SQLite y devuelven estructuras serializables; no escriben ni modifican los
 datos de origen. La normalización de agentes y timestamps vive solo acá (§20.4).
+Los DTO no llevan texto libre: solo identificadores, conteos y tokens validados.
 """
 
 from __future__ import annotations
@@ -12,13 +13,23 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
-AGENT_CATALOG = ("claude", "codex", "copilot", "gemini")
+AGENT_ALIASES = {
+    "claude": ("claude", "claude-code", "claude_code"),
+    "codex": ("codex", "codex_cli"),
+    "copilot": ("copilot", "copilot-cli", "github-copilot"),
+    "otros": ("deepseek", "openai", "gemini"),
+}
+AGENT_CATALOG = tuple(AGENT_ALIASES)
 NO_AGENT = "sin agente"
+_ALIAS_TO_AGENT = {alias: agent for agent, aliases in AGENT_ALIASES.items() for alias in aliases}
 
 _SHA_CANDIDATE = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])")
+_FULL_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _PR_REFERENCE = re.compile(r"\bPR\s*#?(\d+)\b", re.I)
 _TEST_MENTION = re.compile(r"\b(?:pytest|tests?|passed)\b", re.I)
+_TOKEN = re.compile(r"[a-z0-9][a-z0-9_.:-]{0,63}")
 _GIT_SESSION_PREFIX = "git::"
+OTHER = "otro"
 
 ACTIVITY_KIND_ORDER = (
     "run",
@@ -57,22 +68,18 @@ def to_utc(value: object) -> Optional[str]:
 
 
 def normalize_agent(value: object) -> str:
-    """Identidad del agente en el catálogo común; lo desconocido cae en `sin agente`.
-
-    Acepta los alias que hoy conviven en `alignments.agent`, `steps.provider` y
-    `mcp_invocations.client_surface` (`claude-code`, `copilot-cli`, `github-copilot`…).
-    """
+    """Agente del catálogo de §21.1 (alias exactos); lo demás cae en `sin agente`."""
     if not isinstance(value, str):
         return NO_AGENT
+    return _ALIAS_TO_AGENT.get(value.strip().lower(), NO_AGENT)
+
+
+def _token(value: object) -> Optional[str]:
+    """Identificador corto en minúsculas, o None si es texto libre."""
+    if not isinstance(value, str):
+        return None
     text = value.strip().lower()
-    for agent in AGENT_CATALOG:
-        if agent in text:
-            return agent
-    return NO_AGENT
-
-
-def _catalog_rank(agent: str) -> int:
-    return AGENT_CATALOG.index(agent) if agent in AGENT_CATALOG else len(AGENT_CATALOG)
+    return text if _TOKEN.fullmatch(text) else None
 
 
 def extract_references(notes: object) -> dict:
@@ -98,10 +105,20 @@ def extract_references(notes: object) -> dict:
 
 
 class CommitIndex:
-    """SHAs completos de los commits importados (`runs.session_id = git::<alias>::<sha>`)."""
+    """SHAs completos de los commits importados (`runs.session_id = git::<alias>::<sha>`).
+
+    Solo se aceptan SHAs hexadecimales completos de 40 o 64 caracteres.
+    """
 
     def __init__(self, shas: Iterable[str]):
-        self._shas = sorted({sha.lower() for sha in shas if sha})
+        valid = set()
+        for sha in shas:
+            if isinstance(sha, str) and _FULL_SHA.fullmatch(sha.strip().lower()):
+                valid.add(sha.strip().lower())
+        self._shas = sorted(valid)
+
+    def __len__(self) -> int:
+        return len(self._shas)
 
     @classmethod
     def from_db(cls, conn: sqlite3.Connection) -> "CommitIndex":
@@ -111,7 +128,7 @@ class CommitIndex:
         shas = []
         for (session_id,) in rows:
             parts = session_id.split("::")
-            if len(parts) == 3 and parts[2]:
+            if len(parts) == 3 and parts[1]:
                 shas.append(parts[2])
         return cls(shas)
 
@@ -130,7 +147,7 @@ class CommitIndex:
 
 
 def step_references(notes: object, commits: CommitIndex) -> dict:
-    """Referencias de un paso separadas en SHAs verificados y texto sin verificar."""
+    """Referencias de un paso separadas en SHAs verificados y candidatos sin verificar."""
     refs = extract_references(notes)
     verified: list[str] = []
     unverified: list[str] = []
@@ -155,15 +172,30 @@ def _now_utc(now: Optional[datetime]) -> str:
     return moment.astimezone(timezone.utc).isoformat()
 
 
-def _step_lanes(provider: object, alignment_agents: list[str]) -> tuple[str, list[str]]:
-    lane = normalize_agent(provider)
+def _alignment_sort_key(ts: object, row_id: int) -> tuple:
+    instant = parse_instant(ts)
+    return (instant is None, instant or datetime.min.replace(tzinfo=timezone.utc), row_id)
+
+
+def step_lanes(provider: object, alignments: list[tuple[object, int, str]]) -> tuple[str, list[str]]:
+    """Carril principal y agentes secundarios de un paso (regla de §21.1).
+
+    `alignments` son tuplas `(ts, id, agente_normalizado)`. Principal: `provider` si está
+    en el catálogo; si no, el agente con más alineamientos y, en empate, el del primer
+    alineamiento por instante y luego id; sin alineamientos, `sin agente`.
+    """
+    ordered = sorted(alignments, key=lambda item: _alignment_sort_key(item[0], item[1]))
     counts: dict[str, int] = {}
-    for agent in alignment_agents:
-        if agent != NO_AGENT:
-            counts[agent] = counts.get(agent, 0) + 1
+    first_seen: dict[str, int] = {}
+    for position, (_, _, agent) in enumerate(ordered):
+        if agent == NO_AGENT:
+            continue
+        counts[agent] = counts.get(agent, 0) + 1
+        first_seen.setdefault(agent, position)
+    lane = normalize_agent(provider)
     if lane == NO_AGENT and counts:
-        lane = min(counts, key=lambda agent: (-counts[agent], _catalog_rank(agent)))
-    secondary = sorted((agent for agent in counts if agent != lane), key=_catalog_rank)
+        lane = min(counts, key=lambda agent: (-counts[agent], first_seen[agent]))
+    secondary = [agent for agent in AGENT_CATALOG if agent in counts and agent != lane]
     return lane, secondary
 
 
@@ -175,51 +207,52 @@ def context_graph(
 ) -> Optional[dict]:
     """ProjectGraph (§10.1) de un contexto: el contexto, sus pasos y los commits citados.
 
-    Sin texto de notas, títulos de commits ni contenido de runs (§21.4).
+    Sin texto de notas, títulos de commits ni contenido de runs (§21.4). Las
+    representaciones (mapa, constelación) agregan su extensión con su propio esquema.
     """
     context = conn.execute(
         "SELECT id, project, status FROM contexts WHERE id = ?", (context_id,)
     ).fetchone()
     if context is None:
         return None
-    commits = commits or CommitIndex.from_db(conn)
+    commits = commits if commits is not None else CommitIndex.from_db(conn)
     steps = conn.execute(
         "SELECT id, order_idx, status, provider, notes FROM steps "
         "WHERE context_id = ? ORDER BY order_idx, id",
         (context_id,),
     ).fetchall()
-    step_ids = [row[0] for row in steps]
 
-    alignments: dict[int, list[tuple[str, int]]] = {step_id: [] for step_id in step_ids}
-    for step_id, agent, confirmed in conn.execute(
-        "SELECT step_id, agent, confirmed FROM alignments WHERE context_id = ?", (context_id,)
+    alignments: dict[int, list[tuple[object, int, str]]] = {}
+    confirmations: dict[int, list[int]] = {}
+    for row_id, step_id, ts, agent, confirmed in conn.execute(
+        "SELECT a.id, a.step_id, a.ts, a.agent, a.confirmed FROM alignments a "
+        "JOIN steps s ON s.id = a.step_id WHERE s.context_id = ?",
+        (context_id,),
     ).fetchall():
-        if step_id in alignments:
-            alignments[step_id].append((normalize_agent(agent), confirmed))
+        alignments.setdefault(step_id, []).append((ts, row_id, normalize_agent(agent)))
+        confirmations.setdefault(step_id, []).append(confirmed)
 
     run_totals: dict[int, tuple[int, float]] = {}
-    if step_ids:
-        placeholders = ",".join("?" for _ in step_ids)
-        for step_id, count, cost in conn.execute(
-            f"SELECT step_id, COUNT(*), COALESCE(SUM(cost_usd), 0) FROM runs "
-            f"WHERE step_id IN ({placeholders}) GROUP BY step_id",
-            step_ids,
-        ).fetchall():
-            run_totals[step_id] = (count, round(float(cost or 0), 6))
+    for step_id, count, cost in conn.execute(
+        "SELECT r.step_id, COUNT(*), COALESCE(SUM(r.cost_usd), 0) FROM runs r "
+        "JOIN steps s ON s.id = r.step_id WHERE s.context_id = ? GROUP BY r.step_id",
+        (context_id,),
+    ).fetchall():
+        run_totals[step_id] = (count, round(float(cost or 0), 6))
 
+    context_node = f"context:{context[0]}"
     nodes = [
         {
-            "id": f"context:{context[0]}",
+            "id": context_node,
             "kind": "context",
             "label": f"Contexto {context[0]}",
-            "state": context[2] or "",
+            "state": _token(context[2]) or OTHER,
         }
     ]
     edges = []
     commit_nodes: dict[str, dict] = {}
     for position, (step_id, order_idx, status, provider, notes) in enumerate(steps, start=1):
-        step_alignments = alignments.get(step_id, [])
-        lane, secondary = _step_lanes(provider, [agent for agent, _ in step_alignments])
+        lane, secondary = step_lanes(provider, alignments.get(step_id, []))
         runs, cost = run_totals.get(step_id, (0, 0.0))
         refs = step_references(notes, commits)
         node_id = f"step:{step_id}"
@@ -228,14 +261,14 @@ def context_graph(
                 "id": node_id,
                 "kind": "step",
                 "label": f"Paso {position}",
-                "state": status or "",
+                "state": _token(status) or OTHER,
                 "attrs": {
                     "idx": position,
-                    "order_idx": order_idx,
+                    "order_idx": order_idx if isinstance(order_idx, int) else None,
                     "lane": lane,
                     "secondary": secondary,
-                    "alignments": len(step_alignments),
-                    "deviations": sum(1 for _, confirmed in step_alignments if not confirmed),
+                    "alignments": len(confirmations.get(step_id, [])),
+                    "deviations": sum(1 for confirmed in confirmations.get(step_id, []) if not confirmed),
                     "runs": runs,
                     "cost_usd": cost,
                     "prs": refs["prs"],
@@ -246,7 +279,7 @@ def context_graph(
         )
         edges.append(
             {
-                "source": f"context:{context[0]}",
+                "source": context_node,
                 "target": node_id,
                 "relation_type": "contains",
                 "origin": "system",
@@ -279,16 +312,22 @@ def context_graph(
     }
 
 
-def _window_clause(column: str, since: Optional[str], until: Optional[str]) -> tuple[str, list]:
-    clauses = []
-    params: list = []
-    if since:
-        clauses.append(f"julianday({column}) >= julianday(?)")
-        params.append(since)
-    if until:
-        clauses.append(f"julianday({column}) < julianday(?)")
-        params.append(until)
-    return "".join(f" AND {clause}" for clause in clauses), params
+def _event(kind, row_id, ts, label, state, agent=None, step_id=None, context_id=None) -> dict:
+    return {
+        "kind": kind,
+        "row_id": row_id,
+        "ts": ts,
+        "label": label,
+        "state": _token(state) or OTHER,
+        "agent": agent,
+        "step_id": step_id,
+        "context_id": context_id,
+    }
+
+
+def _joined_tokens(*values: object) -> Optional[str]:
+    tokens = [token for token in (_token(value) for value in values) if token]
+    return " ".join(tokens) if tokens else None
 
 
 def activity(
@@ -301,83 +340,71 @@ def activity(
 ) -> dict:
     """Activity del proyecto (§10.4): hitos de la base ordenados por instante UTC.
 
-    `since` es inclusivo y `until` exclusivo. Los eventos con timestamp que no se
-    puede parsear se descartan y se cuentan en `metadata.skipped_invalid_ts`.
+    `since` es inclusivo y `until` exclusivo. La ventana se aplica en Python, con el
+    mismo parser que normaliza los timestamps, así que un valor que no se puede
+    parsear siempre se descarta y se cuenta en `metadata.skipped_invalid_ts`.
+    Orden: instante descendente; en empate, `ACTIVITY_KIND_ORDER` y luego id descendente.
+    Los labels y estados son tokens validados; el texto libre se reemplaza por el tipo.
     """
-    since_utc = to_utc(since) if since else None
-    until_utc = to_utc(until) if until else None
-    if since and since_utc is None:
+    since_dt = parse_instant(since) if since else None
+    until_dt = parse_instant(until) if until else None
+    if since and since_dt is None:
         raise ValueError(f"since inválido: {since!r}")
-    if until and until_utc is None:
+    if until and until_dt is None:
         raise ValueError(f"until inválido: {until!r}")
     limit = max(1, int(limit))
     raw: list[dict] = []
 
-    clause, params = _window_clause("ts", since_utc, until_utc)
     for run_id, ts, provider, model, status, step_id in conn.execute(
-        "SELECT id, ts, provider, model, status, step_id FROM runs WHERE project = ?" + clause,
-        [project, *params],
+        "SELECT id, ts, provider, model, status, step_id FROM runs WHERE project = ?", (project,)
     ).fetchall():
-        label = "/".join(part for part in (provider, model) if part) or "run"
-        raw.append({"kind": "run", "row_id": run_id, "ts": ts, "step_id": step_id,
-                    "agent": normalize_agent(provider) if provider else None,
-                    "label": label, "state": status or ""})
+        provider_token, model_token = _token(provider), _token(model)
+        label = "/".join(t for t in (provider_token, model_token) if t) or "run"
+        raw.append(_event("run", run_id, ts, label, status, normalize_agent(provider), step_id))
 
-    clause, params = _window_clause("ts", since_utc, until_utc)
     for row_id, ts, phase, decision, reason_code in conn.execute(
-        "SELECT id, ts, phase, decision, reason_code FROM egress_decisions WHERE project = ?"
-        + clause,
-        [project, *params],
+        "SELECT id, ts, phase, decision, reason_code FROM egress_decisions WHERE project = ?",
+        (project,),
     ).fetchall():
-        raw.append({"kind": "egress_decision", "row_id": row_id, "ts": ts, "step_id": None,
-                    "agent": None, "label": " ".join(p for p in (phase, reason_code) if p) or "egress",
-                    "state": decision or ""})
+        raw.append(_event("egress_decision", row_id, ts, _joined_tokens(phase, reason_code) or "egress",
+                          decision))
 
-    clause, params = _window_clause("a.ts", since_utc, until_utc)
     for row_id, ts, step_id, context_id, agent, confirmed in conn.execute(
         "SELECT a.id, a.ts, a.step_id, a.context_id, a.agent, a.confirmed FROM alignments a "
-        "JOIN contexts c ON c.id = a.context_id WHERE c.project = ?" + clause,
-        [project, *params],
+        "JOIN contexts c ON c.id = a.context_id WHERE c.project = ?",
+        (project,),
     ).fetchall():
-        raw.append({"kind": "alignment", "row_id": row_id, "ts": ts, "step_id": step_id,
-                    "context_id": context_id, "agent": normalize_agent(agent),
-                    "label": "alineamiento" if confirmed else "desviación",
-                    "state": "confirmed" if confirmed else "deviation"})
+        state = "confirmed" if confirmed else "deviation"
+        raw.append(_event("alignment", row_id, ts, "alignment", state, normalize_agent(agent),
+                          step_id, context_id))
 
-    clause, params = _window_clause("t.ts", since_utc, until_utc)
     for row_id, ts, step_id, context_id, tool_name, status in conn.execute(
         "SELECT t.id, t.ts, t.step_id, t.context_id, t.tool_name, t.status FROM tool_calls t "
-        "JOIN contexts c ON c.id = t.context_id WHERE c.project = ?" + clause,
-        [project, *params],
+        "JOIN contexts c ON c.id = t.context_id WHERE c.project = ?",
+        (project,),
     ).fetchall():
-        raw.append({"kind": "tool_call", "row_id": row_id, "ts": ts, "step_id": step_id,
-                    "context_id": context_id, "agent": None,
-                    "label": (tool_name or "tool call")[:80], "state": status or ""})
+        raw.append(_event("tool_call", row_id, ts, _token(tool_name) or "tool_call", status, None,
+                          step_id, context_id))
 
-    clause, params = _window_clause("ts", since_utc, until_utc)
     for row_id, ts, surface, tool_name, status in conn.execute(
         "SELECT id, ts, client_surface, tool_name, status FROM mcp_invocations "
-        "WHERE project = ? AND COALESCE(tool_category, '') <> 'read'" + clause,
-        [project, *params],
+        "WHERE project = ? AND COALESCE(tool_category, '') <> 'read'",
+        (project,),
     ).fetchall():
-        raw.append({"kind": "mcp_invocation", "row_id": row_id, "ts": ts, "step_id": None,
-                    "agent": normalize_agent(surface), "label": (tool_name or "mcp")[:80],
-                    "state": status or ""})
+        raw.append(_event("mcp_invocation", row_id, ts, _token(tool_name) or "mcp", status,
+                          normalize_agent(surface)))
 
-    for column, kind in (("started_at", "step_started"), ("completed_at", "step_completed")):
-        clause, params = _window_clause(f"s.{column}", since_utc, until_utc)
+    for column, kind, state in (("started_at", "step_started", "started"),
+                                ("completed_at", "step_completed", "completed")):
         for step_id, ts, context_id, order_idx, provider in conn.execute(
             f"SELECT s.id, s.{column}, s.context_id, s.order_idx, s.provider FROM steps s "
-            f"JOIN contexts c ON c.id = s.context_id WHERE c.project = ? AND s.{column} IS NOT NULL"
-            + clause,
-            [project, *params],
+            f"JOIN contexts c ON c.id = s.context_id WHERE c.project = ? AND s.{column} IS NOT NULL",
+            (project,),
         ).fetchall():
-            raw.append({"kind": kind, "row_id": step_id, "ts": ts, "step_id": step_id,
-                        "context_id": context_id, "agent": normalize_agent(provider),
-                        "label": f"paso {order_idx}", "state": kind.split("_", 1)[1]})
+            label = f"paso {order_idx}" if isinstance(order_idx, int) else "paso"
+            raw.append(_event(kind, step_id, ts, label, state, normalize_agent(provider),
+                              step_id, context_id))
 
-    since_dt = parse_instant(since_utc) if since_utc else None
-    until_dt = parse_instant(until_utc) if until_utc else None
     events = []
     skipped = 0
     for item in raw:
@@ -402,15 +429,14 @@ def activity(
     truncated = len(events) > limit
     result = []
     for instant, item in events[:limit]:
-        step_id = item.get("step_id")
-        context_id = item.get("context_id")
+        step_id = item["step_id"]
         result.append(
             {
                 "id": f"{item['kind']}:{item['row_id']}",
                 "kind": item["kind"],
                 "ts": instant.isoformat(),
-                "ref": f"step:{step_id}" if step_id is not None else None,
-                "context_id": context_id,
+                "ref": f"step:{step_id}" if isinstance(step_id, int) else None,
+                "context_id": item["context_id"],
                 "agent": item["agent"],
                 "label": item["label"],
                 "state": item["state"],
@@ -421,8 +447,8 @@ def activity(
         "events": result,
         "metadata": {
             "generated_at": _now_utc(now),
-            "since": since_utc,
-            "until": until_utc,
+            "since": since_dt.isoformat() if since_dt else None,
+            "until": until_dt.isoformat() if until_dt else None,
             "limit": limit,
             "truncated": truncated,
             "skipped_invalid_ts": skipped,
