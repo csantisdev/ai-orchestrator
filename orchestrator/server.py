@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.server
 import hmac
+import io
 import json as json_mod
 import queue
 import socket
@@ -175,6 +176,8 @@ def serve(
                         self._reject({"error": "Content-Length required"}, 400, force_close=True); return
                     if body_length > self._MAX_REJECT_BODY:
                         self._reject({"error": "request body too large"}, 413, force_close=True); return
+                    if not self._buffer_post_body(body_length):
+                        self._json({"error": "incomplete request body"}, 400, close=True); return
                 if self.command not in ("GET", "POST"):
                     self._reject({"error": "method not allowed"}, 405); return
                 method = getattr(self, "do_" + self.command)
@@ -695,6 +698,42 @@ def serve(
                 self._reject({"error": "Content-Type: application/json required"}, 415)
                 return False
             return True
+
+        def _buffer_post_body(self, length: int) -> bool:
+            """Read the whole POST body from the socket and serve it to the handler from memory.
+
+            Several handlers answer without reading the body. With HTTP/1.0 the server
+            closes after each response, and on Windows closing a socket with unread
+            request bytes sends an RST: the client loses a response that was already
+            written. Reading the declared length up front (bounded by the 1 MiB check)
+            leaves nothing unread, whatever the handler does.
+            """
+            chunks = []
+            remaining = length
+            previous_timeout = self.connection.gettimeout()
+            try:
+                self.connection.settimeout(5.0)
+                while remaining:
+                    chunk = self.rfile.read(min(65536, remaining))
+                    if not chunk:
+                        return False
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+            except (OSError, TimeoutError):
+                return False
+            finally:
+                self.connection.settimeout(previous_timeout)
+            self._socket_rfile = self.rfile
+            self.rfile = io.BytesIO(b"".join(chunks))
+            return True
+
+        def finish(self):
+            try:
+                super().finish()
+            finally:
+                socket_rfile = getattr(self, "_socket_rfile", None)
+                if socket_rfile is not None:
+                    socket_rfile.close()
 
         def _discard_request_body(self) -> bool:
             """Consume a bounded rejected POST body before the connection closes.
