@@ -13,6 +13,8 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
+from orchestrator.git_scanner import PROVIDER_NAME as GIT_PROVIDER
+
 AGENT_ALIASES = {
     "claude": ("claude", "claude-code", "claude_code"),
     "codex": ("codex", "codex_cli"),
@@ -123,7 +125,8 @@ class CommitIndex:
     @classmethod
     def from_db(cls, conn: sqlite3.Connection) -> "CommitIndex":
         rows = conn.execute(
-            "SELECT session_id FROM runs WHERE session_id LIKE ?", (_GIT_SESSION_PREFIX + "%",)
+            "SELECT session_id FROM runs WHERE provider = ? AND session_id LIKE ?",
+            (GIT_PROVIDER, _GIT_SESSION_PREFIX + "%"),
         ).fetchall()
         shas = []
         for (session_id,) in rows:
@@ -234,7 +237,8 @@ def context_graph(
 
     run_totals: dict[int, tuple[int, float]] = {}
     for step_id, count, cost in conn.execute(
-        "SELECT r.step_id, COUNT(*), COALESCE(SUM(r.cost_usd), 0) FROM runs r "
+        "SELECT r.step_id, COUNT(*), "
+        "COALESCE(SUM(CASE WHEN r.cost_usd BETWEEN 0 AND 1e15 THEN r.cost_usd ELSE 0 END), 0) FROM runs r "
         "JOIN steps s ON s.id = r.step_id WHERE s.context_id = ? GROUP BY r.step_id",
         (context_id,),
     ).fetchall():
@@ -358,7 +362,8 @@ def activity(
     for run_id, ts, provider, model, status, step_id in conn.execute(
         "SELECT id, ts, provider, model, status, step_id FROM runs WHERE project = ?", (project,)
     ).fetchall():
-        provider_token, model_token = _token(provider), _token(model)
+        provider_token = _token(provider)
+        model_token = None if provider_token == GIT_PROVIDER else _token(model)
         label = "/".join(t for t in (provider_token, model_token) if t) or "run"
         raw.append(_event("run", run_id, ts, label, status, normalize_agent(provider), step_id))
 

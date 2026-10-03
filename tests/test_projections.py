@@ -225,14 +225,17 @@ class TestCommitIndex:
         _commit(conn, SHA_256)
         for session_id in ("git::roto", "git::mi-proyecto::texto libre privado", "git::::" + SHA_B,
                            "git::a::b::" + SHA_B, "sesion-claude"):
-            conn.execute("INSERT INTO runs (ts, project, session_id) VALUES ('2026-05-01', 'p', ?)",
-                         (session_id,))
+            conn.execute("INSERT INTO runs (ts, project, provider, session_id) "
+                         "VALUES ('2026-05-01', 'p', 'git', ?)", (session_id,))
+        conn.execute("INSERT INTO runs (ts, project, provider, session_id) "
+                     "VALUES ('2026-05-01', 'p', 'claude-code', ?)", (f"git::mi-proyecto::{SHA_C1}",))
 
         index = CommitIndex.from_db(conn)
 
         assert len(index) == 2
         assert index.resolve("a1b2c3d") == SHA_A
         assert index.resolve(SHA_B[:7]) is None
+        assert index.resolve(SHA_C1[:7]) is None
 
     def test_step_references_split_verified_and_unverified(self):
         refs = step_references(f"commits a1b2c3d, {SHA_A}, c0ffee1 y 9f9f9f9; PR #12; tests ok",
@@ -339,6 +342,19 @@ class TestContextGraph:
 
     def test_unknown_context_returns_none(self, conn):
         assert context_graph(conn, 999, commits=CommitIndex([]), now=NOW) is None
+
+    def test_negative_or_infinite_costs_do_not_break_the_schema(self, conn):
+        ctx = _context(conn)
+        step = _step(conn, ctx, 1)
+        for cost in (2.5, -1.25, 9e999, -9e999):
+            conn.execute("INSERT INTO runs (ts, project, status, cost_usd, step_id) "
+                         "VALUES ('2026-05-02T00:00:00Z', 'mi-proyecto', 'done', ?, ?)", (cost, step))
+
+        graph = context_graph(conn, ctx, commits=CommitIndex([]), now=NOW)
+
+        attrs = graph["nodes"][1]["attrs"]
+        assert (attrs["runs"], attrs["cost_usd"]) == (4, 2.5)
+        _validate(graph, "project_graph.schema.json")
 
     def test_builds_the_commit_index_from_the_database_by_default(self, conn):
         _commit(conn, SHA_B)
@@ -464,6 +480,16 @@ class TestActivity:
         assert labels["tool_call"] == ("tool_call", "otro")
         assert labels["egress_decision"] == ("egress", "deny")
         assert labels["mcp_invocation"] == ("mcp", "success")
+
+    def test_imported_commit_label_does_not_carry_the_author(self, conn):
+        conn.execute("INSERT INTO runs (ts, project, provider, model, status, session_id) VALUES "
+                     "('2026-06-01T10:00:00Z', 'mi-proyecto', 'git', 'autor-privado', 'done', ?)",
+                     (f"git::mi-proyecto::{SHA_A}",))
+
+        event = activity(conn, "mi-proyecto", now=NOW)["events"][0]
+
+        assert event["label"] == "git"
+        assert "autor-privado" not in json.dumps(event)
 
     def test_window_is_inclusive_since_and_exclusive_until_by_instant(self, conn):
         self._seed(conn)
