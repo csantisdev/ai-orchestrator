@@ -787,7 +787,7 @@ anonimizan como P1…P7; solo se reportan conteos.
 | Alineamientos fuera de la ventana del paso | 64 de 195 (33 %) son anteriores al `started_at` del paso | Asociar por ventana de tiempo es poco confiable. |
 | Tool calls marginales | 29 en total, con nombres libres; `record_tool_call` se invocó 5 veces por MCP | No es una fuente de evidencia confiable. |
 | Identidad de agentes inconsistente | En `alignments.agent`: `copilot`, `copilot-cli`, `github-copilot`, `claude`, `claude-code` | "¿Qué hace cada agente?" requiere normalizar identidades. |
-| Timestamps con offsets mezclados | En `runs.ts` conviven 238 valores en UTC, 553 con offset `-03:00` y 367 con `-04:00` (commits importados con la zona del autor); además hay 3 `steps.started_at` sin zona | Ordenar `ts` como texto mezcla offsets: comparado con el orden por instante real (`julianday(ts)`), 573 de 1158 runs quedan en otra posición. Afecta también al dashboard actual, porque `read_runs` ordena por `ts` como texto. Las proyecciones deben ordenar, paginar y comparar por instante UTC. |
+| Timestamps con offsets mezclados | En `runs.ts` conviven 238 valores en UTC, 553 con offset `-03:00` y 367 con `-04:00` (commits importados con la zona del committer, `%ci`); además hay 3 `steps.started_at` sin zona | Ordenar `ts` como texto mezcla offsets: comparado con el orden por instante real (`julianday(ts)`), 573 de 1158 runs quedan en otra posición. Afecta también al dashboard actual, porque `read_runs` ordena por `ts` como texto. Las proyecciones deben ordenar, paginar y comparar por instante UTC. |
 
 ### 20.3 Alineamiento de la especificación con el uso
 
@@ -817,6 +817,11 @@ contexto o PR:
    (hoy por `ts` como texto).
 4. Reclasificar los 20 omitidos que no son skip real (ya previsto en el contexto de integridad del
    tracking).
+5. Atribución explícita sesión → paso: hoy los watchers asumen el contexto activo más reciente del
+   proyecto (`get_active_step_id`), lo que falla con varias unidades en paralelo (§24.6). El agente
+   debería declarar su paso (por ejemplo, registrando el identificador de su sesión en
+   `confirm_alignment` o en una variable de entorno que el watcher lea), y el watcher usar esa
+   declaración antes que el contexto más reciente.
 
 ---
 
@@ -1521,7 +1526,7 @@ Cada unidad es **un PR**, con un conjunto de archivos declarado de antemano y es
 | **0 · Especificación y arreglos** | Especificación: Claude → Codex / Copilot CLI (ya auditada). Orden de `read_runs`: Claude → Codex / Copilot CLI. R0: Claude → Codex / Copilot CLI. Prueba de Codex en un clon (§24.7) | Especificación ∥ `read_runs` | 3 PR mergeados; R0 con la lista de verificación de §13 firmada por el usuario; resultado de la prueba de §24.7 registrado |
 | **1 · Seguridad y proyecciones** | D0 (server, `dashboard.py`, `dashboard_js.py`, tests de seguridad): Codex → **Copilot CLI / Claude**. D3a (archivos nuevos): Claude → Codex / Copilot CLI | D0 ∥ D3a (sin archivos en común) | Tests de §14 para D0 en verde, incluido el bypass por subcadena; proyecciones con tests sobre base sintética |
 | **2 · Base del frontend** | Separación mecánica: Claude → Codex / Copilot CLI. D1 (shell, tokens de diseño, handler estático, registro de rutas, paquete `api_v1/`, store, router, línea base de literales, Node en `tests.yml`): Claude → Codex / Copilot CLI | Secuencial (todo depende de la separación) | Prueba de equivalencia en verde; shell nuevo con las vistas heredadas adentro; línea base registrada |
-| **3 · Verticales** | Trabajo (D3b): Claude → Codex / Copilot CLI. Inicio (D2): Codex → Claude / Copilot CLI. Ejecuciones con Costos: Codex (otro clon) → Claude / Copilot CLI. Gobernanza: agente en la nube de Copilot → Claude / Codex | Los 4 verticales, cada uno con sus archivos | Cada vertical sin handlers en línea; línea base bajando; tarea de referencia de §23.8 resuelta en la sesión de la ola |
+| **3 · Verticales** | Trabajo (D3b): Claude → Codex / Copilot CLI. Inicio (D2): Codex → Claude / Copilot CLI. Ejecuciones con Costos: Codex → Claude / Copilot CLI. Gobernanza: agente en la nube de Copilot → Claude / Codex | Trabajo, Gobernanza y **una sola unidad de Codex a la vez** (§24.7): Inicio primero y Ejecuciones después de integrar Inicio | Cada vertical sin handlers en línea; línea base bajando; tarea de referencia de §23.8 resuelta en la sesión de la ola |
 | **4 · Tiempo real y accesibilidad** | D4 backend (hilo de `data_version`, proyección de Activity): Codex → Claude / Copilot CLI. D4 UI + D5: Claude → Codex / Copilot CLI (con capturas) | D4 backend ∥ D4 UI + D5 | Cambio desde otro proceso visible en < 3 s (prueba automatizada); test de contraste AA sobre los pares de tokens (cálculo en Python, sin dependencias) |
 | **5a · Labs: Mapa** | D6: Claude → Codex / Copilot CLI | — | Mapa detrás de Labs; 10 sesiones registradas (§21.6) |
 | **5b · Labs: Constelación** | D7 backend: Codex → Claude / Copilot CLI. D7 UI: Claude → Codex / Copilot CLI | Backend ∥ UI con contrato congelado | Constelación detrás de Labs; 10 sesiones registradas (§22.5) |
@@ -1554,7 +1559,7 @@ Las pestañas Proyectos, Datos y Configuración del dashboard actual pasan a Aju
 | 0 | Especificación → `read_runs` → R0 → resultado de la prueba de §24.7 |
 | 1 | D0 → D3a |
 | 2 | Separación mecánica → D1 |
-| 3 | Los patrones de `api_v1/` y de las vistas los fija D1 en la ola 2, así que los cuatro verticales arrancan juntos. Se mergea primero Trabajo (el más grande) y después Inicio, Ejecuciones y Gobernanza en el orden en que terminen su ronda 2 |
+| 3 | Los patrones de `api_v1/` y de las vistas los fija D1 en la ola 2. Arrancan juntos Trabajo, Gobernanza e Inicio; Ejecuciones (también de Codex) empieza cuando Inicio está integrado. Se mergea primero Trabajo (el más grande) y después el resto en el orden en que terminen su ronda 2 |
 | 4 | D4 backend → D4 UI + D5 |
 | 5a | D6 |
 | 5b | **PR de contrato** (esquema DTO de la constelación y base sintética de prueba, Claude) → D7 backend y D7 UI en paralelo → integración |
@@ -1577,6 +1582,13 @@ Con el modelo actual, `start_step` no permite dos pasos en curso en el mismo con
   `[<agente>] Auditoría ronda 2`, `PR y review de Copilot`. La especificación de la tarea va en la
   descripción del paso.
 - Cada agente recibe el `context_id` explícito en su prompt.
+- **Límite de la atribución automática:** los watchers de Claude Code y Codex vinculan cada sesión
+  importada con `get_active_step_id(project)`, que elige el contexto activo **creado** más
+  recientemente del proyecto (`db.py:559-573`), no el de la unidad que trabajó. Con unidades en
+  paralelo, el `context_id` del prompt no controla esa vinculación: las sesiones (y su costo) pueden
+  quedar en la unidad equivocada. Hasta que exista la atribución explícita de §20.4 (punto 5), la
+  evidencia por unidad se toma de los alineamientos, las notas y los commits citados, que sí llevan
+  el paso; el costo de las sesiones importadas se mide por proyecto y período, no por unidad.
 
 ### 24.7 Cuello de botella del integrador
 
@@ -1602,7 +1614,9 @@ llega a la metadata de git. Para que el paralelismo sea real:
   agente.
 - El Mapa de una unidad con tres agentes es un caso elegible real (§21.2), y la constelación muestra
   las unidades de una ola enlazadas por `parent_step_id` y por commits compartidos.
-- Ejecuciones → Costos mide el costo por ola y por agente.
+- Ejecuciones → Costos mide el costo por ola y por agente a nivel de proyecto y período. El costo por
+  unidad solo es confiable para runs vinculados explícitamente, mientras la atribución automática
+  tenga el límite de §24.6.
 - Las sesiones de validación de §23.8 usan estos datos, no datos de prueba.
 
 ### 24.9 Riesgos de la coordinación
@@ -1614,6 +1628,7 @@ llega a la metadata de git. Para que el paralelismo sea real:
 | Permisos bloqueados tras trabajar Codex | `icacls . /reset /T /Q`; prueba del clon completo (§24.7) |
 | El agente en la nube de Copilot se desvía, pierde commits o expone datos | **Antes:** sus tareas listan los archivos permitidos, prohíben tocar configuración, bases y logs, y no incluyen datos reales; activar *push protection* del escaneo de secretos de GitHub, que bloquea el push si detecta un secreto. **Después:** rama `copilot/*`, verificar la rama remota y el diff, revisión de privacidad (repo público) y revisar que no haya alertas abiertas del escaneo de secretos antes del merge (la protección del push no cubre secretos ya presentes en el historial ni patrones que no reconoce) |
 | Hilos de review que llegan después del merge | Esperar la review del último push |
+| Sesiones importadas atribuidas a la unidad equivocada cuando hay varias activas | Evidencia por unidad desde alineamientos, notas y commits citados; costo por proyecto y período; atribución explícita sesión → paso (§20.4, punto 5) |
 | Agentes que eligen el contexto equivocado cuando hay varios activos (situación esperada, §24.6) | `context_id` explícito en cada prompt; los contextos de unidades que todavía no empezaron quedan en `programado` |
 | `order_idx` duplicado | `start_step` explícito; reparación en el contexto de integridad del tracking |
 | Rondas de auditoría que no convergen | Rondas focales sobre lo corregido; si tras dos focales siguen abiertas, el usuario decide si acepta el riesgo |
