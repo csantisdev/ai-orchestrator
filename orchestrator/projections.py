@@ -8,6 +8,7 @@ Los DTO no llevan texto libre: solo identificadores, conteos y tokens validados.
 from __future__ import annotations
 
 import bisect
+import math
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -235,14 +236,20 @@ def context_graph(
         alignments.setdefault(step_id, []).append((ts, row_id, normalize_agent(agent)))
         confirmations.setdefault(step_id, []).append(confirmed)
 
-    run_totals: dict[int, tuple[int, float]] = {}
-    for step_id, count, cost in conn.execute(
-        "SELECT r.step_id, COUNT(*), "
-        "COALESCE(SUM(CASE WHEN r.cost_usd BETWEEN 0 AND 1e15 THEN r.cost_usd ELSE 0 END), 0) FROM runs r "
-        "JOIN steps s ON s.id = r.step_id WHERE s.context_id = ? GROUP BY r.step_id",
+    run_counts: dict[int, int] = {}
+    run_costs: dict[int, float] = {}
+    for step_id, cost in conn.execute(
+        "SELECT r.step_id, r.cost_usd FROM runs r "
+        "JOIN steps s ON s.id = r.step_id WHERE s.context_id = ?",
         (context_id,),
     ).fetchall():
-        run_totals[step_id] = (count, round(float(cost or 0), 6))
+        run_counts[step_id] = run_counts.get(step_id, 0) + 1
+        if isinstance(cost, (int, float)) and math.isfinite(cost) and cost >= 0:
+            run_costs[step_id] = run_costs.get(step_id, 0.0) + float(cost)
+    run_totals = {
+        step_id: (count, round(run_costs.get(step_id, 0.0), 6))
+        for step_id, count in run_counts.items()
+    }
 
     context_node = f"context:{context[0]}"
     nodes = [

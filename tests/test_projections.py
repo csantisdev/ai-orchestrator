@@ -346,14 +346,14 @@ class TestContextGraph:
     def test_negative_or_infinite_costs_do_not_break_the_schema(self, conn):
         ctx = _context(conn)
         step = _step(conn, ctx, 1)
-        for cost in (2.5, -1.25, 9e999, -9e999):
+        for cost in (2.5, -1.25, 9e999, -9e999, 1000000000000001.0, None, "texto"):
             conn.execute("INSERT INTO runs (ts, project, status, cost_usd, step_id) "
                          "VALUES ('2026-05-02T00:00:00Z', 'mi-proyecto', 'done', ?, ?)", (cost, step))
 
         graph = context_graph(conn, ctx, commits=CommitIndex([]), now=NOW)
 
         attrs = graph["nodes"][1]["attrs"]
-        assert (attrs["runs"], attrs["cost_usd"]) == (4, 2.5)
+        assert (attrs["runs"], attrs["cost_usd"]) == (7, 1000000000000003.5)
         _validate(graph, "project_graph.schema.json")
 
     def test_builds_the_commit_index_from_the_database_by_default(self, conn):
