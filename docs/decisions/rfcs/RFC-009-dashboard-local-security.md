@@ -30,7 +30,7 @@ gobierna el acceso por MCP: este documento cubre solo el servidor HTTP del dashb
 
 | Área | v0.1 | v0.2 |
 |---|---|---|
-| GET con efectos | `/pick-folder`, `/rates`, `/pricing` | `/pick-folder`, `/rates`, `/inspect`, `/metrics`, `/integrations/status`. `/pricing` no tiene efectos: usa `refresh=False` (auditoría Codex H-01, H-02) |
+| GET con efectos | `/pick-folder`, `/rates`, `/pricing` | `/pick-folder`, `/rates`, `/inspect`, `/metrics`, `/integrations/status` y `/clean-preview`; `/inspect` y `/clean-preview` además lanzan un subproceso de ChromaDB (review del PR #30). `/pricing` no tiene efectos: usa `refresh=False` (auditoría Codex H-01, H-02) |
 | Inventario de GET | Lista general de datos sensibles | Clasificación ruta por ruta, con efectos, datos y caché (H-03) |
 | `/integrations/status` | Sin cambios | Deja de devolver el usuario de las credenciales del Banco Central (H-03) |
 | Validación de `Host` | "Exactamente" `127.0.0.1` o `localhost` | Parser canónico: un solo `Host`, puerto igual al del servidor, minúsculas; ausente, duplicado o sin puerto se rechaza; `[::1]` se rechaza mientras el bind sea IPv4 (H-05) |
@@ -78,6 +78,9 @@ Verificado en `orchestrator/server.py` del baseline:
    - `GET /rates`, `GET /inspect`, `GET /metrics` y `GET /integrations/status` llaman a
      `rates.get_current_rate` (`server.py:229`, `281`, `489`, `505`), que, si el dato está viejo y
      hay credenciales, consulta la red y escribe el caché en SQLite (`rates.py:129-132`).
+   - `GET /inspect` y `GET /clean-preview` calculan las estadísticas de ChromaDB con
+     `rag.chroma_stats_isolated` (`server.py:215`, `466`), que lanza un subproceso de Python en cada
+     petición (`rag.py:488`). Una página puede repetir la petición y crear procesos sin token.
 3. **Hay GET con datos sensibles sin validar `Host`** (§2.1). Con DNS rebinding (un dominio del
    atacante que primero resuelve a su servidor y después a `127.0.0.1`), una página puede leerlos,
    porque el navegador la considera del mismo origen y el servidor no mira el `Host`.
@@ -114,13 +117,14 @@ reutiliza una misma llamada para varias rutas; `/evaluate-run`, `/pricing/refres
 | `/run/{id}` | — | Tarea y respuesta completas | `no-store` |
 | `/export-csv` | — | Tareas y respuestas completas | `no-store` |
 | `/context/{id}`, `/contexts-html` | — | Plan de trabajo | `no-store` |
-| `/inspect` | Red y escritura (tipo de cambio) | Estadísticas de base y ChromaDB, proyectos y rutas registradas | Solo caché; `no-store` |
+| `/inspect` | Red y escritura (tipo de cambio); **lanza un subproceso** (estadísticas de ChromaDB) | Estadísticas de base y ChromaDB, proyectos y rutas registradas | Solo caché, sin subprocesos; `no-store` |
 | `/metrics` | Red y escritura (tipo de cambio) | Costos agregados por proyecto y modelo | Solo caché; `no-store` |
 | `/integrations/status` | Red y escritura (tipo de cambio) | Proveedores configurados y **usuario** de credenciales | Solo caché; sin el usuario, solo `configured`; `no-store` |
 | `/rates` | Red y escritura (tipo de cambio) | Tipo de cambio | Solo caché; `no-store` |
 | `/pricing` | — (usa `refresh=False`) | Catálogo de precios | `no-store` |
 | `/models`, `/agents` | — | Modelos disponibles, presets de agentes | `no-store` |
-| `/preview-index`, `/clean-preview` | — | Archivos y conteos de los proyectos | `no-store` |
+| `/clean-preview` | **Lanza un subproceso** (estadísticas de ChromaDB) | Conteos de datos de los proyectos | Sin subprocesos; `no-store` |
+| `/preview-index` | — (recorre el disco del proyecto: lectura costosa, sin escritura) | Archivos de los proyectos | `no-store`; costo aceptado (§6) |
 | `/events` (SSE) | — | Actividad en vivo | `no-store` |
 | `/pick-folder` | **Lanza un proceso** | — | Pasa a POST con token; GET → `405` |
 | `/static/*`, `/favicon.ico`, `/robots.txt`, `/docs`, `/mcp`, `/security` | — | Públicos | Caché permitida |
@@ -196,6 +200,10 @@ subcadenas. `text/plain; x=application/json` y `application/x-www-form-urlencode
 - `rates.py` expone una lectura **solo de caché** que usan `GET /rates`, `/inspect`, `/metrics` e
   `/integrations/status`. El refresco por red queda exclusivamente en `POST /rates/refresh`; el
   dashboard lo pide de forma explícita cuando el dato está viejo.
+- Las estadísticas de ChromaDB dejan de calcularse en los GET. El servidor guarda el último
+  resultado con su fecha; se recalcula al iniciar y con un `POST` con token (botón "Actualizar" de
+  la sección Datos). `GET /inspect` y `GET /clean-preview` devuelven ese valor y su antigüedad, sin
+  lanzar procesos.
 - `/integrations/status` devuelve solo `configured` para el Banco Central, sin el usuario.
 - `GET /pricing` mantiene su comportamiento actual (caché o catálogo estático).
 
@@ -221,7 +229,7 @@ rutas (`server.py:574-578`), pasa por el mismo pipeline: la validación va antes
 | I2 | Ninguna petición con `Host` no permitido llega al despacho | Para GET, POST, SSE, HEAD, PUT, DELETE, PATCH, OPTIONS, TRACE, CONNECT y un verbo inventado: `Host` ajeno, ausente, duplicado, sin puerto, con otro puerto, en mayúsculas válidas (se acepta) y `[::1]` → `421` salvo el caso válido |
 | I3 | El bypass por subcadena ya no funciona | POST con token válido y `Content-Type: text/plain; x=application/json` o `application/x-www-form-urlencoded` → `415` |
 | I4 | `GET /pick-folder` no lanza procesos | `GET` → `405`; `subprocess` no se invoca (mock) |
-| I5 | Ningún GET usa la red ni escribe | Con caché viejo y credenciales configuradas, `GET /rates`, `/inspect`, `/metrics`, `/integrations/status` y `/pricing` no llaman a la red ni escriben (mock) |
+| I5 | Ningún GET usa la red, escribe ni lanza procesos | Con caché viejo y credenciales configuradas, `GET /rates`, `/inspect`, `/metrics`, `/integrations/status` y `/pricing` no llaman a la red ni escriben; `GET /inspect` y `/clean-preview` no invocan `subprocess` (mocks) |
 | I6 | El token no se filtra | No aparece en logs, respuestas JSON ni en el SSE; solo en el `<meta>` de `/` |
 | I7 | El dashboard sigue funcionando | Test que recorre las acciones con el token del HTML; prueba manual de cada botón |
 | I8 | `Origin` y `Sec-Fetch-Site` se aplican | POST con token válido y `Origin` ajeno → `403`; `Sec-Fetch-Site: cross-site` → `403`; sin ambos y con token válido → aceptado |
@@ -249,6 +257,8 @@ MCP (RFC-008).
 | Un proceso local lee el token del HTML y lo usa | Media | Aceptado y fuera de alcance (T6): el token no es autenticación de clientes locales |
 | Herramientas externas que hoy llaman al dashboard por HTTP | Baja | Verificado: ninguna en el repo; un script externo del usuario tendría que leer el token de `/` |
 | El tipo de cambio deja de refrescarse solo | Baja | Mitigado: el dashboard llama a `POST /rates/refresh` cuando el dato está viejo |
+| Las estadísticas de ChromaDB se muestran desactualizadas | Baja | Mitigado: se muestran con su antigüedad y se recalculan al iniciar y con el botón "Actualizar" |
+| Una página dispara `GET /preview-index` repetidamente (recorrido de disco) | Baja | Aceptado: sin efectos persistentes y sin lectura posible de la respuesta desde otra página (C1) |
 
 ## 7. Plan de implementación
 
