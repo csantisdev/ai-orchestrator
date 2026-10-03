@@ -406,3 +406,45 @@ def test_sync_endpoints_reject_concurrent_runs(monkeypatch):
         paths_mod.DB_PATH = orig_db
         db_mod._local = threading.local()
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_dashboard_ignores_an_unknown_project_parameter():
+    """GET /?project=<script breakout> must not reflect the value into the page."""
+    import urllib.parse
+    import orchestrator.paths as paths_mod
+    import orchestrator.db as db_mod
+    from orchestrator.server import serve
+
+    tmp = tempfile.mkdtemp()
+    tmp_path = Path(tmp)
+    orig_home = paths_mod.HOME_DIR
+    orig_db = paths_mod.DB_PATH
+    port = 19991
+
+    def _run():
+        paths_mod.HOME_DIR = tmp_path
+        paths_mod.DB_PATH = tmp_path / "runs.db"
+        db_mod._local = threading.local()
+        db_mod.init_db()
+        serve(port, None, False, {})
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    try:
+        assert _wait_for_port(port), "server did not start in time"
+        payload = "x</script><script>window.__xss=1</script>"
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/?project=" + urllib.parse.quote(payload))
+        resp = conn.getresponse()
+        html = resp.read().decode("utf-8")
+        conn.close()
+
+        assert resp.status == 200
+        assert "window.__xss" not in html
+        assert '_runsFilterProject = ""' in html
+    finally:
+        paths_mod.HOME_DIR = orig_home
+        paths_mod.DB_PATH = orig_db
+        db_mod._local = threading.local()
+        shutil.rmtree(tmp, ignore_errors=True)

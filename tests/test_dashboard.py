@@ -52,3 +52,58 @@ class DashboardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_SCRIPT_BREAKOUT = "x</script><script>window.__xss=1</script><!-- "
+
+
+def _run_with(task):
+    return {"id": 1, "ts": "2026-01-01T00:00:00+00:00", "project": "demo", "provider": "git",
+            "model": "", "status": "done", "task": task, "task_preview": task, "duration_ms": 0,
+            "input_tokens": 0, "output_tokens": 0, "cost_usd": 0, "cache_read_tokens": 0,
+            "routing_reason": ""}
+
+
+class ScriptInjectionTest(unittest.TestCase):
+    """A run's text or the selected project must never close a <script> block."""
+
+    def test_run_text_cannot_close_the_runs_script_block(self):
+        import json
+
+        output = build_html([_run_with(_SCRIPT_BREAKOUT)])
+
+        self.assertNotIn("</script><script>window.__xss", output)
+        start = output.index("window.__runsData = ") + len("window.__runsData = ")
+        end = output.index(";\n</script>", start)
+        runs = json.loads(output[start:end])
+        self.assertEqual(_SCRIPT_BREAKOUT, runs[0]["task_preview"])
+
+    def test_selected_project_cannot_close_the_filter_script(self):
+        output = build_html([], selected_project=_SCRIPT_BREAKOUT)
+
+        self.assertNotIn("</script><script>window.__xss", output)
+        self.assertIn('_runsFilterProject = "x' + chr(92) + 'u003c/script' + chr(92) + 'u003e', output)
+
+    def test_context_title_is_not_placed_inside_an_inline_handler(self):
+        from orchestrator.dashboard import _build_contexts_section
+
+        title = "x');window.__xss=1;//"
+        output = _build_contexts_section([{"id": 7, "title": title, "project": "demo",
+                                           "status": "active", "steps": []}])
+
+        self.assertNotIn("deleteContext(7,", output)
+        self.assertIn('onclick="deleteContextFromButton(this)"', output)
+        self.assertIn('data-ctx-title="x&#x27;);window.__xss=1;//"', output)
+
+
+class InlineHandlerSinkTest(unittest.TestCase):
+    """Free text (aliases, titles) never goes inside an inline JS handler."""
+
+    def test_project_aliases_are_read_from_data_attributes(self):
+        from orchestrator.dashboard_js import _build_js
+
+        js = _build_js()
+
+        self.assertNotIn("RenameProject(\\'", js)
+        self.assertIn("data-reg-action=\"start\" data-alias=\"' + ae + '\"", js)
+        self.assertIn("ev.target.closest(\"[data-reg-action]\")", js)

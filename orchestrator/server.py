@@ -536,6 +536,13 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
         def _get_dashboard(self, parsed):
             params = urllib.parse.parse_qs(parsed.query)
             sel_project = params.get("project", [project or ""])[0]
+            if sel_project:
+                try:
+                    _known = set(projects_list()) | set(index_module.list_projects().keys())
+                except Exception:
+                    _known = set()
+                if sel_project not in _known:
+                    sel_project = ""
             # Pre-filtrar en DB: si hay proyecto seleccionado, traer solo sus runs
             # Siempre traer todos los proyectos por separado para el selector
             runs_list = history_module.read_runs(project=sel_project or None, last=500)
