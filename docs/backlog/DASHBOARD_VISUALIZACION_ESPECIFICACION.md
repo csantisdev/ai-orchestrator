@@ -499,11 +499,11 @@ Cada fase es un PR independiente con auditoría cruzada en dos rondas (ANL-003).
 |---|---|---|
 | R0 | RFC en `docs/decisions/rfcs/`: threat model del dashboard, ciclo y almacenamiento del token, orígenes permitidos y política de exposición de datos (§13) | — |
 | D0 | Seguridad del dashboard (§13) | R0 |
-| D1 | Plantilla única (§23.4), navegación 4 + 3 (§23.3), Inspector persistente y **contenedor** de Activity (con los eventos SSE actuales), tokens y componentes base (§23.5), handler estático para `static/dashboard/`, estructura de módulos con store y router (§23.7), test de línea base de colores y estilos literales, y Node fijado en CI. Incluye O1–O3 de §19.4 | D0 |
+| D1 | Plantilla única (§23.4), navegación 4 + 3 (§23.3), Inspector persistente y **contenedor** de Activity (con los eventos SSE actuales), tokens y componentes base (§23.5), handler estático para `static/dashboard/`, estructura de módulos con store y router (§23.7), test de línea base de colores y estilos literales, y Node fijado en CI. Incluye O3 de §19.4; O1 y O2 van con Ejecuciones en la ola 3 (§24.5), que es dueña de la lista de runs | D0 |
 | D2 | Overview con métricas verificables y links a su origen (§6.1) | D1 |
 | D3a | Proyecciones puras: `orchestrator/projections.py` (normalización de agentes y timestamps a UTC, extracción de SHAs y PRs), esquemas DTO y tests, sin endpoints ni UI (§10, §20, §24.4) | R0 |
 | D3b | Trabajo: lista de contextos, página del contexto y detalle del paso con Trace (§23.3); endpoints JSON en `api_v1` (§6.2) | D1, D3a |
-| D4 | **Contenido** de Activity desde la proyección durable de §10.4, línea de tiempo completa y detección de cambios entre procesos (§19.4 O4–O5) | D3b |
+| D4 | **Contenido** de Activity desde la proyección de §10.4 (hitos que hoy existen en la base: runs, alineamientos, tool calls, decisiones de egress, inicio y cierre de pasos e invocaciones MCP), línea de tiempo con esos hitos y detección de cambios entre procesos (§19.4 O4–O5). Skips, reaperturas y cambios de título no aparecen hasta el Event Log (§11) | D3b |
 | D5 | Estados especiales (§7), modo System, teclado y reduced motion (§8) | D1 |
 | D6 | Experimental (Labs): representación Mapa de los pasos de un contexto (§21, §23.2) | D3b |
 | D7 | Experimental (Labs): representación Constelación de los contextos (§22, §23.2) | D6 (mergeada y medida, §24.4) |
@@ -1450,7 +1450,7 @@ orchestrator/
 | D1 | Además del layout: plantilla única, tokens y componentes base, handler estático para `static/dashboard/`, estructura de módulos, store, router con estado en la URL, contenedor de Activity con los eventos SSE actuales, test de línea base de colores y estilos literales, y Node fijado en CI |
 | D2 | Inicio con métricas y Salud del tracking |
 | D3 | Trabajo: contextos y página del contexto con pasos; detalle del paso con Trace; proyecciones y API. Se divide en D3a (proyecciones) y D3b (API y UI), §24.4 |
-| D4 | Contenido durable de Activity (proyección de §10.4), línea de tiempo completa y detección de cambios entre procesos |
+| D4 | Contenido de Activity desde la proyección de §10.4 (solo los hitos disponibles; el historial completo queda para el Event Log, §11), línea de tiempo con esos hitos y detección de cambios entre procesos |
 | D5 | Estados, accesibilidad y puntos de corte |
 | D6, D7 | Mapa y Constelación como renderizadores dentro de Trabajo, detrás de Labs |
 
@@ -1543,10 +1543,10 @@ paralelo). Las rutas `static/dashboard/…` son relativas a `orchestrator/`, com
 | 1 | D3a | `orchestrator/projections.py`, `orchestrator/schemas/*.json`, `tests/test_projections.py` |
 | 3 | Trabajo (D3b) | `orchestrator/api_v1/work.py`, `static/dashboard/views/work.js`, `static/dashboard/renderers/{list,trace}.js`, archivo heredado de la pestaña Flujos, `tests/test_api_work.py` |
 | 3 | Inicio (D2) | `orchestrator/api_v1/home.py`, `static/dashboard/views/home.js`, archivo heredado de la pestaña Métricas, `tests/test_api_home.py` |
-| 3 | Ejecuciones | `orchestrator/api_v1/runs.py`, `static/dashboard/views/runs.js`, archivo heredado de la pestaña Actividad, `tests/test_api_runs.py` |
+| 3 | Ejecuciones | `orchestrator/api_v1/runs.py`, `static/dashboard/views/runs.js`, archivo heredado de la pestaña Actividad, `orchestrator/db.py` (listado con columnas explícitas), `orchestrator/dashboard.py` (dejar de embeber los 500 runs), `tests/test_api_runs.py`. Entrega O1 y O2 de §19.4 |
 | 3 | Gobernanza | `orchestrator/api_v1/governance.py`, `static/dashboard/views/governance.js`, `tests/test_api_governance.py` (sin heredado) |
 | 4 | D4 backend | `orchestrator/change_watch.py`, `orchestrator/projections_activity.py`, `orchestrator/api_v1/activity.py`, `tests/test_change_watch.py` |
-| 4 | D4 UI + D5 | `static/dashboard/components/activity.js`, `static/dashboard/{base,components}.css`, `tests/test_token_contrast.py` |
+| 4 | D4 UI + D5 | `static/dashboard/components/activity.js`, `static/dashboard/{base,components}.css`, `static/dashboard/tokens.css` (modo System), `static/dashboard/core/keyboard.js` (navegación por teclado), `tests/test_token_contrast.py`, `tests/js/keyboard.test.mjs` |
 | 5b | D7 backend | `orchestrator/constellation_layout.py`, `orchestrator/api_v1/constellation.py`, `tests/test_constellation_layout.py` |
 | 5b | D7 UI | `static/dashboard/renderers/layouts/constellation.js`, `static/dashboard/views/work.js` (solo la pestaña Grafo), `tests/js/constellation.test.mjs` |
 
