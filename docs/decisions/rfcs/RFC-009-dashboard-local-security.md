@@ -33,13 +33,13 @@ gobierna el acceso por MCP: este documento cubre solo el servidor HTTP del dashb
 | GET con efectos | `/pick-folder`, `/rates`, `/pricing` | `/pick-folder`, `/rates`, `/inspect`, `/metrics`, `/integrations/status` y `/clean-preview`; `/inspect` y `/clean-preview` además lanzan un subproceso de ChromaDB (review del PR #30). `/pricing` no tiene efectos: usa `refresh=False` (auditoría Codex H-01, H-02) |
 | Inventario de GET | Lista general de datos sensibles | Clasificación ruta por ruta, con efectos, datos y caché (H-03) |
 | `/integrations/status` | Sin cambios | Deja de devolver el usuario de las credenciales del Banco Central (H-03) |
-| Validación de `Host` | "Exactamente" `127.0.0.1` o `localhost` | Parser canónico: un solo `Host`, puerto igual al del servidor, minúsculas; ausente, duplicado o sin puerto se rechaza; `[::1]` se rechaza mientras el bind sea IPv4 (H-05) |
+| Validación de `Host` | "Exactamente" `127.0.0.1` o `localhost` | Parser canónico: un solo `Host`, puerto igual al del servidor, minúsculas; ausente o duplicado se rechaza; sin puerto equivale al 80 (review del PR #30); `[::1]` se rechaza mientras el bind sea IPv4 (H-05) |
 | Métodos | Solo GET y POST | Validación previa al despacho en todos los métodos; HEAD, PUT, DELETE, PATCH y OPTIONS responden `405` (H-04) |
 | Cabeceras de seguridad | En respuestas exitosas | En todas las respuestas, incluidos errores y archivos, desde un único punto (H-04, H-08) |
 | `Origin` ausente | No definido | Se permite solo si pasan token y `Content-Type` (H-06) |
-| Llamadas POST del JS | "Un envoltorio de `fetch`" | 26 llamadas para 25 endpoints, con un helper explícito y un test estático (H-07) |
+| Llamadas POST del JS | "Un envoltorio de `fetch`" | Hoy: 26 llamadas para 25 endpoints. Tras D0: 28 llamadas para 27 endpoints (se suman `/pick-folder` y `/chroma-stats/refresh`), todas a través del helper `postJson` y con un test estático (H-07, review del PR #30) |
 | Token viejo | Mensaje de recarga | Respuesta `403` con `reason: session_expired`, incluida la página restaurada desde el bfcache del navegador (H-08) |
-| Invariantes | I1–I9 | I1–I13 (H-09); I9 incluye `404` y `/static/*` (ronda 2); I1 cubre 26 POST con `/pick-folder` e I2/I10 cualquier verbo (review del PR #30) |
+| Invariantes | I1–I9 | I1–I13 (H-09); I9 incluye `404` y `/static/*` (ronda 2); I1 cubre 27 POST (más `/pick-folder` y `/chroma-stats/refresh`) e I2/I10 cualquier verbo (review del PR #30) |
 | Alcance del token | "Otros procesos con acceso al sistema de archivos" | Cualquier cliente que pueda conectarse a loopback queda fuera de alcance: el token protege del navegador, no autentica clientes locales (review del PR #30) |
 | Resumen | "Cinco controles" | Seis controles (H-10) |
 | Referencias | Ruta local de la especificación | PR #28, porque el archivo no existe en esta rama (H-11) |
@@ -157,8 +157,10 @@ MCP no consumen este servidor HTTP.
 
 - Debe haber exactamente un encabezado `Host`.
 - Se pasa a minúsculas y se separa en host y puerto. El host debe ser `127.0.0.1` o `localhost`; el
-  puerto, numérico e igual al del servidor.
-- Se rechaza con `421` si falta, si está duplicado, si no tiene puerto o si no coincide. `[::1]` se
+  puerto, numérico e igual al del servidor. Un `Host` sin puerto equivale al puerto 80, que es como
+  los clientes HTTP serializan el puerto por defecto: se acepta solo si el servidor escucha en el 80
+  (`ai-orchestrator serve --port 80`).
+- Se rechaza con `421` si falta, si está duplicado o si host o puerto no coinciden. `[::1]` se
   rechaza mientras el servidor escuche solo en IPv4.
 - La validación corre antes del despacho en **cualquier verbo**. `BaseHTTPRequestHandler` despacha
   por nombre (`do_<VERBO>`) y responde `501` a los que no conoce, así que la validación va en un hook
@@ -172,7 +174,8 @@ MCP no consumen este servidor HTTP.
 - Al iniciar, el servidor genera `secrets.token_urlsafe(32)` y lo guarda **solo en memoria**.
 - El HTML de `/` lo incluye en `<meta name="orchestrator-session" content="…">`.
 - El JS envía el token en la cabecera `X-Orchestrator-Session` a través de un helper explícito
-  (`postJson`) que reemplaza las 26 llamadas POST actuales y conserva las cabeceras que cada una ya
+  (`postJson`) que reemplaza las 26 llamadas POST actuales (y lo usan también las llamadas nuevas a
+  `/pick-folder` y `/chroma-stats/refresh`) y conserva las cabeceras que cada una ya
   envía. Un test estático falla si aparece un `fetch` con método POST fuera del helper.
 - El servidor lo compara con `hmac.compare_digest`. Si falta o no coincide responde `403` con
   `{"reason": "session_expired"}` y no ejecuta el handler.
@@ -201,7 +204,7 @@ subcadenas. `text/plain; x=application/json` y `application/x-www-form-urlencode
   `/integrations/status`. El refresco por red queda exclusivamente en `POST /rates/refresh`; el
   dashboard lo pide de forma explícita cuando el dato está viejo.
 - Las estadísticas de ChromaDB dejan de calcularse en los GET. El servidor guarda el último
-  resultado con su fecha; se recalcula al iniciar y con un `POST` con token (botón "Actualizar" de
+  resultado con su fecha; se recalcula al iniciar y con el endpoint nuevo `POST /chroma-stats/refresh`, con token (botón "Actualizar" de
   la sección Datos). `GET /inspect` y `GET /clean-preview` devuelven ese valor y su antigüedad, sin
   lanzar procesos.
 - `/integrations/status` devuelve solo `configured` para el Banco Central, sin el usuario.
@@ -225,8 +228,8 @@ rutas (`server.py:574-578`), pasa por el mismo pipeline: la validación va antes
 
 | Id | Invariante | Prueba |
 |---|---|---|
-| I1 | Ningún POST sin token válido produce efectos | Test HTTP por cada uno de los **26** POST de D0 (los 25 actuales más `/pick-folder`): sin token, con token inválido y con token válido; la base y los archivos no cambian en los dos primeros casos, y en `/pick-folder` `subprocess` no se invoca (mock) en los dos casos rechazados |
-| I2 | Ninguna petición con `Host` no permitido llega al despacho | Para GET, POST, SSE, HEAD, PUT, DELETE, PATCH, OPTIONS, TRACE, CONNECT y un verbo inventado: `Host` ajeno, ausente, duplicado, sin puerto, con otro puerto, en mayúsculas válidas (se acepta) y `[::1]` → `421` salvo el caso válido |
+| I1 | Ningún POST sin token válido produce efectos | Test HTTP por cada uno de los **27** POST de D0 (los 25 actuales más `/pick-folder` y `/chroma-stats/refresh`): sin token, con token inválido y con token válido; la base y los archivos no cambian en los dos primeros casos, y en `/pick-folder` `subprocess` no se invoca (mock) en los dos casos rechazados |
+| I2 | Ninguna petición con `Host` no permitido llega al despacho | Para GET, POST, SSE, HEAD, PUT, DELETE, PATCH, OPTIONS, TRACE, CONNECT y un verbo inventado: `Host` ajeno, ausente, duplicado, sin puerto con el servidor en 8080 (→ `421`), sin puerto con el servidor en 80 (se acepta), con otro puerto, en mayúsculas válidas (se acepta) y `[::1]` → `421` salvo los casos válidos |
 | I3 | El bypass por subcadena ya no funciona | POST con token válido y `Content-Type: text/plain; x=application/json` o `application/x-www-form-urlencoded` → `415` |
 | I4 | `GET /pick-folder` no lanza procesos | `GET` → `405`; `subprocess` no se invoca (mock) |
 | I5 | Ningún GET usa la red, escribe ni lanza procesos | Con caché viejo y credenciales configuradas, `GET /rates`, `/inspect`, `/metrics`, `/integrations/status` y `/pricing` no llaman a la red ni escriben; `GET /inspect` y `/clean-preview` no invocan `subprocess` (mocks) |
