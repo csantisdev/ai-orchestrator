@@ -13,6 +13,25 @@ var _runsPage = 0;
 var _runsPageSize = 10;
 var _runsFilterProject = "";
 var _runsFilterModel = "";
+const _nativeFetch = window.fetch.bind(window);
+
+function postJson(url, body) {
+  const session = (document.querySelector('meta[name="orchestrator-session"]') || {}).content || "";
+  if (body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "body")) body = body.body;
+  return _nativeFetch(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-Orchestrator-Session": session},
+    body: body === undefined ? "{}" : (typeof body === "string" ? body : JSON.stringify(body)),
+  }).then(async response => {
+    if (response.status === 403) {
+      const payload = await response.clone().json().catch(() => ({}));
+      if (payload.reason === "session_expired") {
+        alert("El servidor se reinició. Recargá la página para continuar.");
+      }
+    }
+    return response;
+  });
+}
 
 function _fmtRunTs(iso) {
   try {
@@ -78,6 +97,8 @@ function renderRunsTable() {
   if (empty) empty.style.display = "none";
 
   tbody.innerHTML = pageData.map(r => {
+    const runId = Number(r.id);
+    if (!Number.isInteger(runId)) return "";
     const prov = r.provider||"?";
     const clr  = PROV_CLR[prov]||"#888";
     const bg   = PROV_BG[prov]||"rgba(113,113,122,0.12)";
@@ -89,8 +110,8 @@ function renderRunsTable() {
     if (r.status==="running") statusHtml='<span class="badge badge-running">⟳ running</span>';
     else if (r.status==="pending") statusHtml='<span class="badge badge-pending">… pending</span>';
     else if (r.status==="failed")  statusHtml='<span class="badge badge-failed">✗ failed</span>';
-    return `<tr data-run-id="${r.id}" onclick="openDetail(${r.id})" style="cursor:pointer">
-      <td class="td-ts">${_fmtRunTs(r.ts)}</td>
+    return `<tr data-run-id="${runId}" onclick="openDetail(Number(this.dataset.runId))" style="cursor:pointer">
+      <td class="td-ts">${escHtml(_fmtRunTs(r.ts))}</td>
       <td class="td-project">${escHtml(r.project||"—")}</td>
       <td style="padding:9px 12px">${badge}</td>
       <td style="padding:9px 12px;font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace">${escHtml(modelShort)}</td>
@@ -191,7 +212,7 @@ function setCtxFilter(status) {
 }
 
 function advanceStep(stepId, ctxId) {
-  fetch("/advance-step",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({step_id:stepId})})
+  postJson("/advance-step",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({step_id:stepId})})
     .then(r=>r.json())
     .then(d=>{
       if (d.error){showToast("Error: "+d.error,true);return;}
@@ -201,7 +222,7 @@ function advanceStep(stepId, ctxId) {
 }
 
 function skipStep(stepId, ctxId) {
-  fetch("/skip-step",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({step_id:stepId,reason:"omitido desde dashboard"})})
+  postJson("/skip-step",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({step_id:stepId,reason:"omitido desde dashboard"})})
     .then(r=>r.json())
     .then(d=>{
       if (d.error){showToast("Error: "+d.error,true);return;}
@@ -216,7 +237,7 @@ function runContext(btn) {
   if (!project || !task) { showToast("Sin proyecto o tarea definida", true); return; }
   btn.disabled = true;
   btn.textContent = "…";
-  fetch("/run", {method:"POST", headers:{"Content-Type":"application/json"},
+  postJson("/run", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({project, task})})
     .then(r => r.json())
     .then(d => {
@@ -237,7 +258,7 @@ function deleteContext(ctxId, title) {
     "Eliminar contexto",
     "Se eliminarán permanentemente el contexto <strong>" + escHtml(title) + "</strong>, todos sus pasos, alineamientos y tool calls registrados.<br><br>Los runs históricos se conservan pero perderán la referencia al paso.",
     function() {
-      fetch("/context/" + ctxId + "/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"})
+      postJson("/context/" + Number(ctxId) + "/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"})
         .then(r => r.json())
         .then(d => {
           if (d.error) { showToast("Error: " + d.error, true); return; }
@@ -534,7 +555,7 @@ function openDetail(runId) {
 function rateRun(runId, rating) {
   const btns = document.querySelectorAll(".rate-btn[data-run='" + runId + "']");
   btns.forEach(b => { b.disabled = true; });
-  fetch("/rate-run", {
+  postJson("/rate-run", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({run_id: runId, rating: rating}),
@@ -594,7 +615,7 @@ function submitContext() {
     provider: row.querySelector(".ctx-step-provider").value,
   })).filter(s => s.title);
   status.innerHTML = '<span class="spinner"></span> Creando...';
-  fetch("/create-context", {
+  postJson("/create-context", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({project, title, description: desc, steps}),
@@ -620,7 +641,7 @@ function submitTask() {
   if (!project) { status.textContent = "Seleccioná un proyecto."; return; }
   if (!task)    { status.textContent = "La tarea no puede estar vacía."; return; }
   status.innerHTML = '<span class="spinner"></span> Enviando...';
-  fetch("/run", {
+  postJson("/run", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({project, task, model: model || undefined}),
@@ -730,7 +751,7 @@ function _handleTrace(d) {
     row.id = key;
     row.className = "tr-row tr-running";
     row.innerHTML =
-      `<span class="tr-ts">${_fmtTs(d.ts)}</span>` +
+      `<span class="tr-ts">${escHtml(_fmtTs(d.ts))}</span>` +
       `<span class="tr-run">${escHtml(runLabel)}</span>` +
       `<span class="tr-icon">▶</span>` +
       `<span class="tr-name">${escHtml(d.name)}${detLabel}</span>` +
@@ -770,7 +791,7 @@ function _actAppend(text, level) {
   const row  = document.createElement("div");
   row.className = "tr-row " + cls;
   row.innerHTML =
-    `<span class="tr-ts">${ts}</span>` +
+    `<span class="tr-ts">${escHtml(ts)}</span>` +
     `<span class="tr-run"></span>` +
     `<span class="tr-icon">${icon}</span>` +
     `<span class="tr-name">${escHtml(text)}</span>` +
@@ -791,7 +812,7 @@ async function runDoctor(btn) {
   _actBusy(btn, true);
   _actAppend("doctor — diagnosticando...", "info");
   try {
-    const r = await fetch("/run-doctor", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+    const r = await postJson("/run-doctor", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
     const d = await r.json();
     if (d.error) { _actAppend("doctor — " + d.error, "fail"); return; }
     (d.lines||[]).forEach(l => _actAppend(l.text, l.ok?"ok":l.fail?"fail":l.warn?"warn":"info"));
@@ -807,7 +828,7 @@ async function runFix(btn, opts) {
   const keys = Object.keys(opts||{}).filter(k=>opts[k]);
   _actAppend("fix — " + (keys.length ? "[" + keys.join(", ") + "]" : "básico") + "...", "info");
   try {
-    const r = await fetch("/run-fix", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(opts||{})});
+    const r = await postJson("/run-fix", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(opts||{})});
     const d = await r.json();
     if (d.error) { _actAppend("fix — " + d.error, "fail"); return; }
     (d.lines||[]).forEach(l => _actAppend(l.text, l.ok?"ok":l.fail?"fail":l.warn?"warn":"info"));
@@ -821,7 +842,7 @@ async function _syncOne(url, label, unit) {
   // JSON), las demas igual se intentan - antes un error en sync-cc cortaba
   // toda la cadena y Git/Codex ni se pedian.
   try {
-    const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+    const r = await postJson(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
     let d, parseFailed = false;
     try { d = await r.json(); } catch (e) { d = {}; parseFailed = true; }
     // "busy" (409) va PRIMERO: r.ok es false en un 409, asi que si el
@@ -865,7 +886,7 @@ async function runIndexDocs(btn) {
   if (!proj) { _actAppend("index — seleccioná un proyecto primero", "warn"); _actBusy(btn,false,"index"); return; }
   _actAppend("index — indexando " + proj + "...", "info");
   try {
-    const r = await fetch("/index-docs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({project:proj})});
+    const r = await postJson("/index-docs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({project:proj})});
     const d = await r.json();
     if (d.error) { _actAppend("index — " + d.error, "fail"); return; }
     _actAppend("index — " + d.chunks + " chunks indexados para " + proj, "ok");
@@ -914,6 +935,15 @@ function loadDatos() {
     .then(r => r.json())
     .then(data => renderDatos(data, el))
     .catch(e => { el.innerHTML = '<p style="color:#f87171">Error: ' + escHtml(String(e)) + '</p>'; });
+}
+
+function refreshChromaStats(btn) {
+  if (btn) btn.disabled = true;
+  postJson("/chroma-stats/refresh", "{}")
+    .then(r => r.json())
+    .then(() => { _datosLoaded = false; loadDatos(); })
+    .catch(() => showToast("No se pudieron actualizar las estadísticas de ChromaDB.", true))
+    .finally(() => { if (btn) btn.disabled = false; });
 }
 
 // Providers que son auto-recuperables
@@ -1069,7 +1099,7 @@ function renderDatos(data, el) {
 
     // Panel 3 ─ ChromaDB
     '<div class="panel">' +
-    '<h2 style="font-size:14px;font-weight:700;margin-bottom:4px">ChromaDB — vectores RAG</h2>' +
+    '<h2 style="font-size:14px;font-weight:700;margin-bottom:4px">ChromaDB — vectores RAG <button class="btn btn-secondary" style="font-size:11px" onclick="refreshChromaStats(this)">Actualizar</button></h2>' +
     '<p class="text-muted" style="font-size:12px;margin-bottom:14px">Purgar vectores no elimina los runs de la DB. Los docs son re-indexables; las respuestas se reconstruyen re-indexando los runs existentes.</p>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">' +
 
@@ -1154,7 +1184,7 @@ function cleanAllUnmapped(btn) {
       btn.disabled = true;
       const st = document.getElementById('clean-unmapped-status');
       if (st) st.textContent = 'Eliminando...';
-      fetch('/clean/unmapped', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+      postJson('/clean/unmapped', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
         .then(r => r.json())
         .then(d => {
           if (d.error) { showToast('Error: ' + d.error, true); if (st) st.textContent = ''; btn.disabled = false; return; }
@@ -1177,7 +1207,7 @@ function cleanProject(btn) {
     'Se eliminarán todos los runs de <strong>' + escHtml(proj) + '</strong>.' + warn,
     () => {
       btn.disabled = true;
-      fetch('/clear-imports', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: proj})})
+      postJson('/clear-imports', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: proj})})
         .then(r => r.json())
         .then(d => {
           if (d.error) { showToast('Error: ' + d.error, true); btn.disabled = false; return; }
@@ -1209,7 +1239,7 @@ function cleanProjectWithSel(btn) {
       btn.disabled = true;
       const st = document.getElementById('clean-mapped-status');
       if (st) st.textContent = 'Eliminando...';
-      fetch('/clear-imports', {
+      postJson('/clear-imports', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({project: proj, provider: prov || undefined}),
       })
@@ -1237,7 +1267,7 @@ function purgeChromaDocs(proj, btn) {
       if (btn) btn.disabled = true;
       const st = document.getElementById('clean-chroma-status');
       if (st) st.textContent = 'Purgando...';
-      fetch('/purge-chroma-docs', {
+      postJson('/purge-chroma-docs', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({project: proj || null}),
       })
@@ -1264,7 +1294,7 @@ function purgeChromaResponses(proj, btn) {
       if (btn) btn.disabled = true;
       const st = document.getElementById('clean-chroma-status');
       if (st) st.textContent = 'Purgando...';
-      fetch('/purge-chroma-responses', {
+      postJson('/purge-chroma-responses', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({project: proj || null}),
       })
@@ -1295,7 +1325,7 @@ function deleteContexts() {
     () => {
       const st = document.getElementById('clean-ctx-status');
       if (st) st.textContent = 'Eliminando...';
-      fetch('/delete-contexts', {
+      postJson('/delete-contexts', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({project: proj || null, status: status || null}),
       })
@@ -1377,10 +1407,10 @@ function renderConfig(data, el) {
       '<span id="rate-refresh-status" class="text-muted" style="font-size:12px"></span>' +
     '</div>' +
     '<p class="text-muted" style="font-size:11px;margin:0 0 14px">Dólar observado oficial (F073.TCO.PRE.Z.D) · ' +
-    (bc.configured ? 'Cuenta: <strong>' + escHtml(bc.user) + '</strong>' : 'Registrate en <strong>si3.bcentral.cl</strong>') + '</p>' +
+    (bc.configured ? 'Credenciales configuradas.' : 'Registrate en <strong>si3.bcentral.cl</strong>') + '</p>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:480px">' +
       '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Usuario (email)</label>' +
-        '<input type="email" id="bcentral-user" value="' + escHtml(bc.user||'') + '" placeholder="usuario@email.cl" style="width:100%;font-size:12px;box-sizing:border-box"></div>' +
+        '<input type="email" id="bcentral-user" value="" placeholder="usuario@email.cl" style="width:100%;font-size:12px;box-sizing:border-box"></div>' +
       '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Contraseña</label>' +
         '<input type="password" id="bcentral-pass" placeholder="••••••••" style="width:100%;font-size:12px;box-sizing:border-box"></div>' +
     '</div>' +
@@ -1391,6 +1421,7 @@ function renderConfig(data, el) {
     '</div>' +
 
     '</div>';
+  if (ri.stale) setTimeout(() => refreshRate(), 0);
 }
 
 function loadMetrics() {
@@ -1530,7 +1561,7 @@ function pickFolder(alias) {
   const orig   = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
-  fetch("/pick-folder")
+  postJson("/pick-folder", "{}")
     .then(r => r.json())
     .then(d => {
       if (d.path) {
@@ -1553,7 +1584,7 @@ function addNewProject() {
   if (!alias) { status.textContent = "El alias no puede estar vacío."; status.style.color = "#f87171"; return; }
   if (!path)  { status.textContent = "La ruta no puede estar vacía.";  status.style.color = "#f87171"; return; }
   status.innerHTML = '<span class="spinner"></span>&nbsp;Registrando...';
-  fetch("/add-project", {
+  postJson("/add-project", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({alias, path}),
@@ -1575,7 +1606,7 @@ function pickNewProjectFolder() {
   const btn = document.getElementById("new-proj-pick");
   const orig = btn ? btn.innerHTML : "";
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
-  fetch("/pick-folder")
+  postJson("/pick-folder", "{}")
     .then(r => r.json())
     .then(d => {
       if (d.path) {
@@ -1616,7 +1647,7 @@ function confirmRenameProject(oldAlias) {
   const newAlias = inp.value.trim();
   if (!newAlias || newAlias === oldAlias) { cancelRenameProject(oldAlias); return; }
   if (st) { st.textContent = "…"; st.style.color = "var(--text-muted)"; }
-  fetch("/project/rename", {
+  postJson("/project/rename", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({old: oldAlias, new: newAlias}),
@@ -1639,7 +1670,7 @@ function registerProject(alias) {
   const path = input ? input.value.trim() : "";
   if (!path) { status.textContent = "Ingresá la ruta."; status.style.color = "#f87171"; return; }
   status.innerHTML = '<span class="spinner"></span>';
-  fetch("/add-project", {
+  postJson("/add-project", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({alias, path}),
@@ -1702,7 +1733,7 @@ function _renderPreflightPanel(data) {
             border:1px solid var(--border);user-select:none">
       <input type="checkbox" class="folder-exclude-cb" value="${escHtml(f.name)}" ${checked ? "checked" : ""}>
       <span style="font-family:'JetBrains Mono',monospace">${escHtml(f.name)}/</span>
-      <span style="color:var(--text-faint)">${f.file_count} arch.</span>
+      <span style="color:var(--text-faint)">${escHtml(String(Number(f.file_count) || 0))} arch.</span>
       ${badge}
     </label>`;
   }).join("");
@@ -1714,7 +1745,7 @@ function confirmIndex() {
   const excluded = [...document.querySelectorAll(".folder-exclude-cb:checked")].map(cb => cb.value);
   const status = document.getElementById("insp-action-status");
   status.innerHTML = '<span class="spinner"></span>&nbsp;Indexando...';
-  fetch("/index-docs", {
+  postJson("/index-docs", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({project: proj, extra_skip_dirs: excluded, save_skip_dirs: save}),
@@ -1751,7 +1782,7 @@ function _onImpAgentChange() {
 function triggerSyncCC() {
   const status = document.getElementById("imp-cc-status");
   status.innerHTML = '<span class="spinner"></span>&nbsp;Sincronizando...';
-  fetch("/sync-cc", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"})
+  postJson("/sync-cc", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"})
     .then(r => r.json())
     .then(d => {
       if (d.error) { status.textContent = "Error: " + d.error; showToast("Error sync-cc: " + d.error, true); return; }
@@ -1782,7 +1813,7 @@ function clearImports() {
 
 function _doCleanImports(proj, provider, status) {
   status.innerHTML = '<span class="spinner"></span>&nbsp;Limpiando...';
-  fetch("/clear-imports", {
+  postJson("/clear-imports", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({project: proj, provider: provider || null}),
@@ -1802,7 +1833,7 @@ function refreshRate(btn) {
   const st = document.getElementById("rate-refresh-status");
   if (btn) btn.disabled = true;
   if (st) st.textContent = "Actualizando...";
-  fetch("/rates/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"})
+  postJson("/rates/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"})
     .then(r => r.json())
     .then(d => {
       if (d.error) { if (st) st.textContent = "Error: " + d.error; }
@@ -1813,13 +1844,20 @@ function refreshRate(btn) {
     .catch(e => { if (st) st.textContent = "Error: " + e; if (btn) btn.disabled = false; });
 }
 
+function refreshStaleRateOnLoad() {
+  fetch("/rates")
+    .then(r => r.json())
+    .then(rate => { if (rate && rate.stale) refreshRate(); })
+    .catch(() => {});
+}
+
 function saveBcentralConfig() {
   const user = (document.getElementById("bcentral-user") || {}).value || "";
   const pass = (document.getElementById("bcentral-pass") || {}).value || "";
   const st = document.getElementById("bcentral-status");
   if (!user || !pass) { if (st) st.textContent = "Ingresá usuario y contraseña."; return; }
   if (st) st.textContent = "Guardando y probando...";
-  fetch("/config/bcentral", {
+  postJson("/config/bcentral", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({"user": user, "pass": pass}),
@@ -1848,7 +1886,7 @@ function submitImportContext() {
   if (!task) { status.textContent = "La tarea no puede estar vacía."; return; }
   if (!response) { status.textContent = "La respuesta no puede estar vacía."; return; }
   status.innerHTML = '<span class="spinner"></span>&nbsp;Importando...';
-  fetch("/import-context", {
+  postJson("/import-context", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({project: proj, agent, model, task, response}),
@@ -2194,6 +2232,7 @@ Object.assign(window, {
   purgeChromaResponses,
   rateRun,
   refreshRate,
+  refreshChromaStats,
   registerProject,
   reloadProyectos,
   startRenameProject,
@@ -2223,4 +2262,5 @@ Object.assign(window, {
   _confirmModalOk,
   _onImpAgentChange,
 });
+refreshStaleRateOnLoad();
 """

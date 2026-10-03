@@ -76,6 +76,16 @@ def _wait_for_port(port: int, timeout: float = 3.0) -> bool:
     return False
 
 
+def _session_token(port: int) -> str:
+    """Read the ephemeral dashboard token as a browser client would."""
+    import re
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+    conn.request("GET", "/")
+    page = conn.getresponse().read().decode("utf-8")
+    conn.close()
+    return re.search(r'orchestrator-session" content="([^"]+)', page).group(1)
+
+
 def test_server_post_requires_json_ct():
     """All POST endpoints return 415 when Content-Type is not application/json."""
     import orchestrator.paths as paths_mod
@@ -100,6 +110,7 @@ def test_server_post_requires_json_ct():
 
     try:
         assert _wait_for_port(port), "server did not start in time"
+        token = _session_token(port)
 
         mutating_endpoints = [
             "/run",
@@ -123,6 +134,7 @@ def test_server_post_requires_json_ct():
             conn.request("POST", ep, body=payload, headers={
                 "Content-Type": "text/plain",
                 "Content-Length": str(len(payload)),
+                "X-Orchestrator-Session": token,
             })
             resp = conn.getresponse()
             resp.read()
@@ -137,6 +149,7 @@ def test_server_post_requires_json_ct():
         conn.request("POST", "/run", body=body, headers={
             "Content-Type": "application/json",
             "Content-Length": str(len(body)),
+            "X-Orchestrator-Session": token,
         })
         resp = conn.getresponse()
         resp.read()
@@ -178,6 +191,7 @@ def test_pricing_endpoints(monkeypatch):
 
     try:
         assert _wait_for_port(port), "server did not start in time"
+        token = _session_token(port)
 
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
         conn.request("GET", "/pricing")
@@ -193,6 +207,7 @@ def test_pricing_endpoints(monkeypatch):
         conn.request("POST", "/pricing/refresh", body=body, headers={
             "Content-Type": "application/json",
             "Content-Length": str(len(body)),
+            "X-Orchestrator-Session": token,
         })
         resp = conn.getresponse()
         data = json.loads(resp.read())
@@ -233,6 +248,7 @@ def test_models_endpoints(monkeypatch):
 
     try:
         assert _wait_for_port(port), "server did not start in time"
+        token = _session_token(port)
 
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
         conn.request("GET", "/models")
@@ -247,6 +263,7 @@ def test_models_endpoints(monkeypatch):
         conn.request("POST", "/models/refresh", body=body, headers={
             "Content-Type": "application/json",
             "Content-Length": str(len(body)),
+            "X-Orchestrator-Session": token,
         })
         resp = conn.getresponse()
         data = json.loads(resp.read())
@@ -288,6 +305,7 @@ def test_agents_endpoint(monkeypatch):
 
     try:
         assert _wait_for_port(port), "server did not start in time"
+        token = _session_token(port)
 
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
         conn.request("GET", "/agents")
@@ -380,12 +398,13 @@ def test_sync_endpoints_reject_concurrent_runs(monkeypatch):
     try:
         assert _wait_for_port(port), "server did not start in time"
 
+        token = _session_token(port)
         statuses: list[int] = []
 
         def _post():
             conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
             conn.request("POST", "/sync-git", body="{}",
-                         headers={"Content-Type": "application/json"})
+                         headers={"Content-Type": "application/json", "X-Orchestrator-Session": token})
             resp = conn.getresponse()
             statuses.append(resp.status)
             resp.read()

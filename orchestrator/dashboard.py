@@ -191,7 +191,9 @@ def _build_contexts_section(contexts: list[dict]) -> str:
 
     cards = ""
     for ctx in contexts:
-        ctx_id = ctx.get("id", "")
+        ctx_id = _int_or_none(ctx.get("id"))
+        if ctx_id is None:
+            continue
         ctx_status = _text(ctx.get("status"), "active")
         sc, sbg = _CTX_STATUS_STYLE.get(ctx_status, ("#6b7280", "#f3f4f6"))
         steps = ctx.get("steps", [])
@@ -211,10 +213,12 @@ def _build_contexts_section(contexts: list[dict]) -> str:
                 prov_html = f'<span style="font-size:10px;background:{pbg};color:{pc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(provider)}</span>'
             action_html = ""
             if is_active:
-                sid = step.get("id", "")
+                sid = _int_or_none(step.get("id"))
+                if sid is None:
+                    continue
                 action_html = (
-                    f'<button class="ctx-step-btn ctx-step-advance" onclick="advanceStep({sid},{ctx_id})" title="Completar y continuar">✓</button>'
-                    f'<button class="ctx-step-btn ctx-step-skip" onclick="skipStep({sid},{ctx_id})" title="Omitir paso">↷</button>'
+                    f'<button class="ctx-step-btn ctx-step-advance" data-step-id="{sid}" onclick="advanceStep(Number(this.dataset.stepId))" title="Completar y continuar">✓</button>'
+                    f'<button class="ctx-step-btn ctx-step-skip" data-step-id="{sid}" onclick="skipStep(Number(this.dataset.stepId))" title="Omitir paso">↷</button>'
                 )
             steps_html += (
                 f'<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;{left_border}{active_bg}border-radius:6px;margin-bottom:2px">'
@@ -261,7 +265,7 @@ def _build_contexts_section(contexts: list[dict]) -> str:
             f'<span style="font-size:11px;color:var(--text-faint);font-family:\'JetBrains Mono\',monospace">{_escape(_text(ctx.get("project")))}</span>'
             f'<span style="font-size:10px;background:{sbg};color:{sc};padding:2px 8px;border-radius:20px;font-weight:600">{_escape(ctx_status)}</span>'
             f'{play_btn}'
-            f'<button onclick="openContextDetail({ctx_id})" class="ctx-step-btn" style="font-size:10px;padding:2px 8px;border-radius:20px">→ Detalle</button>'
+            f'<button data-ctx-id="{ctx_id}" onclick="openContextDetail(Number(this.dataset.ctxId))" class="ctx-step-btn" style="font-size:10px;padding:2px 8px;border-radius:20px">→ Detalle</button>'
             f'{delete_btn}'
             f'</div>'
             f'{desc_html}'
@@ -278,7 +282,8 @@ def _build_contexts_section(contexts: list[dict]) -> str:
 
 
 
-def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None) -> str:
+def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None,
+               session_token: str = "") -> str:
     selected_project = _text(selected_project)
     all_projects = sorted({_text(r.get("project")) for r in runs if _text(r.get("project"))})
     if projects_extra:
@@ -675,6 +680,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <div id="activity-log" style="display:none"></div>
 </div>
 
+<meta name="orchestrator-session" content="{_escape(session_token)}">
 <script>
 window.__runsData = {runs_json};
 </script>
@@ -683,10 +689,10 @@ try {{
 {_js}
 }} catch(e) {{
   console.error("JS init error:", e);
-  document.body.insertAdjacentHTML("afterbegin",
-    "<div style='position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;font-size:13px;padding:8px 16px;z-index:9999;font-family:monospace'>" +
-    "Error JS al cargar: " + e.message + " — " + (e.stack||"").split("\\n")[0] + "</div>"
-  );
+  const errorBox = document.createElement("div");
+  errorBox.style.cssText = "position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;font-size:13px;padding:8px 16px;z-index:9999;font-family:monospace";
+  errorBox.textContent = "Error JS al cargar: " + e.message + " — " + (e.stack||"").split("\\n")[0];
+  document.body.prepend(errorBox);
 }}
 </script>
 <script>

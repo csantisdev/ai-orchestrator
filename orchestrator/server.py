@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import http.server
+import hmac
 import json as json_mod
 import queue
 import socket
 import socketserver
 import sys
+import secrets
 import urllib.parse
 import webbrowser
 from pathlib import Path
@@ -45,6 +47,12 @@ def mcp_json_from_example(example_text: str, is_windows: bool | None = None) -> 
 
 def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -> None:
     """Servidor HTTP del dashboard en http://127.0.0.1:<port>."""
+    def _chroma_age_seconds() -> float | None:
+        if not _chroma_cache["updated_at"]:
+            return None
+        from datetime import datetime, timezone
+        return max(0.0, (datetime.now(timezone.utc) - datetime.fromisoformat(_chroma_cache["updated_at"])).total_seconds())
+
     import threading as _threading
     from orchestrator import background as bg_module
     from orchestrator import context as context_module
@@ -66,6 +74,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
     # hacer que el perdedor de la carrera indexara con un run_id ajeno; ver
     # el fallback via SELECT session_id en git_scanner/watcher/codex_watcher.
     _sync_lock = _threading.Lock()
+    _session_token = secrets.token_urlsafe(32)
+    _chroma_cache: dict = {"stats": None, "updated_at": None}
 
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -74,9 +84,74 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
         def handle_error(self, request, client_address):
             pass
 
+        def end_headers(self):
+            """Security headers belong on every response, including errors/files."""
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+            if not self.path.startswith("/static/"):
+                self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
+        def handle_one_request(self):
+            """Validate Host before BaseHTTPRequestHandler dispatches do_<method>."""
+            try:
+                self.raw_requestline = self.rfile.readline(65537)
+                if len(self.raw_requestline) > 65536:
+                    self.requestline = ""; self.request_version = "HTTP/1.1"; self.command = ""
+                    self.send_error(414); return
+                if not self.raw_requestline:
+                    self.close_connection = True; return
+                if not self.parse_request(): return
+                if not self._valid_host():
+                    self._json({"error": "invalid Host"}, 421); return
+                if self.command not in ("GET", "POST"):
+                    self._json({"error": "method not allowed"}, 405); return
+                method = getattr(self, "do_" + self.command)
+                method()
+                self.wfile.flush()
+            except TimeoutError as exc:
+                self.log_error("Request timed out: %r", exc); self.close_connection = True
+
+        def _valid_host(self) -> bool:
+            hosts = self.headers.get_all("Host", [])
+            if len(hosts) != 1:
+                return False
+            value = hosts[0].strip().lower()
+            if ":" in value:
+                if value.count(":") != 1:
+                    return False
+                host, port_text = value.rsplit(":", 1)
+                if not port_text.isdigit():
+                    return False
+                effective_port = int(port_text)
+            else:
+                host, effective_port = value, 80
+            if host not in ("localhost", "127.0.0.1"):
+                return False
+            return effective_port == self.server.server_address[1]
+
+        def _require_post_security(self) -> bool:
+            origin = self.headers.get("Origin")
+            if origin:
+                parsed = urllib.parse.urlparse(origin)
+                effective_port = parsed.port or (80 if parsed.scheme == "http" else None)
+                if (parsed.scheme != "http" or parsed.hostname not in ("localhost", "127.0.0.1")
+                        or effective_port != self.server.server_address[1]):
+                    self._json({"error": "invalid origin"}, 403); return False
+            if self.headers.get("Sec-Fetch-Site") not in (None, "same-origin"):
+                self._json({"error": "invalid fetch site"}, 403); return False
+            token = self.headers.get("X-Orchestrator-Session", "")
+            if not hmac.compare_digest(token, _session_token):
+                self._json({"reason": "session_expired"}, 403); return False
+            return self._require_json_ct()
+
         def do_GET(self):
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
+            if path == "/pick-folder":
+                self._json({"error": "method not allowed"}, 405)
+                return
             if path.startswith("/run/"):
                 return self._get_run(parsed)
             if path.startswith("/context/") and not path.endswith("/delete"):
@@ -92,7 +167,6 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/mcp":                      self._get_docs,
                 "/security":                 self._get_docs,
                 "/events":                   self._get_events,
-                "/pick-folder":              self._get_pick_folder,
                 "/inspect":                  self._get_inspect,
                 "/metrics":                  self._get_metrics,
                 "/preview-index":            self._get_preview_index,
@@ -207,12 +281,13 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
         def _get_inspect(self, parsed):
             try:
                 from orchestrator.db import read_inspector_data
-                from orchestrator.rag import chroma_stats_isolated
                 from orchestrator.tracer import span as _span
                 with _span("Inspector · SQLite"):
                     payload = read_inspector_data()
                 with _span("Inspector · ChromaDB"):
-                    payload["chroma"] = chroma_stats_isolated()
+                    payload["chroma"] = _chroma_cache["stats"]
+                    payload["chroma_updated_at"] = _chroma_cache["updated_at"]
+                    payload["chroma_stats_age_s"] = _chroma_age_seconds()
                 try:
                     registered = set(index_module.list_projects().keys())
                 except Exception:
@@ -225,8 +300,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 payload["registered_project_index"] = index_module.list_projects()
                 payload["all_projects"] = sorted(registered | from_runs)
                 try:
-                    from orchestrator.rates import get_current_rate
-                    payload["rate_info"] = get_current_rate(config)
+                    from orchestrator.rates import get_cached_rate
+                    payload["rate_info"] = get_cached_rate()
                 except Exception:
                     payload["rate_info"] = None
             except Exception as exc:
@@ -277,8 +352,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                        FROM runs WHERE date(ts) >= date('now','-14 days')
                        GROUP BY day ORDER BY day"""
                 ).fetchall()
-                from orchestrator.rates import get_current_rate
-                rate_info = get_current_rate(config)
+                from orchestrator.rates import get_cached_rate
+                rate_info = get_cached_rate()
                 self._json({
                     "by_project": [dict(r) for r in by_proj],
                     "by_model":   [dict(r) for r in by_model],
@@ -431,7 +506,6 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             try:
                 from orchestrator.db import _conn
                 from orchestrator.index import list_projects
-                from orchestrator.rag import chroma_stats_isolated
                 conn = _conn()
                 registered = set(list_projects().keys())
                 rows = conn.execute(
@@ -463,12 +537,13 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                     ctx_by_proj[p]["total"] += r["n"]
                     ctx_by_proj[p]["by_status"][r["status"]] = r["n"]
                 # ChromaDB stats
-                cs = chroma_stats_isolated()
+                cs = _chroma_cache["stats"]
                 self._json({
                     "projects": list(projects_info.values()),
                     "registered": sorted(registered),
                     "contexts_by_project": ctx_by_proj,
                     "chroma": cs,
+                    "chroma_stats_age_s": _chroma_age_seconds(),
                 })
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
@@ -484,14 +559,13 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                         "configured": bool(cfg.get("api_key", "").strip()),
                         "model": cfg.get("model", ""),
                     })
-                from orchestrator.rates import get_current_rate, get_bcentral_config
+                from orchestrator.rates import get_cached_rate, get_bcentral_config
                 bc = get_bcentral_config(config)
-                rate_info = get_current_rate(config)
+                rate_info = get_cached_rate()
                 self._json({
                     "providers": providers_status,
                     "bcentral": {
                         "configured": bool(bc.get("user") and bc.get("pass")),
-                        "user": bc.get("user", ""),
                         "rate": rate_info,
                     },
                 })
@@ -501,8 +575,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
 
         def _get_rates(self, parsed):
             try:
-                from orchestrator.rates import get_current_rate
-                rate_info = get_current_rate(config)
+                from orchestrator.rates import get_cached_rate
+                rate_info = get_cached_rate()
                 self._json(rate_info or {"rate": None, "error": "Sin datos ni credenciales"})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
@@ -550,7 +624,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             # Siempre traer todos los proyectos por separado para el selector
             runs_list = history_module.read_runs(project=sel_project or None, last=500)
             extra_projects = sorted(known_projects)
-            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects)
+            html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects,
+                              session_token=_session_token)
             body = html.encode("utf-8")
             try:
                 self.send_response(200)
@@ -565,7 +640,7 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
 
         def _require_json_ct(self) -> bool:
             ct = self.headers.get("Content-Type", "")
-            if "application/json" not in ct:
+            if ct.split(";", 1)[0].strip().lower() != "application/json":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
                     if length > 0:
@@ -577,6 +652,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             return True
 
         def do_POST(self):
+            if not self._require_post_security():
+                return
             if self.path.startswith("/context/") and self.path.endswith("/delete"):
                 if not self._require_json_ct():
                     return
@@ -595,6 +672,8 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
                 "/sync-git":                self._post_sync_git,
                 "/sync-codex":              self._post_sync_codex,
                 "/rates/refresh":           self._post_rates_refresh,
+                "/pick-folder":             self._post_pick_folder,
+                "/chroma-stats/refresh":    self._post_chroma_stats_refresh,
                 "/pricing/refresh":         self._post_pricing_refresh,
                 "/models/refresh":          self._post_models_refresh,
                 "/config/bcentral":         self._post_config_bcentral,
@@ -614,6 +693,16 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
             if not self._require_json_ct():
                 return
             handler()
+
+        def _post_pick_folder(self):
+            self._get_pick_folder(None)
+
+        def _post_chroma_stats_refresh(self):
+            from datetime import datetime, timezone
+            from orchestrator.rag import chroma_stats_isolated
+            _chroma_cache["stats"] = chroma_stats_isolated()
+            _chroma_cache["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._json({"chroma": _chroma_cache["stats"], "updated_at": _chroma_cache["updated_at"]})
 
         def _post_clean_unmapped(self):
             try:
@@ -1534,8 +1623,10 @@ def serve(port: int, project: Optional[str], open_browser: bool, config: dict) -
     import threading as _threading
     def _prewarm_chroma():
         try:
-            from orchestrator.rag import _get_client
-            _get_client()
+            from datetime import datetime, timezone
+            from orchestrator.rag import chroma_stats_isolated
+            _chroma_cache["stats"] = chroma_stats_isolated()
+            _chroma_cache["updated_at"] = datetime.now(timezone.utc).isoformat()
         except Exception:
             pass
     _threading.Thread(target=_prewarm_chroma, daemon=True).start()
