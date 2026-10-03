@@ -320,6 +320,11 @@ def _is_reorderable(chunk: str) -> bool:
 
     Todo lo demás —incluidos `const` con llamadas como `new EventSource(...)`— se
     ejecuta al cargar en el orden del archivo.
+
+    Vale para el JS heredado actual, donde ningún código de carga lee estas
+    variables. No es una regla general: si se agrega código de carga que las lea,
+    una declaración literal también pasa a depender del orden (zona muerta temporal
+    de let/const, o `undefined` de un `var` antes de su inicializador).
     """
     code = "\n".join(line for line in chunk.split("\n") if not line.lstrip().startswith("//")).strip()
     if FUNCTION_DECLARATION.match(code):
