@@ -148,7 +148,8 @@ def _newest_imported_commit_date(conn, alias: str) -> Optional[str]:
     """Fecha del commit mas reciente ya importado para este alias, o None si
     nunca se sincronizo (primera corrida)."""
     row = conn.execute(
-        "SELECT MAX(ts) FROM runs WHERE provider=? AND session_id LIKE ? ESCAPE '\\'",
+        "SELECT ts FROM runs WHERE provider=? AND session_id LIKE ? ESCAPE '\\'"
+        " ORDER BY julianday(ts) DESC, ts DESC, id DESC LIMIT 1",
         (PROVIDER_NAME, f"git::{_escape_like(alias)}::%"),
     ).fetchone()
     return row[0] if row and row[0] else None

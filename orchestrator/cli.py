@@ -570,9 +570,14 @@ def step_suggest_cmd(
     except ConfigError:
         config = {}
     tracking = config.get("tracking", {}) if isinstance(config.get("tracking", {}), dict) else {}
-    suggestions = suggest_step_commits(
-        _conn(), project, since, tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"),
-    )
+    from rich.markup import escape
+    try:
+        suggestions = suggest_step_commits(
+            _conn(), project, since, tracking.get("ticket_regex", r"\b[A-Z]+-\d+\b"),
+        )
+    except ValueError as exc:
+        console.print(f"[red]✗[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1)
     if not suggestions:
         console.print("No se encontraron sugerencias.")
         return

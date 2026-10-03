@@ -255,3 +255,63 @@ def test_migration_recovers_interrupted_mcp_payload_rebuild(tmp_path, monkeypatc
         ).fetchone() is not None
     finally:
         conn.close()
+
+
+def test_read_runs_orders_by_instant_not_by_text(request):
+    """Imported git commits keep the committer's offset, so ts mixes -03:00,
+    -04:00 and UTC. Sorting the text would put 12:00Z before 11:30-04:00
+    (15:30Z); read_runs must sort by the actual instant."""
+    from orchestrator.db import read_runs
+
+    project = f"order-{request.node.name}"
+    _insert(project, "2026-06-01T10:00:00-03:00", 0.0)
+    _insert(project, "2026-06-01T12:00:00+00:00", 0.0)
+    _insert(project, "2026-06-01T11:30:00-04:00", 0.0)
+
+    rows = read_runs(project=project)
+
+    assert [row["ts"] for row in rows] == [
+        "2026-06-01T11:30:00-04:00",
+        "2026-06-01T10:00:00-03:00",
+        "2026-06-01T12:00:00+00:00",
+    ]
+
+
+def test_runs_instant_indexes_serve_the_instant_ordering():
+    from orchestrator.db import _conn
+
+    plans = [
+        " ".join(row[3] for row in _conn().execute("EXPLAIN QUERY PLAN " + query))
+        for query in (
+            "SELECT * FROM runs ORDER BY julianday(ts) DESC, ts DESC, id DESC LIMIT 500",
+            "SELECT * FROM runs WHERE project = 'x' ORDER BY julianday(ts) DESC, ts DESC, id DESC LIMIT 500",
+            "SELECT * FROM runs WHERE status = 'done' ORDER BY julianday(ts) DESC, ts DESC, id DESC LIMIT 500",
+        )
+    ]
+
+    assert "idx_runs_instant" in plans[0]
+    assert "idx_runs_project_instant" in plans[1]
+    assert "idx_runs_status_instant" in plans[2]
+    assert all("TEMP B-TREE" not in plan for plan in plans)
+
+
+def test_read_runs_keeps_microsecond_order_within_the_same_millisecond(request):
+    """julianday() rounds to milliseconds, so .123100 and .123400 share one
+    value. With the same offset the timestamp text breaks the tie; id DESC
+    alone would return the older run first.
+
+    Known limit: two runs with different offsets inside the same millisecond
+    can come back swapped. Writers in one source share an offset, and a
+    sub-millisecond swap across sources has no effect on any listing."""
+    from orchestrator.db import read_runs
+
+    project = f"micro-{request.node.name}"
+    _insert(project, "2026-06-01T12:00:00.123400+00:00", 0.0)
+    _insert(project, "2026-06-01T12:00:00.123100+00:00", 0.0)
+
+    rows = read_runs(project=project)
+
+    assert [row["ts"] for row in rows] == [
+        "2026-06-01T12:00:00.123400+00:00",
+        "2026-06-01T12:00:00.123100+00:00",
+    ]
