@@ -4,7 +4,7 @@
 **Documento:** referencia de diseño para análisis e implementación gradual (backlog, no normativo)  
 **Fecha:** 2026-10-02  
 **Baseline verificado:** `production@985b74970477e729eda97ee0728ab6575b523014`  
-**Estado:** borrador para validación cruzada (Claude ↔ Codex)
+**Estado:** validado (auditoría cruzada con Codex CLI y Copilot CLI cerrada en cada sección); referencia para las olas de §24
 
 ---
 
@@ -937,23 +937,37 @@ commits        ◇ 7d03e1b  ◇ a41f9c2   ◇ 5be88d0 (2 pasos)          ← fra
 
 ### 21.4 Contrato de datos
 
-`GET /api/v1/projects/{p}/contexts/{id}/map`, bajo las protecciones de D0. DTO mínimo:
+`GET /api/v1/projects/{p}/contexts/{id}/map`, bajo las protecciones de D0. El DTO **es un
+ProjectGraph (§10.1) del contexto más una extensión `map`**:
 
 ```json
 {
-  "lanes": ["claude", "codex", "sin agente"],
-  "steps": [{"id": 12, "idx": 3, "status": "completed", "lane": "claude",
-             "secondary": ["codex"], "alignments": 2, "deviations": 0,
-             "runs": 1, "cost_usd": 3.92}],
-  "commits": [{"sha": "5be88d0c41…(40 caracteres)", "label": "5be88d0", "cited_by": [12, 13]}],
-  "groups": [{"id": "group:3-11", "from_idx": 3, "to_idx": 11, "count": 9,
-              "members": [21, 22, 23, 24, 25, 26, 27, 28, 29],
-              "lane": "claude", "lanes": {"claude": 6, "codex": 3},
-              "single_commits": 4}],
-  "eligible": true
+  "nodes": [
+    {"id": "step:12", "kind": "step", "label": "Paso 3", "state": "completed",
+     "attrs": {"idx": 3, "lane": "claude", "secondary": ["codex"], "alignments": 2,
+               "deviations": 0, "runs": 1, "cost_usd": 3.92}},
+    {"id": "commit:5be88d0c41a7e9f2b3c4d5e6f708192a3b4c5d6e", "kind": "commit", "label": "5be88d0"}
+  ],
+  "edges": [
+    {"source": "step:12", "target": "commit:5be88d0c41a7e9f2b3c4d5e6f708192a3b4c5d6e", "relation_type": "cites",
+     "origin": "verified_reference", "confidence": 1.0, "evidence_ref": "steps.notes"}
+  ],
+  "metadata": {"project": "mi-proyecto", "context_id": 21, "generated_at": "…"},
+  "map": {
+    "lanes": ["claude", "codex", "sin agente"],
+    "groups": [{"id": "group:3-11", "from_idx": 3, "to_idx": 11, "count": 9,
+                "members": ["step:21", "step:22", "step:23", "step:24", "step:25",
+                            "step:26", "step:27", "step:28", "step:29"],
+                "lane": "claude", "lanes": {"claude": 6, "codex": 3}, "single_commits": 4}],
+    "eligible": true
+  }
 }
 ```
 
+- `nodes`, `edges` y `metadata` tienen el formato de ProjectGraph; los ids de nodo (`step:<id>`,
+  `commit:<sha>`) son los mismos en todas las representaciones y en `sel=` (§23.3). Lo propio del
+  mapa (carriles, grupos, elegibilidad) va solo dentro de `map`, y los atributos del paso dentro de
+  `attrs`.
 - El identificador del commit es el SHA completo; `label` (7 caracteres) es solo visual, así que
   dos commits con el mismo prefijo no se fusionan. Un token de las notas que es prefijo de más de un
   commit no se verifica (hoy: ninguno).
@@ -1114,6 +1128,10 @@ Disposición: fuerzas con gravedad por cluster y semilla fija; posiciones calcul
 en Python puro (sin dependencias nuevas); render en Canvas 2D con una capa accesible equivalente
 (lista de clusters y puentes) sincronizada con la selección.
 
+Contrato: igual que el mapa (§21.4), el DTO es un ProjectGraph del proyecto (contextos, pasos y
+commits como nodos; `contains` y `cites` como aristas; los portales como nodos `portal:<alias>`)
+más una extensión `constellation` con posiciones, generación de caché y lente.
+
 Caché de posiciones: `PRAGMA data_version` es local a una conexión, así que no sirve como versión
 global. El hilo de O4 (§19.4), con su conexión lectora dedicada y persistente, incrementa un
 contador de generación en memoria cada vez que detecta un cambio; las escrituras hechas dentro del
@@ -1203,8 +1221,13 @@ selector "Ver como" y el grafo quedaba poco visible; se cambió a pestañas por 
 - La **lista es siempre la representación por defecto** y la equivalente accesible.
 - La selección **se conserva** al cambiar de representación: el paso seleccionado en la lista sigue
   seleccionado en el mapa.
-- Una representación nueva se agrega como un renderizador más sobre el mismo DTO (§10.1), sin tocar
-  la navegación ni el Inspector.
+- Una representación nueva se agrega como un renderizador más sobre el modelo común de §10.1, sin
+  tocar la navegación ni el Inspector. **ProjectGraph es la base**: nodos con id `tipo:id`
+  (`context:21`, `step:12`, `commit:<sha>`) y aristas tipadas. Cada representación recibe un **DTO
+  especializado que deriva de esa base**: conserva los mismos ids de nodo y los mismos tipos de
+  arista, y agrega solo lo que su disposición necesita (carriles y grupos en el mapa, §21.4;
+  posiciones, puentes y portales en la constelación, §22.4). Así la selección (`sel=tipo:id`) es la
+  misma en todas las representaciones.
 - Si una representación no aplica al objeto (mapa de un contexto no elegible, §21.3), su pestaña se
   muestra deshabilitada con el motivo y la opción de verla igual.
 
@@ -1234,7 +1257,7 @@ el header, que pasa a ser la forma principal de llegar a un objeto cuando hay mu
 Ubicación y enlaces:
 
 - Breadcrumb: `mi-proyecto › Contexto #21 › Paso 3`.
-- Estado en la URL: `?project=mi-proyecto&ctx=21&step=12&as=map&sel=commit:5be88d0c41…`.
+- Estado en la URL: `?project=mi-proyecto&ctx=21&step=12&as=map&sel=commit:5be88d0c41a7e9f2b3c4d5e6f708192a3b4c5d6e`.
   - `ctx` y `step` indican la página;
   - `as`, la representación;
   - `sel`, el objeto seleccionado en el Inspector, con el formato `tipo:id`: `commit:<sha
@@ -1251,7 +1274,7 @@ Todas las pantallas usan la misma estructura; cambia solo el contenido:
 ┌ Header: scope del proyecto · búsqueda · estado (en vivo, degradado) ─────────────────┐
 │ Nav │ Breadcrumb                                                │ Inspector          │
 │     │ Título del objeto · estado · acciones (máximo 2 primarias)│ (panel del objeto  │
-│     │ Barra: Ver como · filtros · orden                         │  seleccionado)     │
+│     │ Pestañas de representación · filtros · orden              │  seleccionado)     │
 │     │ Contenido (lista, mapa, constelación, Trace)              │                    │
 ├─────┴───────────────────────────────────────────────────────────┴────────────────────┤
 │ Activity                                                                             │
@@ -1295,7 +1318,7 @@ deshabilitado, cargando, vacío y error):
 | Fila de objeto | Listas de contextos, pasos, runs y decisiones |
 | Panel del Inspector | Identidad, atributos, relaciones, acciones y secciones colapsables |
 | Cadena | Trace |
-| Control "Ver como" | Cambio de representación |
+| Pestañas de representación | Cambio de representación dentro del objeto (§23.2) |
 | Lista sincronizada | Equivalente accesible de mapa y constelación |
 | Lienzo de grafo | Mapa y constelación (un solo módulo, dos disposiciones) |
 | Leyenda | Familias y tipos de relación |
@@ -1331,7 +1354,7 @@ denegación) y reglas de microcopy de §4. Los textos de estado dicen qué pasó
 | Volumen de datos | Listas y grafos que crecen con el historial | Paginación por cursor en toda lista (ya necesaria: 1 158 runs, 500 embebidos hoy); presupuestos y agrupamiento en grafos (§21.3); posiciones precalculadas (§22.4). La virtualización de filas se difiere hasta que una lista visible supere ~200 filas en uso real |
 | Cantidad de contextos | Navegar por listas deja de servir | Búsqueda primero, filtros por estado y agente, Inicio con solo lo que pide atención |
 | Nuevos objetos | Más secciones en la navegación | Modelo de objetos (§23.1): fila, panel y detalle |
-| Nuevas representaciones | Vistas paralelas que divergen | Renderizadores sobre el mismo DTO, con la selección compartida |
+| Nuevas representaciones | Vistas paralelas que divergen | Renderizadores sobre ProjectGraph y su extensión propia (§23.2), con la selección compartida |
 | Más agentes | Colores y carriles cableados en el código | Catálogo de agentes como dato; el color y el carril salen del catálogo |
 | Varios proyectos | Mezclar scopes | Selector de proyecto; nodos portal para relaciones entre proyectos (§22.4) |
 | Funciones experimentales | Ruido para todos los usuarios | "Labs" en Ajustes: un interruptor simple por función (Mapa, Constelación), guardado en la configuración local, mientras se miden (§21.6, §22.5) |
@@ -1365,10 +1388,14 @@ orchestrator/
 
 - **Módulos ES nativos** servidos como estáticos (§19.4 O3); el navegador los carga sin compilación.
   Hoy el servidor solo sirve dos rutas fijas (`/static/docs-theme.css` y `.js`), así que D1 agrega un
-  handler restringido a `static/dashboard/`: tipo MIME explícito por extensión (`text/javascript`,
-  `text/css`), rechazo de rutas con `..`, nombres con hash de contenido mediante un manifiesto
-  generado al iniciar el servidor y `Cache-Control: public, max-age=31536000, immutable` para los
-  archivos con hash.
+  handler restringido a `orchestrator/static/dashboard/`: tipo MIME explícito por extensión
+  (`text/javascript`, `text/css`), rechazo de rutas con `..` y caché inmutable.
+  **Versión por directorio, no por archivo:** al iniciar, el servidor calcula un hash del contenido
+  de todo `static/dashboard/` y lo sirve bajo `/static/dashboard/<hash>/…` con
+  `Cache-Control: public, max-age=31536000, immutable`. Los `import` relativos entre módulos
+  (`import { store } from '../core/store.js'`) siguen funcionando, porque todos comparten el mismo
+  prefijo; con nombres con hash por archivo se romperían. El HTML referencia solo el punto de
+  entrada con ese prefijo.
 - **Navegadores soportados:** Chromium, Firefox y Safari en sus dos últimas versiones mayores (módulos
   ES, `URL`, History API y `@layer`). Hay tests de navegación que recargan una URL compartida y
   verifican que se restauran la vista y la selección.
@@ -1385,7 +1412,11 @@ orchestrator/
 - **Contratos versionados:** los DTO de `/api/v1` se validan con `jsonschema` (ya está en las
   dependencias de desarrollo) en los tests de Python.
 - **Pruebas sin framework de JS:** las funciones puras (extracción de SHAs, disposición del mapa,
-  presupuestos) se prueban con `node --test`; la lógica de dominio, en Python. El workflow de CI
+  presupuestos) viven en módulos sin acceso al DOM y se prueban con `node --test`; la lógica de
+  dominio, en Python. Un `package.json` mínimo (`{"type": "module"}`) en `static/dashboard/` hace
+  que Node cargue esos `.js` como módulos ES igual que el navegador; el handler estático no lo
+  sirve. Los tests viven en `tests/js/` con extensión `.mjs`, que Node siempre trata como módulo
+  ES, e importan los módulos de `orchestrator/static/dashboard/` por ruta relativa. El workflow de CI
   agrega `actions/setup-node` con una versión LTS fijada y un paso `node --test`; hoy no instala
   Node.
 - **Migración por verticales completas:** el HTML actual usa handlers en línea (`onclick`,
@@ -1499,7 +1530,7 @@ Cada unidad es **un PR**, con un conjunto de archivos declarado de antemano y es
 Las migraciones SQLite (§24.4) se intercalan como unidades propias en la ola que las necesite.
 
 **Archivos por unidad** (las olas 0, 2, 5a y 6 son secuenciales; acá se listan las que corren en
-paralelo):
+paralelo). Las rutas `static/dashboard/…` son relativas a `orchestrator/`, como en §23.7:
 
 | Ola | Unidad | Archivos |
 |---|---|---|
@@ -1512,7 +1543,7 @@ paralelo):
 | 4 | D4 backend | `orchestrator/change_watch.py`, `orchestrator/projections_activity.py`, `orchestrator/api_v1/activity.py`, `tests/test_change_watch.py` |
 | 4 | D4 UI + D5 | `static/dashboard/components/activity.js`, `static/dashboard/{base,components}.css`, `tests/test_token_contrast.py` |
 | 5b | D7 backend | `orchestrator/constellation_layout.py`, `orchestrator/api_v1/constellation.py`, `tests/test_constellation_layout.py` |
-| 5b | D7 UI | `static/dashboard/renderers/layouts/constellation.js`, `static/dashboard/views/work.js` (solo la pestaña Grafo), `tests/js/constellation.test.js` |
+| 5b | D7 UI | `static/dashboard/renderers/layouts/constellation.js`, `static/dashboard/views/work.js` (solo la pestaña Grafo), `tests/js/constellation.test.mjs` |
 
 Las pestañas Proyectos, Datos y Configuración del dashboard actual pasan a Ajustes en la ola 6.
 
@@ -1555,7 +1586,11 @@ llega a la metadata de git. Para que el paralelismo sea real:
 - **Prueba en la ola 0:** ejecutar Codex en un **clon completo** del repositorio (con su propio
   `.git` dentro del sandbox) en lugar de un worktree, y verificar si puede commitear en su rama. Si
   funciona, Claude solo revisa, trae la rama con `git fetch` desde el clon y abre el PR.
-- **Si la prueba falla:** la integración se vuelve un paso mecánico y corto, siempre igual:
+- **Resultado (2026-10-03, contexto #66): negativo.** También en un clon completo `git add` falla
+  con `.git/index.lock: Permission denied`: el sandbox `workspace-write` de Codex protege `.git` por
+  diseño, no es un problema del worktree. En el clon, Claude pudo editar los archivos creados por
+  Codex sin restablecer permisos. Rige la contingencia:
+- **Contingencia:** la integración se vuelve un paso mecánico y corto, siempre igual:
   restablecer permisos, revisar `git diff --stat` y commitear con la atribución de Codex. Se limita a
   **una unidad de Codex en paralelo por ola**, para que la cola de integración no crezca.
 - **Medición:** el tiempo y el costo de integración por ola se registran en Ejecuciones → Costos
