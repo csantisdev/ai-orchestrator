@@ -17,10 +17,10 @@ export const SECTIONS = Object.freeze([
   },
   {
     id: "ejecuciones", group: "proyecto", label: "Ejecuciones",
-    // Pestañas de §23.3 sobre las vistas heredadas hasta que llegue la unidad Ejecuciones.
     tabs: [
-      { id: "runs", label: "Runs", legacy: "actividad" },
-      { id: "costos", label: "Costos", legacy: "metrics" },
+      { id: "runs", label: "Runs", module: "./views/runs.js" },
+      { id: "costos", label: "Costos", module: "./views/costs.js" },
+      { id: "actividad", label: "Actividad (heredado)", legacy: "actividad" },
     ],
   },
   {

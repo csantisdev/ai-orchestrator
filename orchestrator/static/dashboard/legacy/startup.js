@@ -20,7 +20,6 @@ Object.assign(window, {
   exportCSV,
   loadConfig,
   loadDatos,
-  loadMetrics,
   loadProyectos,
   openContextDetail,
   openDetail,

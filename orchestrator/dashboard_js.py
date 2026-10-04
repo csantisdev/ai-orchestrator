@@ -7,7 +7,7 @@ from pathlib import Path
 _JS_DIR = Path(__file__).parent / "static" / "dashboard" / "legacy"
 # Orden de carga: core primero (infraestructura compartida) y startup al final
 # (exportaciones y arranque). La página los incluye como <script> clásicos en este orden.
-_JS_FILES = ("core", "actividad", "flujos", "proyectos", "metrics", "datos", "config", "startup")
+_JS_FILES = ("core", "actividad", "flujos", "proyectos", "datos", "config", "startup")
 
 
 def _build_js() -> str:

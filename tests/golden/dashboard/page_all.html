@@ -49,7 +49,6 @@
     <button class="tab-btn tab-active" id="tab-btn-actividad" onclick="switchTab('actividad')">Actividad</button>
     <button class="tab-btn" id="tab-btn-flujos" onclick="switchTab('flujos')">Flujos</button>
     <button class="tab-btn" id="tab-btn-proyectos" onclick="switchTab('proyectos')">Proyectos</button>
-    <button class="tab-btn" id="tab-btn-metrics" onclick="switchTab('metrics')">Métricas</button>
     <button class="tab-btn" id="tab-btn-datos" onclick="switchTab('datos')">Datos</button>
     <button class="tab-btn" id="tab-btn-config" onclick="switchTab('config')">Configuración</button>
   </div>
@@ -294,14 +293,6 @@
 </div>
 </div>
 
-<div id="tab-metrics" style="display:none">
-<div class="container">
-  <div id="metrics-content" style="padding-top:4px">
-    <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
-  </div>
-</div>
-</div>
-
 <div id="tab-datos" style="display:none">
 <div class="container" style="padding-top:20px">
   <div id="datos-content">
@@ -408,7 +399,6 @@ window.addEventListener("error", function (event) {
 <script src="/static/dashboard/<version>/legacy/actividad.js"></script>
 <script src="/static/dashboard/<version>/legacy/flujos.js"></script>
 <script src="/static/dashboard/<version>/legacy/proyectos.js"></script>
-<script src="/static/dashboard/<version>/legacy/metrics.js"></script>
 <script src="/static/dashboard/<version>/legacy/datos.js"></script>
 <script src="/static/dashboard/<version>/legacy/config.js"></script>
 <script src="/static/dashboard/<version>/legacy/startup.js"></script>

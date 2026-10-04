@@ -22,7 +22,7 @@ test("cada sección o pestaña muestra exactamente una vista nueva, heredada o v
       if (resolved.legacy) legacyTabs.add(resolved.legacy);
     }
   }
-  assert.deepEqual([...legacyTabs].sort(), ["actividad", "config", "datos", "flujos", "metrics", "proyectos"]);
+  assert.deepEqual([...legacyTabs].sort(), ["actividad", "config", "datos", "flujos", "proyectos"]);
 });
 
 test("resolveSection arma el breadcrumb y cae en valores válidos", () => {
