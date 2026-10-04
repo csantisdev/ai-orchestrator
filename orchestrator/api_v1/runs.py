@@ -105,12 +105,30 @@ def _run_rows(conn: sqlite3.Connection, project: str, source: str, limit: int,
     ).fetchall()
 
 
+def _cursor_exists(conn: sqlite3.Connection, project: str, source: str,
+                   marker: tuple[float | None, int]) -> bool:
+    """Un cursor debe ser uno emitido para esta lista, no sólo tener sintaxis válida."""
+    instant, row_id = marker
+    source_sql, source_params = _source_clause(source)
+    if instant is None:
+        time_sql, time_params = "julianday(r.ts) IS NULL", []
+    else:
+        time_sql, time_params = "julianday(r.ts) = ?", [instant]
+    row = conn.execute(
+        "SELECT 1 FROM runs r WHERE r.project = ? AND r.id = ? AND " + time_sql + source_sql,
+        [project, row_id, *time_params, *source_params],
+    ).fetchone()
+    return row is not None
+
+
 def list_runs(conn: sqlite3.Connection, project: str, *, limit: int = 50, cursor: str | None = None,
               source: str = "all") -> dict:
     """Página de runs sin cargar las páginas siguientes en memoria."""
     if not 1 <= limit <= 100:
         raise ValueError("limit debe estar entre 1 y 100")
     marker = _decode_cursor(cursor)
+    if marker is not None and not _cursor_exists(conn, project, source, marker):
+        raise ValueError("cursor inválido")
     fetched = _run_rows(conn, project, source, limit, marker)
     page = fetched[:limit]
     runs = []

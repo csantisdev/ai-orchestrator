@@ -29,7 +29,10 @@ function root() {
   value.listeners = 0;
   value.addEventListener = () => { value.listeners += 1; };
   value.removeEventListener = () => { value.listeners -= 1; };
-  value.replaceChildren = (...items) => { value.childNodes = items.filter(Boolean); };
+  // Como el DOM real, convierte argumentos nulos en nodos de texto.
+  value.replaceChildren = (...items) => {
+    value.childNodes = items.map((item) => item ?? { text: String(item) });
+  };
   value.contains = () => true;
   return value;
 }
@@ -59,7 +62,7 @@ test("mount no deja listeners y los cambios de filtro reinician la lista", async
     const requests = [];
     const api = { get: (_, options) => {
       requests.push(options.params);
-      return Promise.resolve({ runs: [{ id: requests.length, task_preview: "x", source: "router", provider: "p" }], next_cursor: "1|1" });
+      return Promise.resolve({ runs: [{ id: requests.length, ts: "2026-05-10T13:00:00Z", task_preview: "x", source: "router", status: "ok", provider: "p", model: "m" }], next_cursor: null });
     } };
     const handle = await (await import("../../orchestrator/static/dashboard/views/runs.js")).mount(target, {
       api,
@@ -69,8 +72,38 @@ test("mount no deja listeners y los cambios de filtro reinician la lista", async
     });
     assert.equal(signalListeners, 0);
     assert.equal(requests.length, 1);
+    assert.doesNotMatch(target.textContent, /null|undefined/);
     handle.unmount();
     assert.equal(target.listeners, 0);
+  } finally {
+    delete h.document;
+  }
+});
+
+test("Costos enlaza el contexto, sin seleccionar un paso fijo", async () => {
+  const target = root();
+  h.document = target.ownerDocument;
+  try {
+    const sets = [];
+    const { mount } = await import("../../orchestrator/static/dashboard/views/costs.js");
+    const handle = await mount(target, {
+      api: { get: () => Promise.resolve({
+        totals: { cost_usd: 0, runs: 0, attributed_runs: 0, attributed_cost_usd: 0 }, daily: [],
+        by_context: [{ context_id: 42, title: "Contexto", runs: 1, cost_usd: 1 }],
+        by_agent: [{ agent: "claude", runs: 1, cost_usd: 1 }, { agent: "git", runs: 1, cost_usd: 1 }, { agent: "", runs: 1, cost_usd: 0 }],
+      }) },
+      state: { project: "mi-proyecto", sel: "run:9" }, signal: new AbortController().signal,
+      store: { set: (value) => sets.push(value) },
+    });
+    const descendants = (node) => (node?.childNodes ?? []).flatMap((child) => [child, ...descendants(child)]);
+    const contextLink = descendants(target).find((node) => node?.tagName === "a");
+    assert.match(contextLink.attributes.href, /ctx=42/);
+    assert.doesNotMatch(contextLink.attributes.href, /step=/);
+    assert.match(target.textContent, /7 días/);
+    assert.match(target.textContent, /Commits de git/);
+    assert.match(target.textContent, /Sin agente/);
+    handle.unmount();
+    assert.deepEqual(sets, []);
   } finally {
     delete h.document;
   }

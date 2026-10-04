@@ -1,9 +1,12 @@
 import { h } from "../core/dom.js";
-import { formatUsd, stepHref } from "./runs.js";
+import { toSearch } from "../core/router.js";
+import { formatUsd } from "./runs.js";
 
 const STYLE_KEY = "executions";
 const PATH_SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/;
 const PERIODS = ["7d", "30d", "90d"];
+const PERIOD_LABELS = { "7d": "7 días", "30d": "30 días", "90d": "90 días" };
+const AGENT_LABELS = { claude: "Claude", git: "Commits de git", "": "Sin agente", "sin agente": "Sin agente" };
 
 export function meterSeries(daily) {
   const max = Math.max(0, ...daily.map((item) => item.cost_usd));
@@ -30,7 +33,7 @@ function render(root, state, period, data) {
     class: ["execution-filter", period === key && "is-active"],
     data: { period: key },
     "aria-pressed": String(period === key),
-  }, key));
+  }, PERIOD_LABELS[key]));
   root.replaceChildren(
     h("header", { class: "executions-header" },
       h("h2", {}, "Costos"),
@@ -46,8 +49,8 @@ function render(root, state, period, data) {
     h("table", { class: "execution-table" }, h("tbody", {}, data.by_context.map((item) => h("tr", {},
       h("td", {}, item.context_id
         ? h("a", {
-          href: stepHref(state, item.context_id, 1),
-          data: { nav: "1", ctx: item.context_id, step: 1 },
+          href: toSearch({ ...state, view: "trabajo", tab: "contextos", ctx: item.context_id, step: null, sel: null }),
+          data: { nav: "1", ctx: item.context_id },
         }, item.title)
         : item.title),
       h("td", {}, item.runs),
@@ -55,7 +58,7 @@ function render(root, state, period, data) {
     )))),
     h("h3", {}, "Por agente"),
     h("table", { class: "execution-table" }, h("tbody", {}, data.by_agent.map((item) => h("tr", {},
-      h("td", {}, item.agent), h("td", {}, item.runs), h("td", {}, formatUsd(item.cost_usd)),
+      h("td", {}, AGENT_LABELS[item.agent] ?? item.agent), h("td", {}, item.runs), h("td", {}, formatUsd(item.cost_usd)),
     )))),
   );
 }
@@ -111,7 +114,7 @@ export async function mount(root, { api, state, signal, store }) {
     }
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1) return;
     event.preventDefault();
-    store.set({ view: "trabajo", tab: "contextos", ctx: Number(target.dataset.ctx), step: 1, sel: null });
+    store.set({ view: "trabajo", tab: "contextos", ctx: Number(target.dataset.ctx), step: null, sel: null });
   }
 
   root.addEventListener("click", onClick);

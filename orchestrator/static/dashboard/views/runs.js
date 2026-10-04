@@ -26,6 +26,15 @@ export function stepHref(state, contextId, stepId) {
   });
 }
 
+function formatRunTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-CL", {
+    dateStyle: "short", timeStyle: "medium", timeZone: "UTC", hourCycle: "h23",
+  }).format(date);
+}
+
 function ensureStylesheet(document) {
   if (document.head.querySelector(`link[data-view-css="${STYLE_KEY}"]`)) return;
   document.head.append(h("link", {
@@ -48,9 +57,14 @@ function table(state, runs) {
         data: { sel: `run:${run.id}` },
         "aria-pressed": String(state.sel === `run:${run.id}`),
       }, `#${run.id}`)),
+      h("td", {}, run.ts
+        ? h("time", { datetime: run.ts }, formatRunTime(run.ts))
+        : "—"),
       h("td", {}, run.task_preview || "Sin descripción"),
       h("td", {}, sourceLabel(run.source)),
+      h("td", {}, run.status || "—"),
       h("td", {}, run.provider),
+      h("td", {}, run.model || "—"),
       h("td", {}, formatUsd(run.cost_usd)),
       h("td", {}, run.context_id
         ? h("a", {
@@ -59,9 +73,9 @@ function table(state, runs) {
         }, `Paso #${run.step_id}`)
         : "—"),
     ))
-    : h("tr", {}, h("td", { colspan: 6 }, "No hay runs para este filtro."));
+    : h("tr", {}, h("td", { colspan: 9 }, "No hay runs para este filtro."));
   return h("table", { class: "execution-table" },
-    h("thead", {}, h("tr", {}, ["ID", "Tarea", "Fuente", "Proveedor", "Costo", "Paso"]
+    h("thead", {}, h("tr", {}, ["ID", "Fecha", "Tarea", "Fuente", "Estado", "Proveedor", "Modelo", "Costo", "Paso"]
       .map((label) => h("th", {}, label)))),
     h("tbody", {}, body));
 }
@@ -86,11 +100,11 @@ export async function mount(root, { api, state, signal, store }) {
       data: { source: value },
       "aria-pressed": String(source === value),
     }, sourceLabel(value))));
-    root.replaceChildren(
+    root.replaceChildren(...[
       h("header", { class: "executions-header" }, h("h2", {}, "Runs"), filters),
       table(current, rows),
       cursor ? h("button", { type: "button", data: { more: "1" } }, "Cargar más") : null,
-    );
+    ].filter(Boolean));
   }
 
   async function load(more = false) {
