@@ -71,6 +71,38 @@ def test_foreign_step_is_not_attributed_in_run_dto(data):
     assert item["context_id"] is None
 
 
+@pytest.mark.parametrize(("task_preview", "expected"), [
+    ("", ""),
+    ("   ", ""),
+    ("\n\nsegunda", "segunda"),
+    (None, ""),
+])
+def test_task_preview_without_a_first_line_is_safe_in_list_and_dispatch(monkeypatch, task_preview, expected):
+    conn = _empty_db()
+    run_id = _run(conn, "mi-proyecto", "2026-05-10T13:00:00Z", provider="router",
+                  task_preview=task_preview if task_preview is not None else "")
+    conn.commit()
+    try:
+        if task_preview is None:
+            row = runs._run_rows(conn, "mi-proyecto", "all", 50, None)[0]
+            null_preview_row = (*row[:6], None, *row[7:])
+            monkeypatch.setattr(runs, "_run_rows", lambda *_args, **_kwargs: [null_preview_row])
+
+        result = runs.list_runs(conn, "mi-proyecto")
+        assert result["runs"][0]["id"] == run_id
+        assert result["runs"][0]["task_preview"] == expected
+
+        monkeypatch.setattr("orchestrator.db._conn", lambda: conn)
+        monkeypatch.setattr(runs, "registered_projects", lambda: {"mi-proyecto"})
+        api_v1.discover()
+        status, body = api_v1.dispatch(Request("GET", "/api/v1/projects/mi-proyecto/runs"))
+        assert status == 200
+        assert body["runs"][0]["id"] == run_id
+        assert body["runs"][0]["task_preview"] == expected
+    finally:
+        conn.close()
+
+
 @pytest.mark.parametrize("source, expected", [
     ("router", "router"), ("session", "session"), ("commit", "commit"),
 ])

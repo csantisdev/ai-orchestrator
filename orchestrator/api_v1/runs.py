@@ -133,7 +133,7 @@ def list_runs(conn: sqlite3.Connection, project: str, *, limit: int = 50, cursor
     page = fetched[:limit]
     runs = []
     for row in page:
-        preview = (row[6] or "").splitlines()[0][:160]
+        preview = next((line.strip() for line in (row[6] or "").splitlines() if line.strip()), "")[:160]
         context_id = row[15]
         runs.append({
             "id": row[0], "ts": to_utc(row[1]), "source": _source(row[3], row[14]),

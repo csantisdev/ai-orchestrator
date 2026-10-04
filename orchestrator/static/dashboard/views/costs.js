@@ -36,7 +36,7 @@ function render(root, state, period, data) {
   }, PERIOD_LABELS[key]));
   root.replaceChildren(
     h("header", { class: "executions-header" },
-      h("h2", {}, "Costos"),
+      h("p", { class: "execution-muted" }, "Costos agregados de las ejecuciones del proyecto seleccionado."),
       h("div", { class: "execution-filters", role: "group", "aria-label": "Período" }, buttons),
       h("p", {}, `Costo: ${formatUsd(totals.cost_usd)} · ${totals.runs} runs. `
         + `Cobertura de atribución: ${totals.attributed_runs} runs y `
@@ -46,20 +46,24 @@ function render(root, state, period, data) {
       meterSeries(data.daily).map((item) => h("label", {}, item.date,
         h("meter", { min: 0, max: item.max, value: item.cost_usd }, formatUsd(item.cost_usd))))),
     h("h3", {}, "Por contexto"),
-    h("table", { class: "execution-table" }, h("tbody", {}, data.by_context.map((item) => h("tr", {},
+    h("div", { class: "execution-table-scroll" }, h("table", { class: "execution-table" },
+      h("thead", {}, h("tr", {}, ["Contexto", "Runs", "Costo"].map((label) => h("th", {}, label)))),
+      h("tbody", {}, data.by_context.map((item) => h("tr", {},
       h("td", {}, item.context_id
-        ? h("a", {
+        ? h("a", { class: "execution-link",
           href: toSearch({ ...state, view: "trabajo", tab: "contextos", ctx: item.context_id, step: null, sel: null }),
           data: { nav: "1", ctx: item.context_id },
         }, item.title)
         : item.title),
-      h("td", {}, item.runs),
-      h("td", {}, formatUsd(item.cost_usd)),
-    )))),
+      h("td", { class: "execution-data" }, item.runs),
+      h("td", { class: "execution-data" }, formatUsd(item.cost_usd)),
+    ))))),
     h("h3", {}, "Por agente"),
-    h("table", { class: "execution-table" }, h("tbody", {}, data.by_agent.map((item) => h("tr", {},
-      h("td", {}, AGENT_LABELS[item.agent] ?? item.agent), h("td", {}, item.runs), h("td", {}, formatUsd(item.cost_usd)),
-    )))),
+    h("div", { class: "execution-table-scroll" }, h("table", { class: "execution-table" },
+      h("thead", {}, h("tr", {}, ["Agente", "Runs", "Costo"].map((label) => h("th", {}, label)))),
+      h("tbody", {}, data.by_agent.map((item) => h("tr", {},
+      h("td", {}, AGENT_LABELS[item.agent] ?? item.agent), h("td", { class: "execution-data" }, item.runs), h("td", { class: "execution-data" }, formatUsd(item.cost_usd)),
+    ))))),
   );
 }
 

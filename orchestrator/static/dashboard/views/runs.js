@@ -31,7 +31,7 @@ function formatRunTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("es-CL", {
-    dateStyle: "short", timeStyle: "medium", timeZone: "UTC", hourCycle: "h23",
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   }).format(date);
 }
 
@@ -57,7 +57,7 @@ function table(state, runs) {
         data: { sel: `run:${run.id}` },
         "aria-pressed": String(state.sel === `run:${run.id}`),
       }, `#${run.id}`)),
-      h("td", {}, run.ts
+      h("td", { class: "execution-data" }, run.ts
         ? h("time", { datetime: run.ts }, formatRunTime(run.ts))
         : "—"),
       h("td", {}, run.task_preview || "Sin descripción"),
@@ -65,19 +65,19 @@ function table(state, runs) {
       h("td", {}, run.status || "—"),
       h("td", {}, run.provider),
       h("td", {}, run.model || "—"),
-      h("td", {}, formatUsd(run.cost_usd)),
+      h("td", { class: "execution-data" }, formatUsd(run.cost_usd)),
       h("td", {}, run.context_id
-        ? h("a", {
+        ? h("a", { class: "execution-link",
           href: stepHref(state, run.context_id, run.step_id),
           data: { nav: "1", ctx: run.context_id, step: run.step_id },
         }, `Paso #${run.step_id}`)
         : "—"),
     ))
     : h("tr", {}, h("td", { colspan: 9 }, "No hay runs para este filtro."));
-  return h("table", { class: "execution-table" },
+  return h("div", { class: "execution-table-scroll" }, h("table", { class: "execution-table" },
     h("thead", {}, h("tr", {}, ["ID", "Fecha", "Tarea", "Fuente", "Estado", "Proveedor", "Modelo", "Costo", "Paso"]
       .map((label) => h("th", {}, label)))),
-    h("tbody", {}, body));
+    h("tbody", {}, body)));
 }
 
 export async function mount(root, { api, state, signal, store }) {
@@ -101,7 +101,8 @@ export async function mount(root, { api, state, signal, store }) {
       "aria-pressed": String(source === value),
     }, sourceLabel(value))));
     root.replaceChildren(...[
-      h("header", { class: "executions-header" }, h("h2", {}, "Runs"), filters),
+      h("header", { class: "executions-header" },
+        h("p", { class: "execution-muted" }, "Ejecuciones registradas para el proyecto seleccionado."), filters),
       table(current, rows),
       cursor ? h("button", { type: "button", data: { more: "1" } }, "Cargar más") : null,
     ].filter(Boolean));
