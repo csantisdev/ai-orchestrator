@@ -13,8 +13,10 @@ const SAFE_URL = /^(?:\/(?!\/)|\.{1,2}\/|\?|#|https?:\/\/)/i;
 const UNSAFE_CHARACTER = /[\u0000-\u001f\u007f\\]/;
 
 export function safeUrl(value) {
-  const text = String(value).trim();
-  return !UNSAFE_CHARACTER.test(text) && SAFE_URL.test(text) ? text : null;
+  const raw = String(value);
+  if (UNSAFE_CHARACTER.test(raw)) return null;
+  const text = raw.trim();
+  return SAFE_URL.test(text) ? text : null;
 }
 
 function setAttribute(element, name, value) {

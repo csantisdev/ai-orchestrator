@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { ApiError, createApi } from "../../orchestrator/static/dashboard/core/api.js";
 import { h, safeUrl } from "../../orchestrator/static/dashboard/core/dom.js";
 import { createViewHost } from "../../orchestrator/static/dashboard/core/mount.js";
-import { resolveSection } from "../../orchestrator/static/dashboard/core/sections.js";
+import { SECTIONS, moduleFor, panelFor, resolveSection } from "../../orchestrator/static/dashboard/core/sections.js";
 
 // Documento mínimo: suficiente para h() y createViewHost sin un DOM real.
 class FakeNode {
@@ -111,7 +111,7 @@ test("h escribe texto como nodo de texto y valida atributos", () => {
 test("safeUrl acepta rutas relativas y http(s), nada más", () => {
   for (const ok of ["/x", "./x", "../x", "?a=1", "#id", "https://example.org", "HTTP://example.org"]) assert.equal(safeUrl(ok), ok);
   for (const bad of ["javascript:x", "data:x", "vbscript:x", "//host", "/\\host", "x", "/\t/evil.example",
-    "/\n/evil.example", "/\r/evil.example", "java\tscript:x", "/x\\y", "/\u0000x", "/\u007fx"]) {
+    "/\n/evil.example", "/\r/evil.example", "java\tscript:x", "/x\\y", "/\u0000x", "/\u007fx", "\t/x", "/x\n", "\u0000/x"]) {
     assert.equal(safeUrl(bad), null, JSON.stringify(bad));
   }
 });
@@ -337,4 +337,38 @@ test("resolveSection prioriza `module` sobre la vista heredada", () => {
   const resolved = resolveSection({ view: "inicio", project: null });
   assert.equal(resolved.module, null);
   assert.equal(resolved.legacy, "metrics");
+});
+
+test("un onError que lanza no deja una promesa rechazada", async () => {
+  const host = createViewHost({
+    root: makeRoot(),
+    load: async () => ({ mount: async () => { throw new Error("falló"); } }),
+    onError: () => { throw new Error("aviso roto"); },
+  });
+  const logged = await silenced(() => host.show("x", "./views/x.js", { state: {} }));
+  assert.equal(logged.length, 1);
+  assert.equal(host.current, null);
+});
+
+test("moduleFor: la pestaña usa su module o hereda el de la sección; panelFor lo sigue", () => {
+  const section = { id: "s", module: "./views/s.js", tabs: [{ id: "a" }, { id: "b", module: "./views/b.js" }] };
+  assert.equal(moduleFor(section, section.tabs[0]), "./views/s.js");
+  assert.equal(moduleFor(section, section.tabs[1]), "./views/b.js");
+  assert.equal(panelFor(section, section.tabs[0]), "view-root");
+  const legacy = { id: "l", tabs: [{ id: "a", legacy: "datos" }, { id: "b", module: "./views/b.js" }] };
+  assert.equal(panelFor(legacy, legacy.tabs[0]), "legacy-views");
+  assert.equal(panelFor(legacy, legacy.tabs[1]), "view-root");
+});
+
+test("mientras ninguna sección declare module, el shell conserva todas las vistas heredadas", () => {
+  for (const section of SECTIONS) {
+    for (const tab of section.tabs ?? [null]) {
+      const resolved = resolveSection({ view: section.id, tab: tab?.id ?? null, project: null });
+      assert.equal(resolved.module, null, section.id);
+      assert.equal(panelFor(section, tab), "legacy-views", section.id);
+      assert.equal(resolved.legacy, tab ? tab.legacy : (section.legacy ?? null), section.id);
+      assert.equal(resolved.empty, section.empty ?? null, section.id);
+      assert.equal(resolved.note, section.note ?? null, section.id);
+    }
+  }
 });

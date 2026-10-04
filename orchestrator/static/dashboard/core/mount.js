@@ -49,7 +49,11 @@ export function createViewHost({ root, load, onError = (error) => console.error(
 
   function fail(error) {
     teardown();
-    onError(error, root);
+    try {
+      onError(error, root);
+    } catch (reportError) {
+      console.error("Falló el aviso de error de una vista:", reportError, error);
+    }
   }
 
   async function show(id, modulePath, context) {

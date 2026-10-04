@@ -3,7 +3,7 @@
 
 import { createStore } from "./core/store.js";
 import { connectRouter } from "./core/router.js";
-import { SECTIONS, describeSelection, resolveSection } from "./core/sections.js";
+import { SECTIONS, describeSelection, panelFor, resolveSection } from "./core/sections.js";
 import { createApi } from "./core/api.js";
 import { createViewHost } from "./core/mount.js";
 
@@ -65,7 +65,7 @@ function renderTabs(resolved) {
     button.className = "shell-tab";
     button.id = `shell-tab-${tab.id}`;
     button.setAttribute("role", "tab");
-    button.setAttribute("aria-controls", tab.module ? "view-root" : "legacy-views");
+    button.setAttribute("aria-controls", panelFor(resolved.section, tab));
     button.setAttribute("aria-selected", String(selected));
     button.tabIndex = selected ? 0 : -1;
     button.dataset.view = resolved.section.id;
