@@ -265,7 +265,10 @@ def test_server_dispatches_api_v1_routes(server, monkeypatch):
 
     assert response.status == 200
     assert response.getheader("Cache-Control") == "no-store"
-    assert json.loads(body) == {"projects": [{"alias": "mi-proyecto", "registered": True, "has_runs": False}]}
+    assert json.loads(body) == {"projects": [{
+        "alias": "mi-proyecto", "registered": True, "has_runs": False, "runs": 0, "contexts": 0,
+        "active_contexts": 0, "last_activity": None,
+    }]}
     assert request("GET", "/api/v1/no-existe")[0].status == 404
 
 
@@ -278,3 +281,39 @@ def test_api_v1_posts_go_through_the_session_checks(server):
     assert request("POST", "/api/v1/meta/projects", b"{}", session)[0].status == 405
     assert request("POST", "/api/v1/meta/projects", b"[1]", session)[0].status == 400
     assert request("POST", "/api/v1/meta/projects", b"no json", session)[0].status == 400
+
+
+def test_project_summaries_put_registered_first_by_latest_activity():
+    import sqlite3
+
+    from orchestrator.api_v1.meta import project_summaries
+    from orchestrator.db import _conn
+
+    conn = sqlite3.connect(":memory:")
+    for (sql,) in _conn().execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name IN ('runs', 'contexts')"
+    ).fetchall():
+        conn.execute(sql)
+    runs = [
+        ("2026-06-01T10:00:00-03:00", "viejo"), ("2026-06-02T09:00:00Z", "nuevo"), ("no es fecha", "nuevo"),
+        ("2026-06-03T09:00:00Z", "detectado"), ("2026-06-01T09:00:00Z", ""),
+    ]
+    conn.executemany("INSERT INTO runs (ts, project) VALUES (?, ?)", runs)
+    conn.executemany(
+        "INSERT INTO contexts (ts, updated_at, project, status) VALUES (?, ?, ?, ?)",
+        [("2026-06-01T00:00:00Z", "2026-06-05T00:00:00Z", "viejo", "active"),
+         ("2026-06-01T00:00:00Z", "2026-06-01T00:00:00Z", "viejo", "completed"),
+         ("2026-06-01T00:00:00Z", "2026-06-01T00:00:00Z", "solo-contexto", "active")],
+    )
+    summaries = project_summaries(conn, {"viejo", "nuevo", "vacio"})
+    assert [item["alias"] for item in summaries] == ["viejo", "nuevo", "vacio", "detectado", "solo-contexto"]
+    viejo = summaries[0]
+    assert (viejo["registered"], viejo["runs"], viejo["contexts"], viejo["active_contexts"]) == (True, 1, 2, 1)
+    # La actualización del contexto (5 de junio) es más reciente que su último run.
+    assert viejo["last_activity"] == "2026-06-05T00:00:00+00:00"
+    nuevo = summaries[1]
+    assert (nuevo["runs"], nuevo["has_runs"]) == (2, True)
+    assert nuevo["last_activity"].startswith("2026-06-02T09:00:00")
+    assert summaries[2] == {"alias": "vacio", "registered": True, "has_runs": False, "runs": 0, "contexts": 0,
+                            "active_contexts": 0, "last_activity": None}
+    assert [item["registered"] for item in summaries[3:]] == [False, False]
