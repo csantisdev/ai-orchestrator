@@ -108,12 +108,14 @@ function render(state, previous = {}) {
 function watchActivity() {
   const log = $("activity-log");
   if (!log) return;
-  document.querySelector(".activity-hdr")?.addEventListener("click", () => {
-    lastActivityClick = Date.now();
+  // Solo los controles que abren o cierran Activity cuentan como gesto del usuario; los
+  // botones de acciones (doctor, fix, sync, index) de la misma barra no.
+  document.querySelector(".activity-hdr")?.addEventListener("click", (event) => {
+    if (event.target.closest?.(".act-left, #act-toggle")) lastActivityClick = Date.now();
   }, true);
+  const inspectorOpen = () => $("shell-inspector").dataset.open === "true";
   new MutationObserver(() => {
-    const inspectorOpen = $("shell-inspector").dataset.open === "true";
-    if (!overlayLayout.matches || !activityOpen() || !inspectorOpen) return;
+    if (!overlayLayout.matches || !activityOpen() || !inspectorOpen()) return;
     if (Date.now() - lastActivityClick < 500) {
       inspectorDismissed = true;
       renderInspector(store.get());
@@ -121,6 +123,10 @@ function watchActivity() {
       closeActivity();
     }
   }).observe(log, { attributes: true, attributeFilter: ["style"] });
+  // Al achicar la ventana a 768–1279 px con los dos abiertos, gana el Inspector.
+  overlayLayout.addEventListener("change", () => {
+    if (overlayLayout.matches && activityOpen() && inspectorOpen()) closeActivity();
+  });
 }
 
 function watchConnection() {
