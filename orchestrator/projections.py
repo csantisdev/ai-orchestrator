@@ -26,7 +26,7 @@ AGENT_CATALOG = tuple(AGENT_ALIASES)
 NO_AGENT = "sin agente"
 _ALIAS_TO_AGENT = {alias: agent for agent, aliases in AGENT_ALIASES.items() for alias in aliases}
 
-_SHA_CANDIDATE = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])")
+_SHA_CANDIDATE = re.compile(r"(?<![0-9A-Za-z])(?:[0-9A-Fa-f]{64}|[0-9A-Fa-f]{7,40})(?![0-9A-Za-z])")
 _FULL_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _PR_REFERENCE = re.compile(r"\bPR\s*#?(\d{1,9})\b", re.I)
 _TEST_MENTION = re.compile(r"\b(?:pytest|tests?|passed)\b", re.I)
@@ -231,9 +231,11 @@ def context_graph(
     alignments: dict[int, list[tuple[object, int, str]]] = {}
     confirmations: dict[int, list[int]] = {}
     for row_id, step_id, ts, agent, confirmed in conn.execute(
+        # Solo filas coherentes: un alineamiento o run que apunta al paso desde otro
+        # contexto u otro proyecto no cuenta para su carril ni para sus totales.
         "SELECT a.id, a.step_id, a.ts, a.agent, a.confirmed FROM alignments a "
-        "JOIN steps s ON s.id = a.step_id WHERE s.context_id = ?",
-        (context_id,),
+        "JOIN steps s ON s.id = a.step_id WHERE s.context_id = ? AND a.context_id = ?",
+        (context_id, context_id),
     ).fetchall():
         alignments.setdefault(step_id, []).append((ts, row_id, normalize_agent(agent)))
         confirmations.setdefault(step_id, []).append(confirmed)
@@ -242,8 +244,8 @@ def context_graph(
     run_costs: dict[int, float] = {}
     for step_id, cost in conn.execute(
         "SELECT r.step_id, r.cost_usd FROM runs r "
-        "JOIN steps s ON s.id = r.step_id WHERE s.context_id = ?",
-        (context_id,),
+        "JOIN steps s ON s.id = r.step_id WHERE s.context_id = ? AND r.project = ?",
+        (context_id, context[1]),
     ).fetchall():
         run_counts[step_id] = run_counts.get(step_id, 0) + 1
         if isinstance(cost, (int, float)) and math.isfinite(cost) and cost >= 0:

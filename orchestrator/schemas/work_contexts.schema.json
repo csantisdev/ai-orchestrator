@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/work_contexts.schema.json",
+  "title": "Trabajo: contextos del proyecto",
+  "description": "GET /api/v1/projects/{p}/contexts (spec §23.3). Activos primero y después por última actualización.",
+  "type": "object",
+  "required": [
+    "project",
+    "status",
+    "contexts"
+  ],
+  "properties": {
+    "project": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "active",
+        "programado",
+        "completed",
+        "abandoned",
+        null
+      ]
+    },
+    "contexts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "created_at",
+          "updated_at",
+          "parent_step_id",
+          "steps",
+          "current_step"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "parent_step_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "steps": {
+            "type": "object",
+            "required": [
+              "total",
+              "pending",
+              "in_progress",
+              "completed",
+              "blocked",
+              "skipped"
+            ],
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pending": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "in_progress": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "completed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "blocked": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "skipped": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "current_step": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "title"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -89,7 +89,9 @@ export function createViewHost({ root, load, onError = (error) => console.error(
       // este todavía carga datos, lo que dibuje después queda en un nodo desconectado.
       const container = root.ownerDocument.createElement("div");
       container.className = "shell-view";
-      container.dataset.view = id;
+      // `data-mounted`, no `data-view`: el shell navega con cualquier `[data-view]` que contenga
+      // el clic, y el contenedor envuelve toda la vista.
+      container.dataset.mounted = id;
       root.replaceChildren(container);
       handle = (await module.mount(container, { ...context, signal: controller.signal })) ?? {};
     } catch (error) {

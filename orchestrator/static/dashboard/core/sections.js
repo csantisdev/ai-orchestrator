@@ -8,7 +8,16 @@ export const SECTIONS = Object.freeze([
     id: "inicio", group: "proyecto", label: "Inicio", legacy: "metrics",
     note: "Vista provisoria con las métricas actuales; el resumen de Inicio llega en la ola 3.",
   },
-  { id: "trabajo", group: "proyecto", label: "Trabajo", legacy: "flujos" },
+  {
+    id: "trabajo", group: "proyecto", label: "Trabajo",
+    tabs: [
+      // `pages`: la vista navega por `ctx` y `step`, que se suman al breadcrumb.
+      { id: "contextos", label: "Contextos", module: "./views/work.js", pages: true },
+      // Crear, avanzar, omitir y borrar contextos sigue en la vista heredada hasta que la
+      // UI tenga comandos gobernados (spec §14, "Diferido").
+      { id: "flujos", label: "Flujos (heredado)", legacy: "flujos" },
+    ],
+  },
   { id: "ejecuciones", group: "proyecto", label: "Ejecuciones", legacy: "actividad" },
   {
     id: "gobernanza", group: "proyecto", label: "Gobernanza",
@@ -57,7 +66,11 @@ export function resolveSection(state) {
   const section = SECTIONS.find((s) => s.id === state.view) ?? SECTIONS[0];
   const tab = section.tabs ? (section.tabs.find((t) => t.id === state.tab) ?? section.tabs[0]) : null;
   const crumbs = [state.project ?? "Todos los proyectos", section.label];
-  if (tab) crumbs.push(tab.label);
+  // Breadcrumb de §23.3 (`mi-proyecto › Contexto #21 › Paso #12`): dentro de un contexto, la
+  // página reemplaza a la pestaña.
+  if (tab?.pages && state.ctx) crumbs.push(`Contexto #${state.ctx}`);
+  else if (tab) crumbs.push(tab.label);
+  if (tab?.pages && state.step) crumbs.push(`Paso #${state.step}`);
   const module = moduleFor(section, tab);
   return {
     section,

@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/work_step_trace.schema.json",
+  "title": "Trabajo: Trace de un paso",
+  "description": "GET /api/v1/projects/{p}/steps/{id}/trace (spec §6.2). Sin task, response, entrada o salida de tool calls ni session_id.",
+  "type": "object",
+  "required": [
+    "project",
+    "context",
+    "step",
+    "navigation",
+    "references",
+    "alignments",
+    "tool_calls",
+    "runs"
+  ],
+  "properties": {
+    "project": {
+      "type": "string"
+    },
+    "context": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "id",
+        "idx",
+        "title",
+        "description",
+        "status",
+        "provider",
+        "started_at",
+        "completed_at",
+        "notes"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "idx": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "navigation": {
+      "type": "object",
+      "required": [
+        "previous",
+        "next",
+        "total"
+      ],
+      "properties": {
+        "previous": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "next": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "references": {
+      "type": "object",
+      "required": [
+        "commits",
+        "unverified_shas",
+        "prs",
+        "mentions_tests"
+      ],
+      "properties": {
+        "commits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "sha",
+              "run_id",
+              "ts",
+              "subject"
+            ],
+            "properties": {
+              "sha": {
+                "type": "string",
+                "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+              },
+              "run_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1
+              },
+              "ts": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "subject": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "unverified_shas": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{7,40}|[0-9a-f]{64})$"
+          }
+        },
+        "prs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "mentions_tests": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "alignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "ts",
+          "agent",
+          "confirmed",
+          "checkpoint",
+          "message"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "ts": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "agent": {
+            "enum": [
+              "claude",
+              "codex",
+              "copilot",
+              "otros",
+              "sin agente"
+            ]
+          },
+          "confirmed": {
+            "type": "boolean"
+          },
+          "checkpoint": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tool_calls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "ts",
+          "tool_name",
+          "status",
+          "duration_ms"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "ts": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "ts",
+          "provider",
+          "model",
+          "status",
+          "cost_usd",
+          "imported",
+          "routing_source"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "ts": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "cost_usd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "imported": {
+            "type": "boolean"
+          },
+          "routing_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

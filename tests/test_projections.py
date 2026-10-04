@@ -625,3 +625,9 @@ class TestActivity:
 
         assert result["events"] == []
         _validate(result, "activity.schema.json")
+
+
+def test_sha256_citations_are_candidates_but_41_to_63_hex_characters_are_not():
+    sha = "e" * 8 + "0123456789abcdef" * 3 + "f" * 8
+    assert extract_references(f"commit {sha}")["sha_candidates"] == [sha]
+    assert extract_references("a" * 20 + "1" * 43)["sha_candidates"] == []

@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/work_context.schema.json",
+  "title": "Trabajo: un contexto y sus pasos",
+  "description": "GET /api/v1/projects/{p}/contexts/{id}. Los atributos de cada paso salen del ProjectGraph (§10.1).",
+  "type": "object",
+  "required": [
+    "project",
+    "context",
+    "steps"
+  ],
+  "properties": {
+    "project": {
+      "type": "string"
+    },
+    "context": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "description",
+        "status",
+        "created_at",
+        "updated_at",
+        "parent"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "parent": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "step_id",
+                "context_id"
+              ],
+              "properties": {
+                "step_id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "context_id": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "idx",
+          "title",
+          "status",
+          "provider",
+          "lane",
+          "secondary",
+          "started_at",
+          "completed_at",
+          "has_notes",
+          "alignments",
+          "deviations",
+          "tool_calls",
+          "runs",
+          "cost_usd",
+          "verified_commits",
+          "prs",
+          "children"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "idx": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "lane": {
+            "enum": [
+              "claude",
+              "codex",
+              "copilot",
+              "otros",
+              "sin agente"
+            ]
+          },
+          "secondary": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "claude",
+                "codex",
+                "copilot",
+                "otros",
+                "sin agente"
+              ]
+            }
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "has_notes": {
+            "type": "boolean"
+          },
+          "alignments": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deviations": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tool_calls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "runs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cost_usd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "verified_commits": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "prs": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
