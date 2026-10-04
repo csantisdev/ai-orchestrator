@@ -40,4 +40,4 @@ jobs:
         run: python -m pytest tests/ -v
 
       - name: Run JavaScript tests
-        run: node --test tests/js/
+        run: node --test tests/js/*.test.mjs

@@ -8,45 +8,59 @@ export const VIEWS = Object.freeze([
 ]);
 export const DEFAULT_VIEW = "inicio";
 export const REPRESENTATIONS = Object.freeze(["list", "map", "constellation"]);
-// `sel` identifica el objeto del Inspector con el formato `tipo:id` (§23.3).
-const SELECTION = /^(context|step|run|commit|decision):[A-Za-z0-9_-]{1,64}$/;
-const PROJECT = /^[^\u0000-\u001f]{1,200}$/;
+// `sel` identifica el objeto del Inspector con el formato `tipo:id` (§23.3), tipado:
+// commits por SHA completo, decisiones por origen (mcp o egress) e id, y el resto por id.
+const SELECTION = [
+  /^(context|step|run):[1-9][0-9]{0,9}$/,
+  /^commit:(?:[0-9a-f]{40}|[0-9a-f]{64})$/,
+  /^decision:(?:mcp|egress)-[1-9][0-9]{0,9}$/,
+];
+// Alias de proyecto: letras, números, espacio y `._:-`. Nada que pueda cerrar un atributo
+// o abrir una etiqueta si alguna vez llega al DOM; igual se renderiza siempre como texto.
+const PROJECT = /^[\p{L}\p{N}][\p{L}\p{N} ._:-]{0,99}$/u;
 const TAB = /^[a-z][a-z0-9-]{0,31}$/;
 // Orden fijo de los parámetros: la misma navegación produce siempre la misma URL.
 const KEYS = ["project", "view", "tab", "ctx", "step", "as", "sel"];
 
 function positiveInt(value) {
-  return /^[1-9][0-9]{0,9}$/.test(value ?? "") ? Number(value) : null;
+  const text = value === null || value === undefined ? "" : String(value);
+  return /^[1-9][0-9]{0,9}$/.test(text) ? Number(text) : null;
+}
+
+function text(value, pattern) {
+  return typeof value === "string" && pattern.test(value) ? value : null;
+}
+
+// Valida y completa un estado; lo que no es válido queda en null o en su valor por defecto.
+export function normalizeState(raw) {
+  const sel = typeof raw.sel === "string" && SELECTION.some((rule) => rule.test(raw.sel)) ? raw.sel : null;
+  return {
+    project: text(raw.project, PROJECT),
+    view: VIEWS.includes(raw.view) ? raw.view : DEFAULT_VIEW,
+    tab: text(raw.tab, TAB),
+    ctx: positiveInt(raw.ctx),
+    step: positiveInt(raw.step),
+    as: REPRESENTATIONS.includes(raw.as) ? raw.as : null,
+    sel,
+  };
 }
 
 export function parseLocation(search) {
   const params = new URLSearchParams(search);
-  const view = params.get("view");
-  const project = params.get("project");
-  const tab = params.get("tab");
-  const as = params.get("as");
-  const sel = params.get("sel");
-  return {
-    project: project && PROJECT.test(project) ? project : null,
-    view: VIEWS.includes(view) ? view : DEFAULT_VIEW,
-    tab: tab && TAB.test(tab) ? tab : null,
-    ctx: positiveInt(params.get("ctx")),
-    step: positiveInt(params.get("step")),
-    as: REPRESENTATIONS.includes(as) ? as : null,
-    sel: sel && SELECTION.test(sel) ? sel : null,
-  };
+  return normalizeState(Object.fromEntries(KEYS.map((key) => [key, params.get(key)])));
 }
 
 export function toSearch(state) {
+  const valid = normalizeState(state);
   const params = new URLSearchParams();
   for (const key of KEYS) {
-    const value = state[key];
-    if (value === null || value === undefined || value === "") continue;
+    const value = valid[key];
+    if (value === null) continue;
     if (key === "view" && value === DEFAULT_VIEW) continue;
     params.set(key, String(value));
   }
-  const text = params.toString();
-  return text ? `?${text}` : "";
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 // Enlaza el store con la barra de direcciones: los cambios de estado agregan una entrada

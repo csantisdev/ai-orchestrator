@@ -12,12 +12,14 @@ encarga de serializar y de las cabeceras.
 from __future__ import annotations
 
 import importlib
+import logging
 import pkgutil
 import re
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Union
 
+_log = logging.getLogger(__name__)
 PREFIX = "/api/v1/"
 METHODS = ("GET", "POST")
 
@@ -90,7 +92,14 @@ class Registry:
             if not found:
                 continue
             if candidate.method == method:
-                params = {name: urllib.parse.unquote(value) for name, value in found.groupdict().items()}
+                params = {}
+                for name, raw in found.groupdict().items():
+                    value = urllib.parse.unquote(raw)
+                    # Un segmento codificado no puede convertirse en varios: `%2F` y `%5C`
+                    # inyectarían separadores que el patrón no aceptó.
+                    if "/" in value or "\\" in value or "\x00" in value:
+                        return None, {}, False
+                    params[name] = value
                 return candidate, params, False
             other_method = True
         return None, {}, other_method
@@ -98,8 +107,11 @@ class Registry:
     def dispatch(self, request: Request) -> tuple[int, dict]:
         """Ejecuta el endpoint y normaliza la respuesta a `(status, payload)`.
 
-        `ValueError` del handler es un error del cliente (400); un endpoint inexistente es
-        404 y uno que existe con otro método, 405.
+        `ValueError` del handler es un error del cliente (400) y su mensaje se devuelve: los
+        handlers lo usan para explicar qué parámetro es inválido. Cualquier otra excepción, o
+        una respuesta que no sea un objeto con un status válido, es un 500 genérico: el
+        detalle (rutas, SQL, configuración) se registra en el servidor y no viaja al cliente.
+        Un endpoint inexistente es 404 y uno que existe con otro método, 405.
         """
         found, params, other_method = self.match(request.method, request.path)
         if found is None:
@@ -108,9 +120,15 @@ class Registry:
             result = found.handler(Request(request.method, request.path, params, request.query, request.body))
         except ValueError as exc:
             return 400, {"error": str(exc)}
-        if isinstance(result, tuple):
-            return result
-        return 200, result
+        except Exception:
+            _log.exception("api_v1: error en %s %s", request.method, found.pattern)
+            return 500, {"error": "internal error"}
+        status, payload = result if isinstance(result, tuple) and len(result) == 2 else (200, result)
+        if not isinstance(status, int) or isinstance(status, bool) or not 200 <= status <= 599 \
+                or not isinstance(payload, dict):
+            _log.error("api_v1: respuesta inválida de %s %s", request.method, found.pattern)
+            return 500, {"error": "internal error"}
+        return status, payload
 
 
 REGISTRY = Registry()

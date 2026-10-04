@@ -1780,12 +1780,7 @@ def serve(
             if resolved is None:
                 self._json({"error": "not found"}, 404)
                 return
-            file_path, content_type = resolved
-            try:
-                data = file_path.read_bytes()
-            except OSError:
-                self._json({"error": "not found"}, 404)
-                return
+            data, content_type = resolved
             try:
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
@@ -1804,10 +1799,7 @@ def serve(
                 query=urllib.parse.parse_qs(parsed.query),
                 body=body,
             )
-            try:
-                status, payload = api_v1.dispatch(request)
-            except Exception as exc:
-                status, payload = 500, {"error": str(exc)}
+            status, payload = api_v1.dispatch(request)
             self._json(payload, status)
 
         def _file(self, file_path: Path) -> None:

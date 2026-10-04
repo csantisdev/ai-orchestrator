@@ -9,7 +9,9 @@ import threading
 
 import pytest
 
-from orchestrator.static_assets import CACHE_CONTROL, URL_PREFIX, build_bundle
+from pathlib import Path
+
+from orchestrator.static_assets import CACHE_CONTROL, MEDIA_TYPES, URL_PREFIX, build_bundle
 
 
 def _tree(root, files):
@@ -58,7 +60,7 @@ class TestStaticBundle:
         bundle = build_bundle(root)
         prefix = f"{URL_PREFIX}{bundle.version}/"
 
-        assert bundle.resolve(prefix + "core/router.js") == (root / "core/router.js", "text/javascript; charset=utf-8")
+        assert bundle.resolve(prefix + "core/router.js") == (b"x", "text/javascript; charset=utf-8")
         assert bundle.resolve(prefix + "tokens.css")[1] == "text/css; charset=utf-8"
         for bad in ("package.json", "../a/tokens.css", "core/../tokens.css", "core%2Frouter.js", "CORE/router.js",
                     "core/router.js/", "", "core\\router.js"):
@@ -67,6 +69,41 @@ class TestStaticBundle:
         assert bundle.url("core/router.js") == prefix + "core/router.js"
         with pytest.raises(KeyError):
             bundle.url("package.json")
+
+    def test_serves_the_snapshot_taken_at_start_not_later_disk_changes(self, tmp_path):
+        root = _tree(tmp_path / "a", {"core/router.js": b"original"})
+        bundle = build_bundle(root)
+        url = bundle.url("core/router.js")
+
+        (root / "core/router.js").write_bytes(b"cambiado")
+        (root / "nuevo.js").write_bytes(b"nuevo")
+
+        assert bundle.resolve(url) == (b"original", "text/javascript; charset=utf-8")
+        assert bundle.resolve(f"{URL_PREFIX}{bundle.version}/nuevo.js") is None
+
+    def test_symlinks_are_never_served(self, tmp_path):
+        outside = tmp_path / "secreto.js"
+        outside.write_bytes(b"fuera del arbol")
+        root = _tree(tmp_path / "a", {"core/router.js": b"x"})
+        try:
+            (root / "core" / "link.js").symlink_to(outside)
+            (root / "dir-link").symlink_to(tmp_path, target_is_directory=True)
+        except OSError:
+            pytest.skip("el sistema no permite crear symlinks")
+
+        bundle = build_bundle(root)
+
+        assert bundle.files == {"core/router.js"}
+
+    def test_package_data_ships_every_servable_type(self):
+        import tomllib
+
+        pyproject = tomllib.loads((Path(__file__).parent.parent / "pyproject.toml").read_text(encoding="utf-8"))
+        patterns = set(pyproject["tool"]["setuptools"]["package-data"]["orchestrator"])
+
+        for suffix in MEDIA_TYPES:
+            assert f"static/dashboard/*{suffix}" in patterns, suffix
+            assert f"static/dashboard/**/*{suffix}" in patterns, suffix
 
     def test_the_real_directory_is_servable(self):
         bundle = build_bundle()
@@ -108,6 +145,46 @@ class TestApiRegistry:
         assert registry.dispatch(Request("GET", "/api/v1/demo/a/b"))[0] == 404
         assert registry.dispatch(Request("GET", "/api/v1/otra"))[0] == 404
         assert registry.dispatch(Request("GET", "/api/v1/solo-post"))[0] == 405
+
+    @pytest.mark.parametrize("segment", ["a%2Fb", "a%2fb", "a%5Cb", "a%5cb", "%2F", "a%00b", "a%252Fb"])
+    def test_an_encoded_segment_cannot_become_several(self, segment):
+        from orchestrator.api_v1 import Registry, Request
+
+        registry = Registry()
+        seen = []
+        registry.route("GET", "/api/v1/demo/{item_id}")(lambda request: seen.append(request.params) or {})
+
+        status, _ = registry.dispatch(Request("GET", f"/api/v1/demo/{segment}"))
+
+        if segment == "a%252Fb":
+            assert (status, seen) == (200, [{"item_id": "a%2Fb"}])
+        else:
+            assert (status, seen) == (404, [])
+
+    def test_unexpected_errors_do_not_reach_the_client(self, caplog):
+        from orchestrator.api_v1 import Registry, Request
+
+        registry = Registry()
+
+        @registry.route("GET", "/api/v1/boom")
+        def boom(request):
+            raise RuntimeError("C:/ruta/secreta token=abc123 SELECT * FROM runs")
+
+        status, payload = registry.dispatch(Request("GET", "/api/v1/boom"))
+
+        assert (status, payload) == (500, {"error": "internal error"})
+        assert "secreta" in caplog.text
+
+    @pytest.mark.parametrize("result", [
+        ["lista"], "texto", None, (200, ["no es objeto"]), ("200", {}), (99, {}), (600, {}), (True, {}), (200, {}, 1),
+    ])
+    def test_handlers_must_answer_an_object_with_a_valid_status(self, result):
+        from orchestrator.api_v1 import Registry, Request
+
+        registry = Registry()
+        registry.route("GET", "/api/v1/forma")(lambda request: result)
+
+        assert registry.dispatch(Request("GET", "/api/v1/forma")) == (500, {"error": "internal error"})
 
     @pytest.mark.parametrize("method, pattern", [("PUT", "/api/v1/x"), ("GET", "/otra/x")])
     def test_route_rejects_bad_declarations(self, method, pattern):

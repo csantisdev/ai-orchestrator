@@ -22,6 +22,30 @@ test("parseLocation descarta valores inválidos", () => {
   });
 });
 
+test("project no admite marcado ni comillas", () => {
+  for (const project of ['<img src=x onerror=alert(1)>', 'a"b', "a'b", "a&b", " empieza-con-espacio", "x".repeat(101)]) {
+    assert.equal(parseLocation(`?project=${encodeURIComponent(project)}`).project, null, project);
+  }
+  assert.equal(parseLocation("?project=mi%20proyecto.v2_beta:1").project, "mi proyecto.v2_beta:1");
+  assert.equal(parseLocation("?project=d%C3%A9mo").project, "démo");
+});
+
+test("sel está tipado por clase de objeto", () => {
+  const valid = [`commit:${SHA}`, "run:7", "step:12", "context:3", "decision:mcp-881", "decision:egress-4"];
+  const invalid = ["commit:5be88d0", `commit:${SHA.toUpperCase()}`, "run:abc", "run:0", "step:-1",
+                   "decision:881", "decision:otro-1", "foo:1", "run:7;x"];
+
+  for (const sel of valid) assert.equal(parseLocation(`?sel=${sel}`).sel, sel, sel);
+  for (const sel of invalid) assert.equal(parseLocation(`?sel=${encodeURIComponent(sel)}`).sel, null, sel);
+});
+
+test("toSearch valida lo que serializa aunque el estado venga de store.set", () => {
+  const injected = { project: "<b>x</b>", view: "javascript:alert(1)", tab: "A B", ctx: "1;2", step: 3.5,
+                     as: "grafo", sel: "commit:abc" };
+
+  assert.equal(toSearch(injected), "");
+});
+
 test("toSearch es canónico: orden fijo y sin valores por defecto", () => {
   assert.equal(toSearch({ sel: "run:7", view: "inicio", project: "mi proyecto", ctx: null }), "?project=mi+proyecto&sel=run%3A7");
   assert.equal(toSearch({ view: DEFAULT_VIEW }), "");

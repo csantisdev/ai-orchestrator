@@ -1,10 +1,18 @@
 """Línea base de estilos y colores literales del dashboard (spec §23.7).
 
-- Código heredado: los conteos de `style="…"`, asignaciones `.style.` y colores
-  hexadecimales por archivo no pueden subir. Cada PR que migra una vista baja los de su
-  archivo y actualiza `BASELINE` en el mismo PR.
-- Archivos nuevos en `orchestrator/static/dashboard/`: sin estilos en línea ni `.style.`,
-  y hexadecimales solo en `tokens.css`.
+Se cuentan tres clases de literales por archivo:
+
+- estilos en línea: atributos `style="…"`, `setAttribute("style", …)` y `cssText`;
+- asignaciones de estilo desde JS: `.style.` y `["style"]`;
+- colores literales: hexadecimales y funciones `rgb()`, `rgba()`, `hsl()`, `hsla()`.
+
+Los nombres de color CSS (`red`, `white`…) no se cuentan: no hay forma confiable de
+distinguirlos de texto común sin un parser de CSS.
+
+- Código heredado: los conteos por archivo no pueden subir. Cada PR que migra una vista
+  baja los de su archivo y actualiza `BASELINE` en el mismo PR.
+- Archivos nuevos en `orchestrator/static/dashboard/`: ninguno de los tres, salvo colores
+  en `tokens.css`.
 """
 
 from __future__ import annotations
@@ -15,35 +23,35 @@ from pathlib import Path
 import pytest
 
 ORCHESTRATOR = Path(__file__).parent.parent / "orchestrator"
-INLINE_STYLE = re.compile(r"\bstyle=\\?[\"']")
-STYLE_PROPERTY = re.compile(r"\.style\.")
-HEX_COLOR = re.compile(r"(?<![&\w])#[0-9a-fA-F]{3,8}\b")
+INLINE_STYLE = re.compile(r"\bstyle=\\?[\"']|setAttribute\(\s*[\"']style[\"']|\.cssText\b")
+STYLE_PROPERTY = re.compile(r"\.style\.|\[\s*[\"']style[\"']\s*\]")
+COLOR = re.compile(r"(?<![&\w])#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(")
 
-# (style="…", .style., hexadecimales) por archivo, medidos sobre production@ec1b212.
+# (estilos en línea, asignaciones de estilo, colores) por archivo, medidos sobre production@ec1b212.
 BASELINE = {
-    "dashboard.py": (22, 1, 4),
+    "dashboard.py": (23, 1, 4),
     "legacy_dashboard/__init__.py": (0, 0, 0),
     "legacy_dashboard/actividad.py": (24, 0, 0),
-    "legacy_dashboard/common.py": (0, 0, 16),
+    "legacy_dashboard/common.py": (0, 0, 32),
     "legacy_dashboard/config.py": (3, 0, 0),
     "legacy_dashboard/datos.py": (3, 0, 0),
-    "legacy_dashboard/flujos.py": (25, 0, 5),
+    "legacy_dashboard/flujos.py": (25, 0, 7),
     "legacy_dashboard/metrics.py": (3, 0, 0),
     "legacy_dashboard/proyectos.py": (3, 0, 0),
-    "legacy_dashboard/js/actividad.js": (48, 11, 29),
-    "legacy_dashboard/js/config.js": (29, 3, 8),
+    "legacy_dashboard/js/actividad.js": (48, 11, 43),
+    "legacy_dashboard/js/config.js": (29, 3, 10),
     "legacy_dashboard/js/core.js": (11, 14, 3),
-    "legacy_dashboard/js/datos.js": (105, 0, 31),
-    "legacy_dashboard/js/flujos.js": (30, 1, 16),
+    "legacy_dashboard/js/datos.js": (105, 0, 37),
+    "legacy_dashboard/js/flujos.js": (31, 1, 18),
     "legacy_dashboard/js/metrics.js": (46, 0, 9),
     "legacy_dashboard/js/proyectos.js": (98, 26, 26),
     "legacy_dashboard/js/startup.js": (0, 0, 0),
 }
-LEGACY_GLOBS = ("dashboard.py", "legacy_dashboard/*.py", "legacy_dashboard/js/*.js")
+LEGACY_GLOBS = ("dashboard.py", "legacy_dashboard/*.py", "legacy_dashboard/js/*.js", "legacy_dashboard/js/*.mjs")
 
 
 def counts(text: str) -> tuple[int, int, int]:
-    return (len(INLINE_STYLE.findall(text)), len(STYLE_PROPERTY.findall(text)), len(HEX_COLOR.findall(text)))
+    return (len(INLINE_STYLE.findall(text)), len(STYLE_PROPERTY.findall(text)), len(COLOR.findall(text)))
 
 
 def _legacy_files() -> dict[str, Path]:
@@ -82,7 +90,7 @@ def test_new_dashboard_files_have_no_literal_styles():
     root = ORCHESTRATOR / "static" / "dashboard"
     offenders = {}
     for path in root.rglob("*"):
-        if not path.is_file() or path.suffix not in (".js", ".css", ".html"):
+        if not path.is_file() or path.suffix not in (".js", ".mjs", ".css", ".html", ".svg"):
             continue
         inline, prop, hexes = counts(path.read_text(encoding="utf-8"))
         if path.name == "tokens.css":
@@ -99,6 +107,10 @@ def test_new_dashboard_files_have_no_literal_styles():
     ("el.style.display = 'none'", (0, 1, 0)),
     ("color:#22c55e;background:#fff", (0, 0, 2)),
     ("&#x2715; #confirmModal id#abc", (0, 0, 0)),
+    ('el.setAttribute("style", "x"); el.style.cssText = "y"', (2, 1, 0)),
+    ("el['style'].color = c; el[ \"style\" ]", (0, 2, 0)),
+    ("color: rgb(1,2,3); background: rgba(0,0,0,.5); x: hsl(1,2%,3%) hsla(1,2%,3%,1)", (0, 0, 4)),
+    ("const rgbValue = 1; myrgb(2)", (0, 0, 0)),
 ])
 def test_counters(text, expected):
     assert counts(text) == expected
