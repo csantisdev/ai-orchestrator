@@ -344,3 +344,20 @@ def test_contexts_without_valid_timestamps_go_last(data):
     assert items[1]["created_at"] is None and items[1]["updated_at"] is None
     # Con dos pasos en curso, se muestra el primero del plan.
     assert items[0]["current_step"] == {"id": ids["s2"], "title": "Segundo"}
+
+
+def test_alignments_from_another_context_do_not_change_the_lane(data):
+    conn, ids = data
+    for _ in range(3):
+        conn.execute(
+            "INSERT INTO alignments (ts, step_id, context_id, agent, confirmed, checkpoint, message) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("2026-05-11T09:00:00Z", ids["s3"], ids["foreign"], "copilot", 1, "ajeno", "AJENO"),
+        )
+    _run(conn, "otro-proyecto", "2026-05-11T09:00:00Z", provider="claude", step_id=ids["s3"], cost_usd=7.0)
+    conn.commit()
+    third = work.context_detail(conn, "mi-proyecto", ids["active"])["steps"][2]
+    assert (third["lane"], third["secondary"], third["alignments"], third["runs"]) == ("sin agente", [], 0, 0)
+    from orchestrator.projections import context_graph
+    node = next(n for n in context_graph(conn, ids["active"])["nodes"] if n["id"] == f"step:{ids['s3']}")
+    assert (node["attrs"]["lane"], node["attrs"]["alignments"], node["attrs"]["runs"]) == ("sin agente", 0, 0)
