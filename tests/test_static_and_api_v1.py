@@ -335,8 +335,11 @@ def test_project_summaries_skip_empty_aliases_and_break_ties_by_alias():
                      [("2026-06-01T00:00:00Z", "b"), ("2026-06-01T00:00:00Z", "a"), ("2026-06-01T00:00:00Z", "")])
     conn.execute("INSERT INTO contexts (ts, updated_at, project, status) VALUES "
                  "('2026-06-01T00:00:00Z', 'no es fecha', 'c', 'active')")
+    # Un BLOB en `project` (SQLite no lo impide; los números se guardan como texto) no se lista.
+    conn.execute("INSERT INTO runs (ts, project) VALUES ('2026-06-01T00:00:00Z', X'00ff')")
     summaries = project_summaries(conn, {"", None, "a", "b"})
     assert [item["alias"] for item in summaries] == ["a", "b", "c"]
     assert summaries[2]["last_activity"] is None and summaries[2]["active_contexts"] == 1
     assert not project_known(conn, "", {""})
+    assert json.dumps(summaries)
     assert project_known(conn, "c", set())

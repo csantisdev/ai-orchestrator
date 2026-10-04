@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from orchestrator.api_v1 import Request, route
+from orchestrator.api_v1.work import valid_alias
 from orchestrator.projections import parse_instant
 
 _JULIAN_UNIX_EPOCH = 2440587.5
@@ -27,8 +28,8 @@ def project_summaries(conn, registered: Iterable[str]) -> list[dict]:
     registrados van primero; dentro de cada grupo, el de actividad más reciente (último
     run o última actualización de un contexto, en UTC) y después por alias.
     """
-    # Mismo criterio de alias válido que `work.project_known`: texto no vacío.
-    registered = {alias for alias in registered if isinstance(alias, str) and alias}
+    # Mismo criterio de alias válido que `work.project_known` (`valid_alias`), también en SQL.
+    registered = {alias for alias in registered if valid_alias(alias)}
     stats: dict[str, dict] = {}
 
     def entry(alias: str) -> dict:
@@ -39,14 +40,14 @@ def project_summaries(conn, registered: Iterable[str]) -> list[dict]:
             item["last"] = instant
 
     for alias, count, last_day in conn.execute(
-        "SELECT project, COUNT(*), MAX(julianday(ts)) FROM runs WHERE project IS NOT NULL AND project != '' "
+        "SELECT project, COUNT(*), MAX(julianday(ts)) FROM runs WHERE typeof(project) = 'text' AND project != '' "
         "GROUP BY project"
     ).fetchall():
         item = entry(alias)
         item["runs"] = count
         touch(item, _from_julian(last_day))
     for alias, status, updated in conn.execute(
-        "SELECT project, status, updated_at FROM contexts WHERE project IS NOT NULL AND project != ''"
+        "SELECT project, status, updated_at FROM contexts WHERE typeof(project) = 'text' AND project != ''"
     ).fetchall():
         item = entry(alias)
         item["contexts"] += 1
