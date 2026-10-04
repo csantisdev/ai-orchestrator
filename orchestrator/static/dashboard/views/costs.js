@@ -1,6 +1,130 @@
-import { h } from "../core/dom.js"; import { formatUsd, stepHref } from "./runs.js";
-const STYLE_KEY="executions"; export const meterSeries=(daily)=>{const max=Math.max(0,...daily.map(x=>x.cost_usd));return daily.map(x=>({...x,max:max||1}));};
-function css(doc){if(!doc.head.querySelector(`link[data-view-css="${STYLE_KEY}"]`))doc.head.append(h("link",{rel:"stylesheet",href:new URL("./executions.css",import.meta.url).href,data:{viewCss:STYLE_KEY}}));}
-export async function mount(root,{api,state,signal,store}){css(root.ownerDocument);root.classList.add("executions-view");let current=state,period="30d",pending;
- async function load(){pending?.abort();const c=new AbortController();pending=c;root.replaceChildren(h("p",{role:"status"},"Cargando…"));try{const data=await api.get(`/api/v1/projects/${current.project}/costs`,{params:{period},signal:c.signal});if(c.signal.aborted)return;const t=data.totals;root.replaceChildren(h("header",{},h("h2",{},"Costos"),h("select",{data:{period:"1"},value:period,"aria-label":"Período"},["7d","30d","90d"].map(x=>h("option",{value:x},x))),h("p",{},`Costo: ${formatUsd(t.cost_usd)} · ${t.runs} runs. Cobertura de atribución: ${t.attributed_runs} runs y ${formatUsd(t.attributed_cost_usd)} vinculados a pasos del proyecto.`)),h("section",{class:"execution-series"},meterSeries(data.daily).map(x=>h("label",{},x.date,h("meter",{min:0,max:x.max,value:x.cost_usd},formatUsd(x.cost_usd))))),h("h3",{},"Por contexto"),h("table",{class:"execution-table"},h("tbody",{},data.by_context.map(x=>h("tr",{},h("td",{},x.context_id?h("a",{href:stepHref(current,x.context_id,1),data:{ctx:x.context_id}},x.title):x.title),h("td",{},x.runs),h("td",{},formatUsd(x.cost_usd)))))),h("h3",{},"Por agente"),h("table",{class:"execution-table"},h("tbody",{},data.by_agent.map(x=>h("tr",{},h("td",{},x.agent),h("td",{},x.runs),h("td",{},formatUsd(x.cost_usd))))));}catch(e){if(!c.signal.aborted)root.replaceChildren(h("p",{},`No se pudieron cargar los costos: ${e.message||e}`));}}
- function change(e){if(e.target.dataset.period){period=e.target.value;load();}}root.addEventListener("change",change);await load();return{update(next){current=next;},unmount(){root.removeEventListener("change",change);pending?.abort();}};}
+import { h } from "../core/dom.js";
+import { formatUsd, stepHref } from "./runs.js";
+
+const STYLE_KEY = "executions";
+const PATH_SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/;
+const PERIODS = ["7d", "30d", "90d"];
+
+export function meterSeries(daily) {
+  const max = Math.max(0, ...daily.map((item) => item.cost_usd));
+  return daily.map((item) => ({ ...item, max: max || 1 }));
+}
+
+function ensureStylesheet(document) {
+  if (document.head.querySelector(`link[data-view-css="${STYLE_KEY}"]`)) return;
+  document.head.append(h("link", {
+    rel: "stylesheet",
+    href: new URL("./executions.css", import.meta.url).href,
+    data: { viewCss: STYLE_KEY },
+  }));
+}
+
+function message(title, body) {
+  return h("section", { class: "shell-empty" }, h("h2", {}, title), h("p", {}, body));
+}
+
+function render(root, state, period, data) {
+  const totals = data.totals;
+  const buttons = PERIODS.map((key) => h("button", {
+    type: "button",
+    class: ["execution-filter", period === key && "is-active"],
+    data: { period: key },
+    "aria-pressed": String(period === key),
+  }, key));
+  root.replaceChildren(
+    h("header", { class: "executions-header" },
+      h("h2", {}, "Costos"),
+      h("div", { class: "execution-filters", role: "group", "aria-label": "Período" }, buttons),
+      h("p", {}, `Costo: ${formatUsd(totals.cost_usd)} · ${totals.runs} runs. `
+        + `Cobertura de atribución: ${totals.attributed_runs} runs y `
+        + `${formatUsd(totals.attributed_cost_usd)} vinculados a pasos del proyecto.`),
+    ),
+    h("section", { class: "execution-series", "aria-label": "Costo diario" },
+      meterSeries(data.daily).map((item) => h("label", {}, item.date,
+        h("meter", { min: 0, max: item.max, value: item.cost_usd }, formatUsd(item.cost_usd))))),
+    h("h3", {}, "Por contexto"),
+    h("table", { class: "execution-table" }, h("tbody", {}, data.by_context.map((item) => h("tr", {},
+      h("td", {}, item.context_id
+        ? h("a", {
+          href: stepHref(state, item.context_id, 1),
+          data: { nav: "1", ctx: item.context_id, step: 1 },
+        }, item.title)
+        : item.title),
+      h("td", {}, item.runs),
+      h("td", {}, formatUsd(item.cost_usd)),
+    )))),
+    h("h3", {}, "Por agente"),
+    h("table", { class: "execution-table" }, h("tbody", {}, data.by_agent.map((item) => h("tr", {},
+      h("td", {}, item.agent), h("td", {}, item.runs), h("td", {}, formatUsd(item.cost_usd)),
+    )))),
+  );
+}
+
+export async function mount(root, { api, state, signal, store }) {
+  ensureStylesheet(root.ownerDocument);
+  root.classList.add("executions-view");
+  let current = state;
+  let period = "30d";
+  let pending = null;
+
+  async function load() {
+    pending?.abort();
+    pending = null;
+    if (!current.project) {
+      root.replaceChildren(message("Elegí un proyecto", "Costos muestra los agregados del proyecto seleccionado."));
+      return;
+    }
+    if (!PATH_SEGMENT.test(current.project)) {
+      root.replaceChildren(message(
+        "Este proyecto no se puede consultar desde la vista nueva",
+        "Su alias tiene caracteres que la API no acepta en la ruta.",
+      ));
+      return;
+    }
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    pending = controller;
+    signal.addEventListener("abort", abort, { once: true });
+    root.replaceChildren(h("p", { role: "status" }, "Cargando…"));
+    try {
+      const data = await api.get(`/api/v1/projects/${current.project}/costs`, {
+        params: { period }, signal: controller.signal,
+      });
+      if (!controller.signal.aborted && pending === controller) render(root, current, period, data);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const suffix = error?.reason === "session_expired" ? " El servidor se reinició: recargá la página." : "";
+      root.replaceChildren(message("No se pudieron cargar los costos", `${error?.message ?? error}.${suffix}`));
+    } finally {
+      signal.removeEventListener("abort", abort);
+      if (pending === controller) pending = null;
+    }
+  }
+
+  function onClick(event) {
+    const target = event.target.closest?.("[data-period], [data-nav]");
+    if (!target || !root.contains(target)) return;
+    if (target.dataset.period !== undefined) {
+      period = target.dataset.period;
+      void load();
+      return;
+    }
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1) return;
+    event.preventDefault();
+    store.set({ view: "trabajo", tab: "contextos", ctx: Number(target.dataset.ctx), step: 1, sel: null });
+  }
+
+  root.addEventListener("click", onClick);
+  await load();
+  return {
+    update(next) {
+      const changedProject = next.project !== current.project;
+      current = next;
+      if (changedProject) void load();
+    },
+    unmount() {
+      root.removeEventListener("click", onClick);
+      pending?.abort();
+    },
+  };
+}
