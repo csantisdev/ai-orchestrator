@@ -234,3 +234,40 @@ test("el detalle de una invocación success con is_error lo dice", async () => {
     delete h.document;
   }
 });
+
+test("una respuesta del proyecto anterior se descarta al cambiar de proyecto", async () => {
+  const doc = fakeDocument();
+  h.document = doc;
+  try {
+    const root = fakeRoot(doc);
+    let releaseSlow;
+    const api = {
+      get: (path, { signal }) => {
+        if (path.endsWith("/summary")) return Promise.resolve(SUMMARY);
+        if (path.includes("/lento/")) {
+          return new Promise((resolve, reject) => {
+            releaseSlow = () => resolve({ items: [item(1)], next_cursor: null });
+            signal.addEventListener("abort", () => reject(new DOMException("abortado", "AbortError")));
+          });
+        }
+        return Promise.resolve({ items: [item(path.includes("/otro/") ? 2 : 3)], next_cursor: null });
+      },
+    };
+    const handle = await mount(root, { api, state: BASE, signal: new AbortController().signal, store: { set() {} } });
+    handle.update({ ...BASE, project: "lento" });
+    handle.update({ ...BASE, project: "otro" });
+    await new Promise((r) => setImmediate(r));
+    releaseSlow();
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(findAll(root, (node) => node.dataset?.sel).map((node) => node.dataset.sel), ["decision:mcp-2"]);
+  } finally {
+    delete h.document;
+  }
+});
+
+test("los motivos de egress dicen qué hacer", () => {
+  for (const code of ["provider_blocked", "not_in_allowlist", "unknown_clearance", "clearance_insufficient",
+    "secret_pattern_detected"]) {
+    assert.match(REASONS[code], /Usá|Corregila|Sacá/, code);
+  }
+});

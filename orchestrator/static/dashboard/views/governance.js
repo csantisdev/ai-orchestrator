@@ -31,11 +31,11 @@ export const REASONS = Object.freeze({
   context_not_active: "El contexto no está activo: activalo antes de mover sus pasos.",
   context_has_in_progress: "El contexto ya tiene un paso en curso; cerralo o devolvelo a pendiente primero.",
   step_changed_concurrently: "Otro agente cambió el paso al mismo tiempo. Volvé a leerlo y reintentá.",
-  provider_blocked: "La política de egress del proyecto bloquea ese proveedor.",
-  not_in_allowlist: "El proveedor no está en la lista permitida de la política de egress.",
-  unknown_clearance: "El proveedor no tiene una habilitación conocida para la sensibilidad del proyecto.",
-  clearance_insufficient: "La habilitación del proveedor es menor que la sensibilidad del contexto.",
-  secret_pattern_detected: "El contenido tenía un patrón de secreto y no se envió.",
+  provider_blocked: "El proveedor está en blocked_providers del contexto del proyecto. Usá otro proveedor o sacalo de esa lista si el bloqueo ya no corresponde.",
+  not_in_allowlist: "El proyecto define allowed_providers y este proveedor no está. Usá uno de la lista o agregalo si corresponde.",
+  unknown_clearance: "La clearance del proveedor en config.yaml no es un nivel conocido. Corregila (por ejemplo internal o restricted).",
+  clearance_insufficient: "La clearance del proveedor es menor que la sensitivity del proyecto. Usá un proveedor con clearance suficiente o revisá la sensibilidad declarada.",
+  secret_pattern_detected: "El contenido tenía un patrón de secreto y no se envió. Sacá el secreto del contexto (y rotalo si llegó a escribirse) antes de reintentar.",
 });
 const UNKNOWN_REASON = "Motivo sin descripción en el dashboard: buscalo en el código del servidor o en el log.";
 const PATH_SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/;
