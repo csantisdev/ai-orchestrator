@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.restricted-project.example/home-overview.schema.json",
+  "title": "Resumen de Inicio",
+  "description": "Proyección agregada y de solo lectura para la vista Inicio.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "generated_at", "period", "metrics", "alerts", "tracking_health", "egress"],
+  "properties": {
+    "project": {"type": "string"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "from", "to"],
+      "properties": {
+        "key": {"enum": ["7d", "30d"]},
+        "from": {"type": "string", "format": "date-time"},
+        "to": {"type": "string", "format": "date-time"}
+      }
+    },
+    "metrics": {"type": "array", "items": {"$ref": "#/$defs/metric"}},
+    "alerts": {"type": "array", "items": {"$ref": "#/$defs/warning"}},
+    "tracking_health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["warning_count", "warnings", "data_quality"],
+      "properties": {
+        "warning_count": {"type": "integer"},
+        "warnings": {"type": "array", "items": {"$ref": "#/$defs/warning"}},
+        "data_quality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["completed_without_start", "skipped"],
+          "properties": {
+            "completed_without_start": {"type": "integer"},
+            "skipped": {"type": "integer"}
+          }
+        }
+      }
+    },
+    "egress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "message"],
+      "properties": {
+        "state": {"enum": ["empty", "available"]},
+        "message": {"type": "string"},
+        "count": {"type": "integer"}
+      }
+    }
+  },
+  "$defs": {
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "value", "unit", "detail", "source", "link"],
+      "properties": {
+        "id": {"type": "string"},
+        "label": {"type": "string"},
+        "value": {"type": "number"},
+        "unit": {"enum": ["count", "usd"]},
+        "detail": {"type": "array", "items": {"$ref": "#/$defs/detail"}},
+        "source": {"type": "string"},
+        "link": {"$ref": "#/$defs/link"}
+      }
+    },
+    "detail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "value"],
+      "properties": {"label": {"type": "string"}, "value": {"type": "number"}}
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["view", "tab", "params"],
+      "properties": {
+        "view": {"type": "string"},
+        "tab": {"type": ["string", "null"]},
+        "params": {"type": "object"}
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "hint"],
+      "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "hint": {"type": "string"}
+      }
+    }
+  }
+}

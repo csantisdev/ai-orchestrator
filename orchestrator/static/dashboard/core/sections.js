@@ -4,10 +4,7 @@
 // Puro: sin DOM, para probarlo con `node --test`.
 
 export const SECTIONS = Object.freeze([
-  {
-    id: "inicio", group: "proyecto", label: "Inicio", legacy: "metrics",
-    note: "Vista provisoria con las métricas actuales; el resumen de Inicio llega en la ola 3.",
-  },
+  { id: "inicio", group: "proyecto", label: "Inicio", module: "./views/home.js" },
   {
     id: "trabajo", group: "proyecto", label: "Trabajo",
     tabs: [
@@ -18,7 +15,14 @@ export const SECTIONS = Object.freeze([
       { id: "flujos", label: "Flujos (heredado)", legacy: "flujos" },
     ],
   },
-  { id: "ejecuciones", group: "proyecto", label: "Ejecuciones", legacy: "actividad" },
+  {
+    id: "ejecuciones", group: "proyecto", label: "Ejecuciones",
+    // Pestañas de §23.3 sobre las vistas heredadas hasta que llegue la unidad Ejecuciones.
+    tabs: [
+      { id: "runs", label: "Runs", legacy: "actividad" },
+      { id: "costos", label: "Costos", legacy: "metrics" },
+    ],
+  },
   {
     id: "gobernanza", group: "proyecto", label: "Gobernanza",
     empty: {
