@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/governance_summary.schema.json",
+  "title": "Gobernanza: resumen del período",
+  "description": "GET /api/v1/projects/{p}/governance/summary. Denegadas y con error por motivo, herramienta y agente; egress.",
+  "type": "object",
+  "required": [
+    "project",
+    "period",
+    "mcp",
+    "egress"
+  ],
+  "properties": {
+    "project": {
+      "type": "string"
+    },
+    "period": {
+      "type": "object",
+      "required": [
+        "key",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "key": {
+          "enum": [
+            "7d",
+            "30d",
+            "90d"
+          ]
+        },
+        "from": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "mcp": {
+      "type": "object",
+      "required": [
+        "invocations",
+        "denied",
+        "error",
+        "in_progress",
+        "by_reason",
+        "by_tool",
+        "by_agent"
+      ],
+      "properties": {
+        "invocations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denied": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "in_progress": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "by_reason": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "count"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "by_tool": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "count"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "by_agent": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "count"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "egress": {
+      "type": "object",
+      "required": [
+        "total",
+        "blocked",
+        "by_reason"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "by_reason": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "count"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

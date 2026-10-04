@@ -25,10 +25,10 @@ export const SECTIONS = Object.freeze([
   },
   {
     id: "gobernanza", group: "proyecto", label: "Gobernanza",
-    empty: {
-      title: "Gobernanza todavía no tiene vista",
-      body: "Las denegaciones de acceso MCP y las decisiones de egress se mostrarán acá en la ola 3. Mientras tanto, el comando ai-orchestrator doctor resume la configuración.",
-    },
+    tabs: [
+      { id: "acceso", label: "Acceso MCP", module: "./views/governance.js" },
+      { id: "egress", label: "Egress", module: "./views/governance.js" },
+    ],
   },
   { id: "proveedores", group: "control", label: "Proveedores", legacy: "config" },
   {
