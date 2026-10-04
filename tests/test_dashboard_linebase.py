@@ -24,8 +24,12 @@ import pytest
 
 ORCHESTRATOR = Path(__file__).parent.parent / "orchestrator"
 INLINE_STYLE = re.compile(r"\bstyle=\\?[\"']|setAttribute\(\s*[\"']style[\"']|\.cssText\b")
-STYLE_PROPERTY = re.compile(r"\.style\.|\[\s*[\"']style[\"']\s*\]")
-COLOR = re.compile(r"(?<![&\w])#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(")
+# `["style"]` solo cuenta cuando se escribe una propiedad o se asigna: `el["style"].x`
+# o `el["style"] = …`. Leer una clave "style" de un objeto cualquiera no es un estilo.
+STYLE_PROPERTY = re.compile(r"\.style\.|\[\s*[\"']style[\"']\s*\]\s*(?:\.|=(?!=))")
+# Funciones de color de CSS: argumento numérico, porcentaje o var(). Una función JS
+# propia llamada `rgb(x)` con un identificador como argumento no cuenta.
+COLOR = re.compile(r"(?<![&\w])#[0-9a-fA-F]{3,8}\b|(?<![\w.$])(?:rgba?|hsla?)\(\s*(?:[\d.%-]|var\()")
 
 # (estilos en línea, asignaciones de estilo, colores) por archivo, medidos sobre production@ec1b212.
 BASELINE = {
@@ -108,9 +112,10 @@ def test_new_dashboard_files_have_no_literal_styles():
     ("color:#22c55e;background:#fff", (0, 0, 2)),
     ("&#x2715; #confirmModal id#abc", (0, 0, 0)),
     ('el.setAttribute("style", "x"); el.style.cssText = "y"', (2, 1, 0)),
-    ("el['style'].color = c; el[ \"style\" ]", (0, 2, 0)),
-    ("color: rgb(1,2,3); background: rgba(0,0,0,.5); x: hsl(1,2%,3%) hsla(1,2%,3%,1)", (0, 0, 4)),
-    ("const rgbValue = 1; myrgb(2)", (0, 0, 0)),
+    ("el['style'].color = c; el[ \"style\" ] = s", (0, 2, 0)),
+    ("const x = theme['style']; if (o[\"style\"] == y) {}", (0, 0, 0)),
+    ("color: rgb(1,2,3); background: rgba(0,0,0,.5); x: hsl(1,2%,3%) hsla(var(--h),2%,3%,1)", (0, 0, 4)),
+    ("const rgbValue = 1; myrgb(2); rgb(value); color.rgb(1); function hsl(h) {}", (0, 0, 0)),
 ])
 def test_counters(text, expected):
     assert counts(text) == expected

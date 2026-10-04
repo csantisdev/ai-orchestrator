@@ -85,20 +85,25 @@ class Registry:
         return decorator
 
     def match(self, method: str, path: str) -> tuple[Optional[Route], dict[str, str], bool]:
-        """(ruta, parámetros decodificados, la ruta existe con otro método)."""
+        """(ruta, parámetros decodificados, la ruta existe con otro método).
+
+        Si la ruta coincide pero un parámetro es inválido al decodificarse, los parámetros
+        son `None`: es una petición malformada, no una ruta inexistente.
+        """
         other_method = False
         for candidate in self.routes:
             found = candidate.regex.match(path)
             if not found:
                 continue
             if candidate.method == method:
-                params = {}
+                params: Optional[dict[str, str]] = {}
                 for name, raw in found.groupdict().items():
                     value = urllib.parse.unquote(raw)
                     # Un segmento codificado no puede convertirse en varios: `%2F` y `%5C`
                     # inyectarían separadores que el patrón no aceptó.
                     if "/" in value or "\\" in value or "\x00" in value:
-                        return None, {}, False
+                        params = None
+                        break
                     params[name] = value
                 return candidate, params, False
             other_method = True
@@ -111,11 +116,14 @@ class Registry:
         handlers lo usan para explicar qué parámetro es inválido. Cualquier otra excepción, o
         una respuesta que no sea un objeto con un status válido, es un 500 genérico: el
         detalle (rutas, SQL, configuración) se registra en el servidor y no viaja al cliente.
-        Un endpoint inexistente es 404 y uno que existe con otro método, 405.
+        Un endpoint inexistente es 404, uno que existe con otro método 405 y un parámetro de
+        ruta que no se puede decodificar como un único segmento, 400.
         """
         found, params, other_method = self.match(request.method, request.path)
         if found is None:
             return (405, {"error": "method not allowed"}) if other_method else (404, {"error": "not found"})
+        if params is None:
+            return 400, {"error": "invalid path parameter"}
         try:
             result = found.handler(Request(request.method, request.path, params, request.query, request.body))
         except ValueError as exc:

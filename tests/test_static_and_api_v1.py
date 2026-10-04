@@ -159,7 +159,7 @@ class TestApiRegistry:
         if segment == "a%252Fb":
             assert (status, seen) == (200, [{"item_id": "a%2Fb"}])
         else:
-            assert (status, seen) == (404, [])
+            assert (status, seen) == (400, [])
 
     def test_unexpected_errors_do_not_reach_the_client(self, caplog):
         from orchestrator.api_v1 import Registry, Request
