@@ -7,11 +7,14 @@ const FORBIDDEN_ATTRIBUTE = /^(on|style$|srcdoc$)/i;
 const URL_ATTRIBUTES = new Set(["href", "src", "action", "formaction", "xlink:href"]);
 // Rutas relativas al mismo origen (sin `//` ni `/\`, que el navegador lee como otro host),
 // anclas y http(s). Todo lo demás (javascript:, data:, vbscript:…) se rechaza.
-const SAFE_URL = /^(?:\/(?![/\\])|\.{1,2}\/|\?|#|https?:\/\/)/i;
+// Los controles (tab, CR, LF…) y `\` se rechazan en cualquier posición: el navegador los
+// descarta o los lee como `/`, y `/\t/host` terminaría siendo `//host`.
+const SAFE_URL = /^(?:\/(?!\/)|\.{1,2}\/|\?|#|https?:\/\/)/i;
+const UNSAFE_CHARACTER = /[\u0000-\u001f\u007f\\]/;
 
 export function safeUrl(value) {
   const text = String(value).trim();
-  return SAFE_URL.test(text) ? text : null;
+  return !UNSAFE_CHARACTER.test(text) && SAFE_URL.test(text) ? text : null;
 }
 
 function setAttribute(element, name, value) {

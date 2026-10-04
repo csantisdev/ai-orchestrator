@@ -15,8 +15,13 @@ export class ApiError extends Error {
   }
 }
 
+// Solo la ruta: segmentos no vacíos de caracteres no reservados que no empiezan con punto.
+// Sin `%` (nada que el navegador decodifique a `..` o `/`), sin `\`, `?` ni `#`: la query
+// sale únicamente de `params`.
+const API_PATH = /^\/api\/v1\/(?:[A-Za-z0-9_~-][A-Za-z0-9._~-]*\/?)*$/;
+
 function buildUrl(path, params) {
-  if (typeof path !== "string" || !path.startsWith(API_PREFIX) || path.includes("..") || path.includes("//", 1)) {
+  if (typeof path !== "string" || !API_PATH.test(path)) {
     throw new TypeError(`ruta fuera de ${API_PREFIX}: ${String(path)}`);
   }
   const query = new URLSearchParams();

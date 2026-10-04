@@ -62,9 +62,14 @@ test("api.post manda JSON con la cabecera de sesión vigente", async () => {
 
 test("api rechaza rutas fuera de /api/v1/", async () => {
   const api = createApi({ fetch: fakeFetch(200, {}).fetch, sessionToken: () => "" });
-  for (const path of ["/run-doctor", "/api/v1/../events", "/api/v1//x", "https://evil.example/api/v1/", 7]) {
+  for (const path of ["/run-doctor", "/api/v1/../events", "/api/v1//x", "https://evil.example/api/v1/", 7,
+    "/api/v1/%2e%2e/events", "/api/v1/%2E%2E/events", "/api/v1/a%2fb", "/api/v1/.hidden", "/api/v1/./x",
+    "/api/v1/x\\..\\..\\events", "/api/v1/x?ya=1", "/api/v1/x#f", "/API/v1/x", "/api/v1/x y"]) {
     await assert.rejects(api.get(path), TypeError, String(path));
   }
+  const { fetch, calls } = fakeFetch(200, {});
+  await createApi({ fetch, sessionToken: () => "" }).get("/api/v1/meta/projects.v2/", { params: { q: "a?b#c" } });
+  assert.equal(calls[0].url, "/api/v1/meta/projects.v2/?q=a%3Fb%23c");
 });
 
 test("api convierte errores en ApiError con status y motivo", async () => {
@@ -105,7 +110,10 @@ test("h escribe texto como nodo de texto y valida atributos", () => {
 
 test("safeUrl acepta rutas relativas y http(s), nada más", () => {
   for (const ok of ["/x", "./x", "../x", "?a=1", "#id", "https://example.org", "HTTP://example.org"]) assert.equal(safeUrl(ok), ok);
-  for (const bad of ["javascript:x", "data:x", "vbscript:x", "//host", "/\\host", "x"]) assert.equal(safeUrl(bad), null);
+  for (const bad of ["javascript:x", "data:x", "vbscript:x", "//host", "/\\host", "x", "/\t/evil.example",
+    "/\n/evil.example", "/\r/evil.example", "java\tscript:x", "/x\\y", "/\u0000x", "/\u007fx"]) {
+    assert.equal(safeUrl(bad), null, JSON.stringify(bad));
+  }
 });
 
 function deferred() {
@@ -130,6 +138,30 @@ function makeRoot() {
   return new FakeNode(fakeDocument(), "div");
 }
 
+// Host con onError que registra y dibuja un marcador, como el aviso del shell.
+function makeHost(root, load) {
+  const errors = [];
+  const host = createViewHost({
+    root,
+    load,
+    onError: (error, target) => { errors.push(error.message); target.replaceChildren("aviso"); },
+  });
+  return { host, errors };
+}
+
+// Los fallos que solo van a la consola no ensucian la salida del test.
+async function silenced(fn) {
+  const original = console.error;
+  const logged = [];
+  console.error = (...args) => logged.push(args);
+  try {
+    await fn();
+  } finally {
+    console.error = original;
+  }
+  return logged;
+}
+
 test("el host monta, actualiza y desmonta vistas en su propio contenedor", async () => {
   const log = [];
   const root = makeRoot();
@@ -146,29 +178,117 @@ test("el host monta, actualiza y desmonta vistas en su propio contenedor", async
   assert.deepEqual(log, ["mount work 1", "update work 2", "abort work", "unmount work", "mount home 3", "abort home", "unmount home"]);
 });
 
-test("el host rechaza rutas de módulo fuera de ./views/", async () => {
-  const host = createViewHost({ root: makeRoot(), load: async () => ({}) });
+test("el host rechaza rutas de módulo fuera de ./views/ sin cargarlas", async () => {
+  let loads = 0;
+  const { host, errors } = makeHost(makeRoot(), async () => { loads += 1; return {}; });
   for (const path of ["../x.js", "./views/../x.js", "https://evil.example/x.js", "./views/X.js", "./views/a/b.js"]) {
-    await assert.rejects(host.show("x", path, { state: {} }), TypeError, path);
+    await host.show("x", path, { state: {} });
   }
-  await assert.rejects(host.show("x", "./views/x.js", { state: {} }), /no exporta mount/);
+  assert.equal(loads, 0);
+  assert.equal(errors.length, 5);
+  assert.match(errors[0], /módulo de vista inválido/);
+  await host.show("x", "./views/x.js", { state: {} });
+  assert.match(errors[5], /no exporta mount/);
 });
 
 test("una carga superada no se monta y su error no pisa la vista nueva", async () => {
   const log = [];
   const root = makeRoot();
   const slow = deferred();
-  const host = createViewHost({
-    root,
-    load: (path) => (path === "./views/slow.js" ? slow.promise : Promise.resolve(makeView(log, "fast"))),
-  });
+  const { host, errors } = makeHost(root,
+    (path) => (path === "./views/slow.js" ? slow.promise : Promise.resolve(makeView(log, "fast"))));
   const first = host.show("lenta", "./views/slow.js", { state: { n: 1 } });
   await host.show("rapida", "./views/fast.js", { state: { n: 2 } });
-  slow.reject(new Error("red caída"));
-  await first;
+  const logged = await silenced(async () => {
+    slow.reject(new Error("red caída"));
+    await first;
+  });
+  assert.equal(logged.length, 1);
+  assert.deepEqual(errors, []);
   assert.equal(host.current, "rapida");
   assert.equal(root.childNodes[0].dataset.view, "rapida");
   assert.deepEqual(log, ["mount fast 2"]);
+});
+
+test("un unmount que lanza en un montaje superado no pisa la vista nueva", async () => {
+  const log = [];
+  const root = makeRoot();
+  const gate = deferred();
+  const { host, errors } = makeHost(root, async (path) => (path === "./views/slow.js"
+    ? { mount: async () => { await gate.promise; return { unmount: () => { throw new Error("unmount roto"); } }; } }
+    : makeView(log, "fast")));
+  const first = host.show("lenta", "./views/slow.js", { state: {} });
+  await new Promise((r) => setImmediate(r));
+  await host.show("rapida", "./views/fast.js", { state: { n: 1 } });
+  const logged = await silenced(async () => {
+    gate.resolve();
+    await first;
+  });
+  assert.equal(logged.length, 1);
+  assert.deepEqual(errors, []);
+  assert.equal(host.current, "rapida");
+  assert.equal(root.childNodes[0].dataset.view, "rapida");
+});
+
+test("un unmount que lanza no impide montar la vista siguiente", async () => {
+  const log = [];
+  const root = makeRoot();
+  const { host, errors } = makeHost(root, async (path) => (path === "./views/bad.js"
+    ? { mount: async () => ({ unmount: () => { throw new Error("unmount roto"); } }) }
+    : makeView(log, "fast")));
+  await host.show("mala", "./views/bad.js", { state: {} });
+  const logged = await silenced(() => host.show("rapida", "./views/fast.js", { state: { n: 1 } }));
+  assert.equal(logged.length, 1);
+  assert.deepEqual(errors, []);
+  assert.equal(host.current, "rapida");
+  assert.deepEqual(log, ["mount fast 1"]);
+});
+
+test("un update que lanza desmonta la vista y el siguiente show la vuelve a montar", async () => {
+  const log = [];
+  const root = makeRoot();
+  let mounts = 0;
+  const { host, errors } = makeHost(root, async () => ({
+    mount: async () => {
+      mounts += 1;
+      return { update: () => { throw new Error("update roto"); }, unmount: () => log.push("unmount") };
+    },
+  }));
+  await host.show("x", "./views/x.js", { state: { n: 1 } });
+  await host.show("x", "./views/x.js", { state: { n: 2 } });
+  assert.deepEqual(errors, ["update roto"]);
+  assert.deepEqual(log, ["unmount"]);
+  assert.equal(host.current, null);
+  assert.deepEqual(root.childNodes, ["aviso"]);
+  await host.show("x", "./views/x.js", { state: { n: 3 } });
+  assert.equal(mounts, 2);
+  assert.equal(host.current, "x");
+});
+
+test("hide durante el montaje aborta y descarta la vista pendiente", async () => {
+  const log = [];
+  const root = makeRoot();
+  const gate = deferred();
+  let signal;
+  const { host, errors } = makeHost(root, async () => ({
+    mount: async (container, context) => {
+      signal = context.signal;
+      await gate.promise;
+      container.replaceChildren("tarde");
+      return { unmount: () => log.push("unmount") };
+    },
+  }));
+  const first = host.show("x", "./views/x.js", { state: {} });
+  await new Promise((r) => setImmediate(r));
+  host.hide();
+  assert.equal(signal.aborted, true);
+  assert.deepEqual(root.childNodes, []);
+  gate.resolve();
+  await first;
+  assert.deepEqual(errors, []);
+  assert.deepEqual(log, ["unmount"]);
+  assert.equal(host.current, null);
+  assert.deepEqual(root.childNodes, []);
 });
 
 test("un mount que termina tarde se desmonta y aborta si la vista ya cambió", async () => {
@@ -204,12 +324,13 @@ test("cambios de estado durante el montaje llegan con update, sin recargar", asy
   assert.deepEqual(log, ["mount work 1", "update work 2"]);
 });
 
-test("un error de la vista vigente se propaga y deja la raíz limpia", async () => {
+test("un error de la vista vigente va a onError y reemplaza su contenido por el aviso", async () => {
   const root = makeRoot();
-  const host = createViewHost({ root, load: async () => ({ mount: async () => { throw new Error("falló"); } }) });
-  await assert.rejects(host.show("x", "./views/x.js", { state: {} }), /falló/);
+  const { host, errors } = makeHost(root, async () => ({ mount: async () => { throw new Error("falló"); } }));
+  await host.show("x", "./views/x.js", { state: {} });
+  assert.deepEqual(errors, ["falló"]);
   assert.equal(host.current, null);
-  assert.deepEqual(root.childNodes, []);
+  assert.deepEqual(root.childNodes, ["aviso"]);
 });
 
 test("resolveSection prioriza `module` sobre la vista heredada", () => {

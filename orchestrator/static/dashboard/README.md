@@ -37,12 +37,17 @@ export async function mount(root, { store, api, state, signal }) {
 - `root` es un contenedor propio de ese montaje. Si la vista se reemplaza mientras todavía
   carga, lo que dibuje después queda fuera del documento.
 - `signal` se aborta al salir de la vista; pasalo a cada `api.get`/`api.post`.
-- `update(state)` recibe cada cambio del router mientras la vista sigue visible, incluidos
-  los que llegan durante el montaje. `update` y `unmount` son opcionales.
+- `update(state)` recibe los cambios del router mientras la vista sigue visible. Los que
+  llegan durante el montaje se combinan: al terminar `mount` se entrega solo el estado más
+  reciente. `update` y `unmount` son opcionales.
 - La selección se cambia con `store.set({ sel: "context:7" })`; la URL y el Inspector se
   actualizan solos.
-- Un error de `mount` muestra un aviso en lugar de la vista. Un `ApiError` trae `status` y
-  `reason`; `session_expired` significa que el servidor se reinició y hay que recargar.
+- Si fallan la carga, `mount` o `update`, la vista se desmonta y el shell muestra un aviso en
+  su lugar; volver a entrar a la sección la monta de nuevo. Los errores de `unmount` y de
+  montajes ya reemplazados solo van a la consola. Un `ApiError` trae `status` y `reason`;
+  `session_expired` significa que el servidor se reinició y hay que recargar.
+- `api` acepta solo rutas bajo `/api/v1/` sin `%`, `\`, `?`, `#` ni segmentos `.`/`..`; la
+  query se pasa con `params`.
 
 ## Reglas (RFC-009 C7 y línea base)
 

@@ -9,11 +9,24 @@
 //   }
 //
 // `signal` se aborta al salir de la sección: los fetch pendientes deben usarlo. `update`
-// recibe cada cambio de estado del router mientras la sección sigue visible.
+// recibe los cambios de estado del router mientras la sección sigue visible; los que llegan
+// durante el montaje se combinan y se entrega solo el más reciente.
+//
+// `show` nunca rechaza: un fallo de la vista vigente (carga, `mount` o `update`) la desmonta
+// y llama a `onError(error, root)` para que el shell dibuje el aviso. Los fallos de montajes
+// ya reemplazados y los de `unmount` solo se registran, para no pisar la vista actual.
 
 const MODULE_PATH = /^\.\/views\/[a-z][a-z0-9-]*\.js$/;
 
-export function createViewHost({ root, load }) {
+function quietly(fn) {
+  try {
+    fn();
+  } catch (error) {
+    console.error("Falló el desmontaje de una vista:", error);
+  }
+}
+
+export function createViewHost({ root, load, onError = (error) => console.error(error) }) {
   let current = null;
   // Montaje en curso: { id, controller, state } mientras `load`/`mount` esperan.
   let pending = null;
@@ -27,19 +40,29 @@ export function createViewHost({ root, load }) {
     pending = null;
     const previous = current;
     current = null;
-    if (!previous) return;
-    previous.controller.abort();
-    try {
-      previous.handle.unmount?.();
-    } finally {
-      root.replaceChildren();
+    if (previous) {
+      previous.controller.abort();
+      quietly(() => previous.handle.unmount?.());
     }
+    root.replaceChildren();
+  }
+
+  function fail(error) {
+    teardown();
+    onError(error, root);
   }
 
   async function show(id, modulePath, context) {
-    if (!MODULE_PATH.test(modulePath)) throw new TypeError(`módulo de vista inválido: ${modulePath}`);
+    if (!MODULE_PATH.test(modulePath)) {
+      fail(new TypeError(`módulo de vista inválido: ${modulePath}`));
+      return;
+    }
     if (current && current.id === id) {
-      current.handle.update?.(context.state);
+      try {
+        current.handle.update?.(context.state);
+      } catch (error) {
+        fail(error);
+      }
       return;
     }
     // La misma vista ya se está montando: guarda el estado más reciente para entregarlo
@@ -66,26 +89,29 @@ export function createViewHost({ root, load }) {
       root.replaceChildren(container);
       handle = (await module.mount(container, { ...context, signal: controller.signal })) ?? {};
     } catch (error) {
-      // Un error de una vista que ya se reemplazó no le corresponde a la vista actual.
-      if (stale()) return;
-      pending = null;
-      root.replaceChildren();
-      throw error;
+      if (stale()) console.error("Falló una vista ya reemplazada:", error);
+      else fail(error);
+      return;
     }
     if (stale()) {
       controller.abort();
-      handle.unmount?.();
+      quietly(() => handle.unmount?.());
       return;
     }
     const latest = pending.state;
     pending = null;
     current = { id, controller, handle };
-    if (latest !== context.state) handle.update?.(latest);
+    if (latest === context.state) return;
+    try {
+      handle.update?.(latest);
+    } catch (error) {
+      fail(error);
+    }
   }
 
   return {
     show,
-    hide: async () => teardown(),
+    hide: teardown,
     get current() {
       return current?.id ?? null;
     },

@@ -17,6 +17,7 @@ const api = createApi({
 const views = createViewHost({
   root: $("view-root"),
   load: (path) => import(new URL(path, import.meta.url).href),
+  onError: showViewError,
 });
 // 768–1279 px: Inspector y Activity se superponen al contenido; nunca los dos abiertos.
 const overlayLayout = window.matchMedia("(max-width: 1279px)");
@@ -64,7 +65,7 @@ function renderTabs(resolved) {
     button.className = "shell-tab";
     button.id = `shell-tab-${tab.id}`;
     button.setAttribute("role", "tab");
-    button.setAttribute("aria-controls", panelId);
+    button.setAttribute("aria-controls", tab.module ? "view-root" : "legacy-views");
     button.setAttribute("aria-selected", String(selected));
     button.tabIndex = selected ? 0 : -1;
     button.dataset.view = resolved.section.id;
@@ -81,7 +82,7 @@ function renderTabs(resolved) {
   }
 }
 
-function showViewError(error) {
+function showViewError(error, root) {
   console.error("No se pudo mostrar la vista:", error);
   const box = document.createElement("section");
   box.className = "shell-empty";
@@ -90,7 +91,7 @@ function showViewError(error) {
   const body = document.createElement("p");
   body.textContent = error?.message ?? String(error);
   box.append(title, body);
-  $("view-root").replaceChildren(box);
+  root.replaceChildren(box);
 }
 
 function renderContent(resolved, state) {
@@ -105,9 +106,9 @@ function renderContent(resolved, state) {
   $("view-root").hidden = !resolved.module;
   if (resolved.module) {
     const key = resolved.tab ? `${resolved.section.id}:${resolved.tab.id}` : resolved.section.id;
-    views.show(key, resolved.module, { store, api, state }).catch(showViewError);
+    views.show(key, resolved.module, { store, api, state });
   } else {
-    views.hide().catch(showViewError);
+    views.hide();
   }
 }
 
