@@ -1,0 +1,39 @@
+/* Vista Trabajo (views/work.js): disposición de las páginas de contextos, contexto y paso.
+   Las filas y el Trace usan los componentes de components.css. Solo tokens. */
+@layer views {
+  .work-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin: 0 var(--space-4) var(--space-6);
+    max-width: 960px;
+  }
+  .work-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .work-header-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .work-header h2 { font-size: var(--text-16); font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+  .work-filters, .work-siblings { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+  .work-filter {
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: none;
+    font: inherit;
+    font-size: var(--text-12);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .work-filter.is-active { border-color: var(--state-live); color: var(--text-primary); }
+  .work-link { color: var(--text-primary); text-decoration: none; overflow-wrap: anywhere; }
+  .work-link:hover { text-decoration: underline; }
+  .work-sibling { font-size: var(--text-12); color: var(--text-secondary); }
+  .work-back { font-size: var(--text-12); }
+  .work-back .work-link { color: var(--text-muted); }
+  .work-description { font-size: var(--text-13); line-height: 1.6; color: var(--text-secondary); white-space: pre-wrap; }
+  .work-subtle, .work-loading { font-size: var(--text-12); color: var(--text-muted); }
+  .work-warning { color: var(--state-warning); }
+  .work-view .shell-empty { margin: 0; }
+
+  @media (max-width: 767px) {
+    .work-view { margin: 0 var(--space-3) var(--space-5); }
+  }
+}

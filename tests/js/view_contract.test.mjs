@@ -168,7 +168,7 @@ test("el host monta, actualiza y desmonta vistas en su propio contenedor", async
   const host = createViewHost({ root, load: async (path) => makeView(log, path.slice(8, -3)) });
   await host.show("trabajo", "./views/work.js", { state: { n: 1 } });
   assert.equal(host.current, "trabajo");
-  assert.equal(root.childNodes[0].dataset.view, "trabajo");
+  assert.equal(root.childNodes[0].dataset.mounted, "trabajo");
   assert.equal(root.childNodes[0].className, "shell-view");
   await host.show("trabajo", "./views/work.js", { state: { n: 2 } });
   await host.show("inicio", "./views/home.js", { state: { n: 3 } });
@@ -206,7 +206,7 @@ test("una carga superada no se monta y su error no pisa la vista nueva", async (
   assert.equal(logged.length, 1);
   assert.deepEqual(errors, []);
   assert.equal(host.current, "rapida");
-  assert.equal(root.childNodes[0].dataset.view, "rapida");
+  assert.equal(root.childNodes[0].dataset.mounted, "rapida");
   assert.deepEqual(log, ["mount fast 2"]);
 });
 
@@ -227,7 +227,7 @@ test("un unmount que lanza en un montaje superado no pisa la vista nueva", async
   assert.equal(logged.length, 1);
   assert.deepEqual(errors, []);
   assert.equal(host.current, "rapida");
-  assert.equal(root.childNodes[0].dataset.view, "rapida");
+  assert.equal(root.childNodes[0].dataset.mounted, "rapida");
 });
 
 test("un unmount que lanza no impide montar la vista siguiente", async () => {
@@ -360,9 +360,10 @@ test("moduleFor: la pestaña usa su module o hereda el de la sección; panelFor 
   assert.equal(panelFor(legacy, legacy.tabs[1]), "view-root");
 });
 
-test("mientras ninguna sección declare module, el shell conserva todas las vistas heredadas", () => {
+test("las secciones sin module conservan su vista heredada, su estado vacío y su nota", () => {
   for (const section of SECTIONS) {
     for (const tab of section.tabs ?? [null]) {
+      if (moduleFor(section, tab)) continue;
       const resolved = resolveSection({ view: section.id, tab: tab?.id ?? null, project: null });
       assert.equal(resolved.module, null, section.id);
       assert.equal(panelFor(section, tab), "legacy-views", section.id);
@@ -371,4 +372,12 @@ test("mientras ninguna sección declare module, el shell conserva todas las vist
       assert.equal(resolved.note, section.note ?? null, section.id);
     }
   }
+});
+
+test("el contenedor de la vista no lleva data-view, que el shell usa para navegar", async () => {
+  const root = makeRoot();
+  const host = createViewHost({ root, load: async () => makeView([], "x") });
+  await host.show("trabajo:contextos", "./views/work.js", { state: { n: 1 } });
+  assert.equal(root.childNodes[0].dataset.view, undefined);
+  assert.equal(root.childNodes[0].dataset.mounted, "trabajo:contextos");
 });
