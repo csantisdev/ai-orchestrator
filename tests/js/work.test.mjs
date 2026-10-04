@@ -148,3 +148,64 @@ test("renderTrace explica las secciones vacías", () => withDocument(() => {
     assert.ok(text.includes(expected), expected);
   }
 }));
+
+import { mount } from "../../orchestrator/static/dashboard/views/work.js";
+
+function fakeRoot() {
+  const doc = { createElement: (tag) => new FakeNode(doc, tag), createTextNode: (text) => ({ nodeType: 3, text }),
+    head: { querySelector: () => ({}), append() {} } };
+  const root = new FakeNode(doc, "div");
+  root.classList = { add() {} };
+  root.listeners = 0;
+  root.addEventListener = () => { root.listeners += 1; };
+  root.removeEventListener = () => { root.listeners -= 1; };
+  root.replaceChildren = (...children) => { root.childNodes = children; };
+  root.querySelectorAll = () => [];
+  return root;
+}
+
+function countingSignal() {
+  const controller = new AbortController();
+  let active = 0;
+  const add = controller.signal.addEventListener.bind(controller.signal);
+  const remove = controller.signal.removeEventListener.bind(controller.signal);
+  controller.signal.addEventListener = (...args) => { active += 1; add(...args); };
+  controller.signal.removeEventListener = (...args) => { active -= 1; remove(...args); };
+  return { controller, active: () => active };
+}
+
+test("mount no deja listeners en el signal y una carga superada no dibuja", async () => {
+  const doc = fakeRoot().ownerDocument;
+  h.document = doc;
+  try {
+    const root = fakeRoot();
+    const { controller, active } = countingSignal();
+    const calls = [];
+    const gates = [];
+    const api = {
+      get: (path, { signal }) => new Promise((resolve, reject) => {
+        calls.push(path);
+        gates.push(() => resolve({ contexts: [], context: { id: 21, title: "C", description: "", status: "active", parent: null }, steps: [] }));
+        signal.addEventListener("abort", () => reject(new DOMException("abortado", "AbortError")));
+      }),
+    };
+    const store = { set() {} };
+    const first = mount(root, { api, store, state: { ...BASE, project: null }, signal: controller.signal });
+    const handle = await first;
+    assert.equal(active(), 0);
+    assert.equal(calls.length, 0);
+    handle.update({ ...BASE });
+    handle.update({ ...BASE, ctx: 21 });
+    assert.deepEqual(calls, ["/api/v1/projects/mi-proyecto/contexts", "/api/v1/projects/mi-proyecto/contexts/21"]);
+    gates[1]();
+    await new Promise((r) => setImmediate(r));
+    assert.equal(active(), 0);
+    assert.match(root.textContent, /#21 C/);
+    handle.update({ ...BASE, project: null });
+    assert.equal(active(), 0);
+    handle.unmount();
+    assert.equal(root.listeners, 0);
+  } finally {
+    delete h.document;
+  }
+});

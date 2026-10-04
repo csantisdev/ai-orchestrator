@@ -10,7 +10,6 @@ import pytest
 from orchestrator import api_v1
 from orchestrator.api_v1 import Request, work
 from orchestrator.git_scanner import PROVIDER_NAME as GIT_PROVIDER
-from orchestrator.projections import CommitIndex
 
 SCHEMAS = Path(work.__file__).resolve().parent.parent / "schemas"
 SHA_A = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
@@ -165,15 +164,14 @@ def test_context_of_another_project_is_not_found(data):
 
 def test_step_trace_follows_the_evidence_of_the_step(data):
     conn, ids = data
-    trace = work.step_trace(conn, "mi-proyecto", ids["s1"], CommitIndex.from_db(conn))
+    trace = work.step_trace(conn, "mi-proyecto", ids["s1"])
     _validate(trace, "work_step_trace.schema.json")
     assert trace["context"] == {"id": ids["active"], "title": "Contexto <b>activo</b>", "status": "active"}
     assert trace["step"]["idx"] == 1
     assert trace["navigation"] == {"previous": None, "next": ids["s2"], "total": 3}
     refs = trace["references"]
     assert refs["commits"] == [{
-        "sha": SHA_A, "run_id": ids["commit_run"], "project": "mi-proyecto",
-        "ts": "2026-05-10T15:30:00+00:00", "subject": "feat: algo",
+        "sha": SHA_A, "run_id": ids["commit_run"], "ts": "2026-05-10T15:30:00+00:00", "subject": "feat: algo",
     }]
     assert refs["unverified_shas"] == ["abc1234"]
     assert refs["prs"] == [12]
@@ -268,3 +266,81 @@ def test_foreign_ids_are_not_found_through_the_api(api):
     get, ids = api
     assert get(f"/api/v1/projects/mi-proyecto/contexts/{ids['foreign']}")[0] == 404
     assert get(f"/api/v1/projects/mi-proyecto/steps/{ids['foreign_step']}/trace")[0] == 404
+
+
+SHA_64 = "e" * 8 + "0123456789abcdef" * 3 + "f" * 8
+
+
+def _scope_leaks(conn, ids):
+    """Filas de otro proyecto relacionadas por id con datos de `mi-proyecto`."""
+    foreign_child = _context(conn, "otro-proyecto", "Hijo ajeno", "active", "2026-05-10T11:00:00Z",
+                             "2026-05-10T11:00:00Z", parent_step_id=ids["s2"])
+    _run(conn, "otro-proyecto", "2026-05-11T09:00:00Z", provider="claude", step_id=ids["s2"], cost_usd=7.0)
+    conn.execute(
+        "INSERT INTO alignments (ts, step_id, context_id, agent, confirmed, checkpoint, message) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("2026-05-11T09:00:00Z", ids["s2"], ids["foreign"], "codex", 1, "ajeno", "AJENO"),
+    )
+    conn.execute(
+        "INSERT INTO tool_calls (ts, step_id, context_id, tool_name, status) VALUES (?, ?, ?, ?, ?)",
+        ("2026-05-11T09:00:00Z", ids["s2"], ids["foreign"], "ajeno", "ok"),
+    )
+    conn.execute("UPDATE steps SET notes = ? WHERE id = ?", (f"Cita un commit ajeno: {SHA_OTHER}", ids["s2"]))
+    conn.commit()
+    return foreign_child
+
+
+def test_rows_of_another_project_never_cross_the_scope(data):
+    conn, ids = data
+    foreign_child = _scope_leaks(conn, ids)
+    trace = work.step_trace(conn, "mi-proyecto", ids["s2"])
+    assert trace["references"]["commits"] == []
+    assert trace["references"]["unverified_shas"] == [SHA_OTHER]
+    assert trace["runs"] == [] and trace["alignments"] == [] and trace["tool_calls"] == []
+    detail = work.context_detail(conn, "mi-proyecto", ids["active"])
+    second = detail["steps"][1]
+    assert (second["runs"], second["cost_usd"], second["alignments"], second["tool_calls"]) == (0, 0, 0, 0)
+    assert second["children"] == []
+    assert all(foreign_child not in step["children"] for step in detail["steps"])
+    assert "AJENO" not in json.dumps(trace)
+
+
+def test_a_context_whose_parent_is_in_another_project_has_no_parent(data):
+    conn, ids = data
+    orphan = _context(conn, "mi-proyecto", "Huérfano", "active", "2026-05-10T11:00:00Z",
+                      "2026-05-10T11:00:00Z", parent_step_id=ids["foreign_step"])
+    assert work.context_detail(conn, "mi-proyecto", orphan)["context"]["parent"] is None
+
+
+def test_costs_that_are_not_finite_or_negative_are_ignored(data):
+    conn, ids = data
+    for cost in (float("nan"), float("inf"), float("-inf"), -1.0):
+        _run(conn, "mi-proyecto", "2026-05-12T09:00:00Z", provider="x", step_id=ids["s3"], cost_usd=cost)
+    trace = work.step_trace(conn, "mi-proyecto", ids["s3"])
+    assert [run["cost_usd"] for run in trace["runs"]] == [None, None, None, None]
+    _validate(trace, "work_step_trace.schema.json")
+    third = work.context_detail(conn, "mi-proyecto", ids["active"])["steps"][2]
+    assert (third["runs"], third["cost_usd"]) == (4, 0)
+    json.dumps(trace, allow_nan=False)
+
+
+def test_sha256_citations_are_verified_against_the_project(data):
+    conn, ids = data
+    _run(conn, "mi-proyecto", "2026-05-12T09:00:00Z", provider=GIT_PROVIDER,
+         session_id=f"git::mi-proyecto::{SHA_64}", task_preview="feat: sha256")
+    conn.execute("UPDATE steps SET notes = ? WHERE id = ?", (f"{SHA_64} y prefijo {SHA_64[:10]}", ids["s3"]))
+    refs = work.step_trace(conn, "mi-proyecto", ids["s3"])["references"]
+    assert [commit["sha"] for commit in refs["commits"]] == [SHA_64]
+    assert refs["commits"][0]["subject"] == "feat: sha256"
+    assert refs["unverified_shas"] == []
+
+
+def test_contexts_without_valid_timestamps_go_last(data):
+    conn, ids = data
+    broken = _context(conn, "mi-proyecto", "Sin fechas", "active", "no es fecha", "")
+    _step(conn, ids["active"], 4, "Otro en curso", "in_progress")
+    items = work.list_contexts(conn, "mi-proyecto", status="active")
+    assert [item["id"] for item in items] == [ids["active"], broken]
+    assert items[1]["created_at"] is None and items[1]["updated_at"] is None
+    # Con dos pasos en curso, se muestra el primero del plan.
+    assert items[0]["current_step"] == {"id": ids["s2"], "title": "Segundo"}

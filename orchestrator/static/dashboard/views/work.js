@@ -171,11 +171,9 @@ export async function mount(root, { api, state, signal, store }) {
   let pending = null;
 
   async function load() {
+    // Cualquier carga anterior queda superada, también por una página sin petición.
     pending?.abort();
-    const controller = new AbortController();
-    pending = controller;
-    const abort = () => controller.abort();
-    signal.addEventListener("abort", abort, { once: true });
+    pending = null;
     const page = pageFor(current);
     if (page === "no-project") {
       root.replaceChildren(message("Elegí un proyecto", "Trabajo muestra los contextos de un proyecto: elegilo en el selector de arriba."));
@@ -187,6 +185,10 @@ export async function mount(root, { api, state, signal, store }) {
         "Su alias tiene caracteres que la API no acepta en la ruta. La pestaña Flujos (heredado) lo sigue mostrando."));
       return;
     }
+    const controller = new AbortController();
+    pending = controller;
+    const abort = () => controller.abort();
+    signal.addEventListener("abort", abort, { once: true });
     root.replaceChildren(h("p", { class: "work-loading", role: "status" }, "Cargando…"));
     try {
       const params = page === "contexts" && filter ? { status: filter } : {};

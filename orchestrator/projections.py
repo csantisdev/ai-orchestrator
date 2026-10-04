@@ -26,7 +26,7 @@ AGENT_CATALOG = tuple(AGENT_ALIASES)
 NO_AGENT = "sin agente"
 _ALIAS_TO_AGENT = {alias: agent for agent, aliases in AGENT_ALIASES.items() for alias in aliases}
 
-_SHA_CANDIDATE = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{7,40}(?![0-9A-Za-z])")
+_SHA_CANDIDATE = re.compile(r"(?<![0-9A-Za-z])(?:[0-9A-Fa-f]{64}|[0-9A-Fa-f]{7,40})(?![0-9A-Za-z])")
 _FULL_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _PR_REFERENCE = re.compile(r"\bPR\s*#?(\d{1,9})\b", re.I)
 _TEST_MENTION = re.compile(r"\b(?:pytest|tests?|passed)\b", re.I)

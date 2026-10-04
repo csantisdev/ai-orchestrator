@@ -138,7 +138,6 @@
             "required": [
               "sha",
               "run_id",
-              "project",
               "ts",
               "subject"
             ],
@@ -153,12 +152,6 @@
                   "null"
                 ],
                 "minimum": 1
-              },
-              "project": {
-                "type": [
-                  "string",
-                  "null"
-                ]
               },
               "ts": {
                 "type": [
@@ -178,7 +171,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^[0-9a-f]{7,40}$"
+            "pattern": "^(?:[0-9a-f]{7,40}|[0-9a-f]{64})$"
           }
         },
         "prs": {
