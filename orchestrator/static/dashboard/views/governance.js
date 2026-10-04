@@ -15,6 +15,7 @@ const STATUS = { denied: "Denegada", error: "Con error", success: "Correcta", in
 const EGRESS = { allowed: "Permitida", blocked: "Bloqueada" };
 const AGENTS = { claude: "Claude", codex: "Codex", copilot: "Copilot", otros: "Otros", "sin agente": "Sin agente" };
 // Qué significa cada motivo y qué hacer (§23.5: los textos de estado dicen qué pasó y qué hacer).
+// Códigos de mcp_governance.py, mcp.py (StepTransitionError) y egress.py.
 export const REASONS = Object.freeze({
   project_out_of_scope: "El proyecto no está en ORCHESTRATOR_MCP_PROJECTS del cliente MCP. Agregá el alias al bloque env de su configuración y reiniciá el cliente.",
   project_scope_required: "La llamada no identificó un proyecto. Pasá project, context_id o step_id.",
@@ -23,7 +24,20 @@ export const REASONS = Object.freeze({
   invalid_arguments: "La herramienta rechazó los argumentos de la llamada.",
   request_id_reused: "Se reutilizó un request_id con otros argumentos: es otra operación y necesita otra clave.",
   request_in_progress: "Ya hay una operación en curso con ese request_id.",
+  execution_error: "La herramienta falló al ejecutarse. El detalle queda en el log del servidor MCP.",
+  step_not_found: "El paso no existe (o es de otro proyecto).",
+  step_not_pending: "Solo se puede iniciar un paso pendiente.",
+  step_not_in_progress: "Solo se puede avanzar o devolver un paso en curso.",
+  context_not_active: "El contexto no está activo: activalo antes de mover sus pasos.",
+  context_has_in_progress: "El contexto ya tiene un paso en curso; cerralo o devolvelo a pendiente primero.",
+  step_changed_concurrently: "Otro agente cambió el paso al mismo tiempo. Volvé a leerlo y reintentá.",
+  provider_blocked: "La política de egress del proyecto bloquea ese proveedor.",
+  not_in_allowlist: "El proveedor no está en la lista permitida de la política de egress.",
+  unknown_clearance: "El proveedor no tiene una habilitación conocida para la sensibilidad del proyecto.",
+  clearance_insufficient: "La habilitación del proveedor es menor que la sensibilidad del contexto.",
+  secret_pattern_detected: "El contenido tenía un patrón de secreto y no se envió.",
 });
+const UNKNOWN_REASON = "Motivo sin descripción en el dashboard: buscalo en el código del servidor o en el log.";
 const PATH_SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/;
 const STYLE_KEY = "governance";
 
@@ -38,7 +52,13 @@ export function endpoints(project) {
 }
 
 export function reasonText(code) {
-  return code ? (REASONS[code] ?? null) : null;
+  if (!code || code === "allowed") return null;
+  return REASONS[code] ?? UNKNOWN_REASON;
+}
+
+// Estado visible: una invocación `success` marcada con `is_error` es un fallo.
+export function displayStatus(item) {
+  return item.is_error && item.status === "success" ? "error" : item.status;
 }
 
 export function agentLabel(agent) {
@@ -90,7 +110,7 @@ function summaryBlock(summary, tab) {
   return h("div", { class: "gov-summary" },
     h("div", { class: "gov-totals" },
       h("p", {}, h("strong", {}, String(mcp.denied)), " denegadas"),
-      h("p", {}, h("strong", {}, String(mcp.error)), " con error"),
+      h("p", {}, h("strong", {}, String(mcp.error)), " con error (sin contar denegadas)"),
       h("p", {}, h("strong", {}, String(mcp.in_progress)), " en curso"),
       h("p", { class: "gov-muted" }, `de ${mcp.invocations} invocaciones`)),
     ranking("Por motivo", mcp.by_reason),
@@ -113,7 +133,7 @@ function mcpRow(item, selected) {
     },
     h("span", { class: "gov-row-main" },
       h("span", { class: "gov-tool" }, item.tool_name || "—"),
-      statusPill(item.status, STATUS),
+      statusPill(displayStatus(item), STATUS),
       reason ? h("code", { class: "gov-reason" }, reason) : null),
     h("span", { class: "gov-row-meta" },
       h("span", {}, agentLabel(item.agent)),
@@ -121,7 +141,8 @@ function mcpRow(item, selected) {
     isSelected ? h("div", { class: "gov-expanded" },
       reasonText(reason) ? h("p", { class: "gov-hint" }, reasonText(reason)) : null,
       detail([
-        ["Invocación", `#${item.id}`], ["Cliente", item.client_surface], ["Transporte", item.transport],
+        ["Invocación", `#${item.id}`], ["Estado registrado", item.is_error ? `${item.status} (con error)` : item.status],
+        ["Cliente", item.client_surface], ["Transporte", item.transport],
         ["Perfil", item.capability_profile], ["Categoría", item.tool_category], ["Motivo", item.reason_code],
         ["Código de error", item.error_code], ["Duración", item.duration_ms === null ? null : `${item.duration_ms} ms`],
         ["Clave de la petición", item.request_source === "client" ? "del cliente (reintento seguro)" : "generada"],
@@ -143,10 +164,12 @@ function egressRow(item, selected) {
     h("span", { class: "gov-row-meta" },
       h("span", {}, item.phase),
       h("time", { datetime: item.ts ?? undefined }, formatInstant(item.ts)))),
-    isSelected ? h("div", { class: "gov-expanded" }, detail([
-      ["Decisión", `#${item.id}`], ["Fase", item.phase], ["Sensibilidad", item.sensitivity],
-      ["Habilitación", item.clearance], ["Run", item.run_id === null ? null : `#${item.run_id}`],
-    ])) : null,
+    isSelected ? h("div", { class: "gov-expanded" },
+      reasonText(item.reason_code) ? h("p", { class: "gov-hint" }, reasonText(item.reason_code)) : null,
+      detail([
+        ["Decisión", `#${item.id}`], ["Fase", item.phase], ["Sensibilidad", item.sensitivity],
+        ["Habilitación", item.clearance], ["Run", item.run_id === null ? null : `#${item.run_id}`],
+      ])) : null,
   ];
 }
 

@@ -255,3 +255,16 @@ def test_endpoint_errors(api, path, query, expected):
     assert status == expected
     if expected == 404:
         assert payload == {"error": "unknown project"}
+
+
+def test_a_denial_recorded_with_is_error_counts_once_as_denied(conn):
+    _invocation(conn, "mi-proyecto", "2026-06-14T10:00:00Z", "denied", is_error=1, reason="capability_denied")
+    _invocation(conn, "mi-proyecto", "2026-06-14T10:00:00Z", "success", is_error=1, error_code="execution_error")
+    conn.commit()
+    mcp = governance.governance_summary(conn, "mi-proyecto", now=NOW, period="7d")["mcp"]
+    assert (mcp["denied"], mcp["error"], mcp["invocations"]) == (1, 1, 2)
+    assert mcp["by_reason"] == [{"key": "capability_denied", "count": 1}, {"key": "execution_error", "count": 1}]
+    problems = governance.list_mcp_invocations(conn, "mi-proyecto")
+    assert len(problems["items"]) == 2
+    assert [item["id"] for item in governance.list_mcp_invocations(conn, "mi-proyecto", status="error")["items"]] \
+        == [item["id"] for item in problems["items"]]

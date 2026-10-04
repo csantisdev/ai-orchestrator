@@ -93,7 +93,7 @@ test("endpoints, motivos, agentes y fechas", () => {
   });
   for (const bad of [null, "", "a b", "a/b", ".x", "x%2e"]) assert.equal(endpoints(bad), null, String(bad));
   assert.match(reasonText("project_out_of_scope"), /ORCHESTRATOR_MCP_PROJECTS/);
-  assert.equal(reasonText("desconocido"), null);
+  assert.match(reasonText("desconocido"), /sin descripción/);
   assert.equal(reasonText(null), null);
   assert.ok(Object.keys(REASONS).includes("capability_denied"));
   assert.deepEqual(MCP_FILTERS.map(([key]) => key), ["problems", "denied", "error", "in_progress", "all"]);
@@ -164,6 +164,72 @@ test("egress vacío explica por qué y sin proyecto pide elegir uno", async () =
     const emptyRoot = fakeRoot(doc);
     await mount(emptyRoot, { api, state: { ...BASE, project: null }, signal: new AbortController().signal, store: { set() {} } });
     assert.match(emptyRoot.textContent, /Elegí un proyecto/);
+  } finally {
+    delete h.document;
+  }
+});
+
+import { displayStatus } from "../../orchestrator/static/dashboard/views/governance.js";
+
+test("una invocación success con is_error se muestra como error y los motivos desconocidos se explican", () => {
+  assert.equal(displayStatus(item(1, { status: "success", is_error: true })), "error");
+  assert.equal(displayStatus(item(1, { status: "success", is_error: false })), "success");
+  assert.equal(displayStatus(item(1, { status: "denied", is_error: true })), "denied");
+  assert.match(reasonText("motivo_nuevo"), /sin descripción/);
+  assert.equal(reasonText("allowed"), null);
+  for (const code of ["execution_error", "step_changed_concurrently", "clearance_insufficient", "secret_pattern_detected"]) {
+    assert.ok(REASONS[code], code);
+  }
+});
+
+test("una página de 'Cargar más' que llega después de cambiar el filtro se descarta", async () => {
+  const doc = fakeDocument();
+  h.document = doc;
+  try {
+    const root = fakeRoot(doc);
+    let releaseMore;
+    const api = {
+      get: (path, { params, signal }) => {
+        if (path.endsWith("/summary")) return Promise.resolve(SUMMARY);
+        if (params.cursor === "x|9") {
+          return new Promise((resolve, reject) => {
+            releaseMore = () => resolve({ items: [item(3)], next_cursor: null });
+            signal.addEventListener("abort", () => reject(new DOMException("abortado", "AbortError")));
+          });
+        }
+        if (params.status === "denied") return Promise.resolve({ items: [item(7)], next_cursor: null });
+        return Promise.resolve({ items: [item(9)], next_cursor: "x|9" });
+      },
+    };
+    const signal = new AbortController().signal;
+    await mount(root, { api, state: BASE, signal, store: { set() {} } });
+    click(root, { dataset: { more: "1" } });
+    click(root, { dataset: { filter: "denied" } });
+    await new Promise((r) => setImmediate(r));
+    releaseMore?.();
+    await new Promise((r) => setImmediate(r));
+    const sels = findAll(root, (node) => node.dataset?.sel).map((node) => node.dataset.sel);
+    assert.deepEqual(sels, ["decision:mcp-7"]);
+  } finally {
+    delete h.document;
+  }
+});
+
+test("el detalle de una invocación success con is_error lo dice", async () => {
+  const doc = fakeDocument();
+  h.document = doc;
+  try {
+    const root = fakeRoot(doc);
+    const api = {
+      get: async (path) => (path.endsWith("/summary") ? SUMMARY
+        : { items: [item(5, { status: "success", is_error: true, reason_code: null, error_code: "execution_error" })], next_cursor: null }),
+    };
+    const handle = await mount(root, { api, state: BASE, signal: new AbortController().signal, store: { set() {} } });
+    assert.match(root.textContent, /Con error/);
+    assert.doesNotMatch(root.textContent, /Correcta/);
+    handle.update({ ...BASE, sel: "decision:mcp-5" });
+    assert.match(root.textContent, /success \(con error\)/);
+    assert.match(root.textContent, /falló al ejecutarse/);
   } finally {
     delete h.document;
   }

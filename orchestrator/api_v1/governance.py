@@ -180,7 +180,12 @@ def _ranked(groups: dict[str, int]) -> list[dict]:
 
 
 def governance_summary(conn: sqlite3.Connection, project: str, *, now: datetime, period: str = "30d") -> dict:
-    """Resumen del período: denegadas y con error por motivo, herramienta y agente; egress."""
+    """Resumen del período: denegadas y con error por motivo, herramienta y agente; egress.
+
+    `denied` y `error` son categorías excluyentes: una denegación también se registra con
+    `is_error`, pero cuenta como denegada; `error` son los fallos que no fueron denegaciones.
+    Los rankings cuentan cada invocación problemática una sola vez.
+    """
     if period not in PERIODS:
         raise ValueError(f"period debe ser uno de: {', '.join(PERIODS)}")
     now = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
