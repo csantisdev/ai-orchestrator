@@ -1,0 +1,154 @@
+/* Componentes del shell (spec §23.5): navegación, breadcrumb, pestañas, estado vacío,
+   Inspector y estado de conexión. Solo tokens de tokens.css. */
+@layer components {
+  .shell-nav-group {
+    margin: var(--space-4) var(--space-3) var(--space-2);
+    font-size: var(--text-10);
+    font-weight: 700;
+    letter-spacing: .7px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .shell-nav-group:first-child { margin-top: 0; }
+  @media (max-width: 767px) {
+    .shell-nav-group { display: none; }
+  }
+
+  .shell-nav-link {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-control);
+    font-size: var(--text-13);
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background var(--motion-fast), color var(--motion-fast);
+  }
+  .shell-nav-link:hover { background: var(--bg-surface); color: var(--text-primary); }
+  .shell-nav-link[aria-current="page"] {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    box-shadow: inset 2px 0 0 var(--state-live);
+  }
+  .shell-nav-link:focus-visible,
+  .shell-tab:focus-visible,
+  .shell-button:focus-visible { outline: 2px solid var(--state-focus); outline-offset: 2px; }
+
+  .shell-breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: 0 var(--space-4);
+    font-size: var(--text-12);
+    color: var(--text-muted);
+  }
+  .shell-crumb + .shell-crumb::before { content: "›"; margin-right: var(--space-2); color: var(--text-faint); }
+  .shell-crumb[aria-current="location"] { color: var(--text-secondary); }
+
+  .shell-title {
+    margin: var(--space-2) var(--space-4) var(--space-3);
+    font-size: var(--text-22);
+    font-weight: 700;
+    letter-spacing: -.3px;
+    color: var(--text-primary);
+  }
+
+  .shell-note {
+    margin: 0 var(--space-4) var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    font-size: var(--text-12);
+    color: var(--text-muted);
+  }
+
+  .shell-tabs {
+    display: flex;
+    gap: var(--space-1);
+    margin: 0 var(--space-4) var(--space-2);
+    border-bottom: 1px solid var(--border);
+  }
+  .shell-tab {
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    font: inherit;
+    font-size: var(--text-13);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .shell-tab[aria-selected="true"] { border-bottom-color: var(--state-live); color: var(--text-primary); }
+
+  .shell-empty {
+    margin: var(--space-7) var(--space-4);
+    padding: var(--space-6);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-panel);
+    max-width: 640px;
+  }
+  .shell-empty h2 { font-size: var(--text-16); font-weight: 600; color: var(--text-primary); margin-bottom: var(--space-2); }
+  .shell-empty p { font-size: var(--text-13); line-height: 1.6; color: var(--text-secondary); }
+
+  .inspector-heading {
+    font-size: var(--text-10);
+    font-weight: 700;
+    letter-spacing: .7px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: var(--space-3);
+  }
+  .inspector-empty p { font-size: var(--text-13); line-height: 1.6; color: var(--text-muted); }
+  .inspector-kind { font-size: var(--text-12); color: var(--text-muted); }
+  .inspector-id {
+    margin: var(--space-1) 0 var(--space-4);
+    font-family: var(--font-data);
+    font-size: var(--text-16);
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+  }
+
+  .shell-button {
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--bg-input);
+    font: inherit;
+    font-size: var(--text-12);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .shell-button:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+  .shell-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-11);
+    color: var(--text-muted);
+  }
+  .shell-status::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-faint);
+  }
+  .shell-status[data-state="live"]::before { background: var(--state-live); }
+  .shell-status[data-state="connecting"]::before { background: var(--state-warning); }
+  .shell-status[data-state="offline"]::before { background: var(--state-danger); }
+
+  .js-init-error {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    padding: var(--space-2) var(--space-4);
+    background: var(--state-danger);
+    color: var(--bg-base);
+    font-family: var(--font-data);
+    font-size: var(--text-13);
+  }
+}

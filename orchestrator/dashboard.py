@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import html
 import json
+import urllib.parse
 from datetime import datetime
-from orchestrator.dashboard_css import _build_css
-from orchestrator.dashboard_js import _build_js
+from orchestrator.dashboard_js import _JS_FILES
+from orchestrator.static_assets import StaticBundle, build_bundle
 from orchestrator.timeutil import local_date_from_ts as _local_date_from_ts
 from orchestrator.legacy_dashboard import actividad, config, datos, flujos, metrics, proyectos
 from orchestrator.legacy_dashboard.common import (  # noqa: F401  (API usada por cli, server y tests)
@@ -32,8 +33,30 @@ from orchestrator.legacy_dashboard.common import (  # noqa: F401  (API usada por
 from orchestrator.legacy_dashboard.flujos import _build_contexts_section  # noqa: F401
 
 
+NAV_SECTIONS = (
+    ("Proyecto", (("inicio", "Inicio"), ("trabajo", "Trabajo"), ("ejecuciones", "Ejecuciones"), ("gobernanza", "Gobernanza"))),
+    ("Control", (("proveedores", "Proveedores"), ("politicas", "Políticas"), ("ajustes", "Ajustes"))),
+)
+STYLESHEETS = ("tokens.css", "base.css", "components.css", "legacy/legacy.css")
+
+
+def _shell_navigation(selected_project: str = "") -> str:
+    """Navegación 4 + 3 (spec §23.3); los enlaces conservan el proyecto y funcionan sin JS.
+
+    Con JS, el shell los intercepta y cambia la sección sin recargar.
+    """
+    parts = []
+    for group, sections in NAV_SECTIONS:
+        parts.append(f'    <p class="shell-nav-group">{group}</p>\n')
+        for view, label in sections:
+            query = {"project": selected_project, "view": view} if selected_project else {"view": view}
+            href = _escape("/?" + urllib.parse.urlencode(query))
+            parts.append(f'    <a class="shell-nav-link" href="{href}" data-view="{view}">{label}</a>\n')
+    return "".join(parts)
+
+
 def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None,
-               session_token: str = "") -> str:
+               session_token: str = "", static_bundle: StaticBundle | None = None) -> str:
     selected_project = _text(selected_project)
     all_projects = sorted({_text(r.get("project")) for r in runs if _text(r.get("project"))})
     if projects_extra:
@@ -169,8 +192,16 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     _panel_metrics = metrics.panel()
     _panel_datos = datos.panel()
     _panel_config = config.panel()
-    _css = _build_css()
-    _js = _build_js()
+    # El servidor pasa su instantánea de estáticos: el HTML y lo servido comparten versión.
+    bundle = static_bundle or build_bundle()
+    _stylesheets = "".join(f'  <link rel="stylesheet" href="{bundle.url(name)}">\n' for name in STYLESHEETS)
+    # Los scripts heredados son clásicos y van en orden (comparten el ámbito global como
+    # antes dentro del único bloque). Diferencia deliberada con el `try` anterior: un error
+    # en un archivo detiene solo ese archivo; los demás siguen cargando, así una vista rota
+    # no deja sin funcionar al resto. El aviso de error de carga se muestra igual.
+    _legacy_scripts = "".join(f'<script src="{bundle.url(f"legacy/{name}.js")}"></script>\n' for name in _JS_FILES)
+    _shell_script = bundle.url("shell.js")
+    _navigation = _shell_navigation(selected_project)
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -184,8 +215,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <link rel="apple-touch-icon" href="/static/img/favicons/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <style>{_css}</style>
-</head>
+{_stylesheets}</head>
 <body>
 
 <div class="header">
@@ -194,7 +224,9 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <form method="get" style="display:flex;align-items:center;gap:8px">
       <label style="font-size:12px;color:var(--text-muted);font-weight:500">Proyecto</label>
       <select name="project" onchange="this.form.submit()">{project_options}</select>
+      <input type="hidden" name="view" id="shell-view-input" value="">
     </form>
+    <span class="shell-status" id="shell-status" data-state="connecting" role="status">Conectando…</span>
     <button class="btn btn-secondary" onclick="toggleSender()">+ Nueva tarea</button>
     <button class="btn btn-secondary" onclick="toggleContextForm()">+ Nuevo flujo</button>
     <a href="/docs" class="theme-btn" style="text-decoration:none">Docs</a>
@@ -212,7 +244,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   </div>
 </div>
 
-<div class="tabnav">
+<div class="tabnav" hidden>
   <div class="tabnav-inner">
     <button class="tab-btn tab-active" id="tab-btn-actividad" onclick="switchTab('actividad')">Actividad</button>
     <button class="tab-btn" id="tab-btn-flujos" onclick="switchTab('flujos')">Flujos</button>
@@ -223,7 +255,37 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   </div>
 </div>
 
-{_panel_actividad}{_panel_flujos}{_panel_proyectos}{_panel_metrics}{_panel_datos}{_panel_config}<div class="detail-overlay" id="confirmModal" onclick="_confirmModalBackdrop(event)" style="align-items:center;justify-content:center">
+<div class="shell">
+  <nav class="shell-nav" aria-label="Secciones">
+{_navigation}  </nav>
+
+  <main class="shell-main" id="shell-main">
+    <nav class="shell-breadcrumb" id="shell-breadcrumb" aria-label="Ubicación"></nav>
+    <h1 class="shell-title" id="shell-title"></h1>
+    <p class="shell-note" id="shell-note" hidden></p>
+    <div class="shell-tabs" id="shell-tabs" role="tablist" hidden></div>
+    <section class="shell-empty" id="shell-empty" hidden>
+      <h2 id="shell-empty-title"></h2>
+      <p id="shell-empty-body"></p>
+    </section>
+    <div id="legacy-views">
+{_panel_actividad}{_panel_flujos}{_panel_proyectos}{_panel_metrics}{_panel_datos}{_panel_config}    </div>
+  </main>
+
+  <aside class="shell-inspector" id="shell-inspector" aria-label="Inspector" data-open="false">
+    <p class="inspector-heading">Inspector</p>
+    <div class="inspector-empty" id="inspector-empty">
+      <p>Seleccioná un contexto, paso, run o commit para ver su detalle acá.</p>
+    </div>
+    <div class="inspector-selection" id="inspector-selection" hidden>
+      <p class="inspector-kind" id="inspector-kind"></p>
+      <p class="inspector-id" id="inspector-id"></p>
+      <button type="button" class="shell-button" data-action="clear-selection">Limpiar selección</button>
+    </div>
+  </aside>
+</div>
+
+<div class="detail-overlay" id="confirmModal" onclick="_confirmModalBackdrop(event)" style="align-items:center;justify-content:center">
   <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:28px 24px 20px;width:min(440px,92vw);box-shadow:var(--shadow-panel)">
     <h3 id="confirmModalTitle" style="margin:0 0 10px;font-size:15px;font-weight:700"></h3>
     <div id="confirmModalBody" style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:20px"></div>
@@ -283,22 +345,23 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 window.__runsData = {runs_json};
 </script>
 <script>
-try {{
-{_js}
-}} catch(e) {{
-  console.error("JS init error:", e);
-  const errorBox = document.createElement("div");
-  errorBox.style.cssText = "position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;font-size:13px;padding:8px 16px;z-index:9999;font-family:monospace";
-  errorBox.textContent = "Error JS al cargar: " + e.message + " — " + (e.stack||"").split("\\n")[0];
-  document.body.prepend(errorBox);
-}}
+window.addEventListener("error", function (event) {{
+  if (document.readyState === "complete" || document.getElementById("js-init-error")) return;
+  console.error("JS init error:", event.error || event.message);
+  var box = document.createElement("div");
+  box.id = "js-init-error";
+  box.className = "js-init-error";
+  box.textContent = "Error JS al cargar: " + event.message;
+  document.body.prepend(box);
+}});
 </script>
-<script>
+{_legacy_scripts}<script>
 _runsFilterProject = {_json_for_script(selected_project)};
 _runsFilterModel   = "";
 if (typeof renderRunsTable === "function") renderRunsTable();
 else console.error("renderRunsTable no definida — revisar errores de script anteriores");
 </script>
+<script type="module" src="{_shell_script}"></script>
 
 </body>
 </html>"""

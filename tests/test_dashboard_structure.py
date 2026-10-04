@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_dashboard_equivalence import CONTEXTS, RUNS, _pin_clock, split_page
+from tests.test_dashboard_equivalence import CONTEXTS, RUNS, _pin_clock
 
 LITERAL_ID_LOOKUP = re.compile(r"getElementById\(\s*[\"']([A-Za-z0-9_-]+)[\"']\s*\)")
 ID_ATTRIBUTE = re.compile(r"\bid\s*=\s*\\?[\"']([A-Za-z0-9_-]+)")
@@ -35,7 +35,9 @@ def page_and_script(monkeypatch):
 
     _pin_clock(monkeypatch)
     page = build_html(RUNS, session_token="token-fijo")
-    html, js = split_page(page)
+    from orchestrator.dashboard_js import _build_js
+
+    html, js = page, _build_js()
     return html + _build_contexts_section(CONTEXTS), js
 
 
@@ -123,13 +125,13 @@ def test_server_serves_the_page_with_every_tab(server):
 
     assert response.status == 200
     assert all(f'<div id="tab-{tab}"' in page for tab in TAB_BUTTON.findall(page))
-    assert "Object.assign(window, {" in page
+    assert re.search(r"/static/dashboard/[0-9a-f]{12}/legacy/startup.js", page)
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node no está instalado (D1 lo agrega al CI)")
 def test_switch_tab_shows_one_panel_activates_its_button_and_loads_once():
     harness = Path(__file__).parent / "js" / "switch_tab_harness.mjs"
-    core = Path(__file__).parent.parent / "orchestrator" / "legacy_dashboard" / "js" / "core.js"
+    core = Path(__file__).parent.parent / "orchestrator" / "static" / "dashboard" / "legacy" / "core.js"
 
     steps = json.loads(subprocess.run(
         ["node", str(harness), str(core)], capture_output=True, text=True, check=True, timeout=30,

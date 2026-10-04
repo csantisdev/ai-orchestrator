@@ -1,13 +1,14 @@
-"""Equivalencia del dashboard heredado frente a una instantánea dorada (spec §24.3.1).
+"""Instantánea dorada del dashboard (spec §24.3.1; actualizada en D1b, ola 2).
 
-La separación por vista no puede cambiar lo que ve el navegador. Con reloj y zona
-fijos y datos sintéticos deterministas:
+Nació para probar que la separación por vista no cambiaba nada. Desde D1b protege contra
+cambios no intencionales: con reloj y zona fijos y datos sintéticos deterministas,
 
-- el HTML de `build_html` y de `_build_contexts_section` y el CSS se comparan byte a
-  byte (el bloque de JS embebido se compara aparte);
-- el JS se compara como multiconjunto de bloques de nivel superior: agrupar por vista
-  cambia el orden de las declaraciones, pero ningún bloque puede cambiar, aparecer o
-  desaparecer, y el bloque de exportaciones y arranque sigue al final.
+- el HTML de `build_html` (con la versión de estáticos normalizada) y de
+  `_build_contexts_section` se compara byte a byte;
+- el JS heredado se compara como multiconjunto de bloques de nivel superior, y el código
+  que se ejecuta al cargar mantiene su orden; el bloque de exportaciones y arranque va al
+  final;
+- la página carga los scripts heredados en orden y el shell como módulo, al final.
 
 Para regenerar la instantánea (solo si el cambio de salida es intencional):
 `python -m tests.test_dashboard_equivalence`.
@@ -25,9 +26,7 @@ import pytest
 GOLDEN = Path(__file__).parent / "golden" / "dashboard"
 TZ = timezone(timedelta(hours=-3), "TST")
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=TZ)
-JS_START = "<script>\ntry {\n"
-JS_END = "\n} catch(e) {"
-JS_PLACEHOLDER = "<script>\ntry {\n/*JS*/\n} catch(e) {"
+STATIC_VERSION = re.compile(r"/static/dashboard/[0-9a-f]{12}/")
 TAIL_MARKER = "Object.assign(window, {"
 # Un bloque empieza en cualquier línea en columna 0 que no cierre una estructura.
 # `test_block_boundaries_are_top_level_code` verifica con un analizador léxico que
@@ -231,7 +230,6 @@ def _pin_clock(monkeypatch):
 def render() -> dict[str, str]:
     """Salidas del dashboard con datos sintéticos; requiere el reloj fijado."""
     from orchestrator.dashboard import _build_contexts_section, build_html
-    from orchestrator.dashboard_css import _build_css
     from orchestrator.dashboard_js import _build_js
 
     return {
@@ -240,15 +238,13 @@ def render() -> dict[str, str]:
         "page_empty.html": build_html([], session_token="token-fijo"),
         "contexts.html": _build_contexts_section(CONTEXTS),
         "contexts_empty.html": _build_contexts_section([]),
-        "style.css": _build_css(),
         "script.js": _build_js(),
     }
 
 
-def split_page(page: str) -> tuple[str, str]:
-    start = page.index(JS_START) + len(JS_START)
-    end = page.index(JS_END, start)
-    return page[:start - len(JS_START)] + JS_PLACEHOLDER + page[end + len(JS_END):], page[start:end]
+def normalize_page(page: str) -> str:
+    """La versión de estáticos cambia con cada archivo; la instantánea no la fija."""
+    return STATIC_VERSION.sub("/static/dashboard/<version>/", page)
 
 
 def js_chunks(js: str) -> list[str]:
@@ -282,21 +278,42 @@ def outputs(monkeypatch):
 
 
 @pytest.mark.parametrize("name", ["page_all.html", "page_selected.html", "page_empty.html"])
-def test_page_html_is_byte_identical_outside_the_script(outputs, name):
-    html, _ = split_page(outputs[name])
-
-    assert html == _golden(name)
+def test_page_html_is_byte_identical(outputs, name):
+    assert normalize_page(outputs[name]) == _golden(name)
 
 
-@pytest.mark.parametrize("name", ["contexts.html", "contexts_empty.html", "style.css"])
-def test_contexts_and_css_are_byte_identical(outputs, name):
+@pytest.mark.parametrize("name", ["contexts.html", "contexts_empty.html"])
+def test_contexts_html_is_byte_identical(outputs, name):
     assert outputs[name] == _golden(name)
 
 
-def test_every_page_embeds_the_same_script(outputs):
-    scripts = {split_page(outputs[name])[1] for name in ("page_all.html", "page_selected.html", "page_empty.html")}
+def test_legacy_css_reconstructs_the_production_stylesheet():
+    """D1b repartió el CSS heredado en los temas de tokens.css y las reglas de
+    legacy/legacy.css (dentro de `@layer`). Unidos, deben ser el CSS que servía
+    production antes de D1b (`legacy_style.css`), salvo indentación y envoltorios."""
+    import textwrap
 
-    assert scripts == {outputs["script.js"]}
+    static = Path(__file__).parent.parent / "orchestrator" / "static" / "dashboard"
+    tokens = (static / "tokens.css").read_text(encoding="utf-8")
+    themes = tokens[tokens.index("@layer tokens {\n") + len("@layer tokens {\n"):tokens.index("\n  :root {\n")]
+    legacy = (static / "legacy" / "legacy.css").read_text(encoding="utf-8")
+    rules = legacy[legacy.index("@layer legacy {\n") + len("@layer legacy {\n"):legacy.rindex("\n}")]
+
+    def lines(text):
+        return [line.strip() for line in textwrap.dedent(text).splitlines() if line.strip()]
+
+    assert lines(themes) + lines(rules) == lines(_golden("legacy_style.css"))
+
+
+def test_pages_load_legacy_scripts_in_order_and_the_shell_module_last(outputs):
+    from orchestrator.dashboard_js import _JS_FILES
+
+    for name in ("page_all.html", "page_selected.html", "page_empty.html"):
+        page = normalize_page(outputs[name])
+        sources = re.findall(r'<script(?: type="module")? src="([^"]+)"', page)
+        expected = [f"/static/dashboard/<version>/legacy/{script}.js" for script in _JS_FILES]
+        assert sources == expected + ["/static/dashboard/<version>/shell.js"]
+        assert '<script type="module" src="/static/dashboard/<version>/shell.js">' in page
 
 
 def test_script_has_the_same_top_level_blocks(outputs):
@@ -413,7 +430,7 @@ def _write_golden() -> None:
     GOLDEN.mkdir(parents=True, exist_ok=True)
     for name, text in render().items():
         if name.startswith("page_"):
-            text = split_page(text)[0]
+            text = normalize_page(text)
         (GOLDEN / name).write_text(text, encoding="utf-8", newline="\n")
 
 
