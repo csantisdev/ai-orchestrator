@@ -30,7 +30,7 @@ build-backend = "setuptools.build_meta"
 include = ["orchestrator*"]
 
 [tool.setuptools.package-data]
-orchestrator = ["schemas/*.json", "legacy_dashboard/js/*.js", "static/dashboard/package.json", "static/dashboard/*.js", "static/dashboard/*.mjs", "static/dashboard/*.css", "static/dashboard/*.svg", "static/dashboard/*.png", "static/dashboard/*.woff2", "static/dashboard/**/*.js", "static/dashboard/**/*.mjs", "static/dashboard/**/*.css", "static/dashboard/**/*.svg", "static/dashboard/**/*.png", "static/dashboard/**/*.woff2"]
+orchestrator = ["schemas/*.json", "static/dashboard/package.json", "static/dashboard/*.js", "static/dashboard/*.mjs", "static/dashboard/*.css", "static/dashboard/*.svg", "static/dashboard/*.png", "static/dashboard/*.woff2", "static/dashboard/**/*.js", "static/dashboard/**/*.mjs", "static/dashboard/**/*.css", "static/dashboard/**/*.svg", "static/dashboard/**/*.png", "static/dashboard/**/*.woff2"]
 
 [tool.pytest.ini_options]
 markers = [

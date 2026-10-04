@@ -120,6 +120,7 @@ function mkTablePaged(id, title, rows, cols) {
 }
 
 const evtSource = new EventSource("/events");
+window.__dashboardEvents = evtSource;
 evtSource.addEventListener("ctx_updated", e => {
   const d = JSON.parse(e.data);
   _refreshContexts();

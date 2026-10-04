@@ -1,0 +1,76 @@
+/* Plantilla única del dashboard (spec §23.4): navegación, contenido e Inspector.
+   Solo tokens de tokens.css; sin colores ni estilos literales (tests/test_dashboard_linebase.py). */
+@layer base {
+  [hidden] { display: none !important; }
+
+  .shell {
+    display: grid;
+    grid-template-columns: var(--shell-nav-width) minmax(0, 1fr) var(--shell-inspector-width);
+    align-items: start;
+    min-height: calc(100vh - 64px);
+    padding-bottom: 48px;
+  }
+  .shell > * { min-width: 0; }
+
+  .shell-nav {
+    position: sticky;
+    top: 0;
+    min-height: calc(100vh - 64px);
+    padding: var(--space-5) var(--space-3);
+    border-right: 1px solid var(--border);
+    background: var(--bg-elevated);
+  }
+
+  .shell-main { padding: var(--space-5) var(--space-2) var(--space-7); }
+
+  .shell-inspector {
+    position: sticky;
+    top: 0;
+    min-height: calc(100vh - 64px);
+    padding: var(--space-5) var(--space-4);
+    border-left: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+
+  /* 768–1279 px: Inspector deslizable sobre el contenido; se abre con una selección. */
+  @media (max-width: 1279px) {
+    .shell { grid-template-columns: var(--shell-nav-width) minmax(0, 1fr); }
+    .shell-inspector {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 48px;
+      z-index: 150;
+      width: min(360px, 92vw);
+      min-height: 0;
+      overflow-y: auto;
+      box-shadow: var(--shadow-panel);
+      transform: translateX(100%);
+      transition: transform var(--motion-normal) ease;
+    }
+    .shell-inspector[data-open="true"] { transform: none; }
+  }
+
+  /* < 768 px: una columna, navegación horizontal e Inspector como hoja inferior. */
+  @media (max-width: 767px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    .shell-nav {
+      position: static;
+      display: flex;
+      gap: var(--space-1);
+      min-height: 0;
+      overflow-x: auto;
+      padding: var(--space-2) var(--space-3);
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .shell-inspector {
+      top: auto;
+      left: 0;
+      width: auto;
+      max-height: 60vh;
+      /* Está anclada sobre la barra de Activity (48 px): baja su alto más esa barra. */
+      transform: translateY(calc(100% + 48px));
+    }
+  }
+}

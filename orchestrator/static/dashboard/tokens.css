@@ -1,0 +1,96 @@
+/* Tokens del dashboard (spec §23.5): único lugar con valores de color.
+   Los temas solo redefinen valores; los nombres semánticos de abajo apuntan a ellos. */
+@layer legacy, tokens, base, components, views;
+
+@layer tokens {
+  :root{
+    --bg-base:#09090b;--bg-surface:#111827;--bg-elevated:#0c0c0e;
+    --bg-input:#18181b;--bg-code:#0f172a;
+    --border:#27272a;--border-subtle:#1f1f23;--border-faint:#18181b;
+    --text-primary:#f8fafc;--text-secondary:#a1a1aa;
+    --text-muted:#71717a;--text-faint:#52525b;
+    --text-code:#e2e8f0;--text-detail:#d1d5db;
+    --overlay-bg:rgba(0,0,0,.65);--shadow-panel:-4px 0 40px rgba(0,0,0,.6);
+  }
+  [data-theme="light"]{
+    --bg-base:#f8fafc;--bg-surface:#ffffff;--bg-elevated:#f1f5f9;
+    --bg-input:#f4f4f5;--bg-code:#f0f4f8;
+    --border:#e4e4e7;--border-subtle:#e4e4e7;--border-faint:#e2e8f0;
+    --text-primary:#0f172a;--text-secondary:#52525b;
+    --text-muted:#71717a;--text-faint:#a1a1aa;
+    --text-code:#1e293b;--text-detail:#374151;
+    --overlay-bg:rgba(0,0,0,.35);--shadow-panel:-4px 0 40px rgba(0,0,0,.1);
+  }
+  [data-theme="midnight"]{
+    --bg-base:#0a0e1a;--bg-surface:#0f1629;--bg-elevated:#070b14;
+    --bg-input:#141d35;--bg-code:#080c18;
+    --border:#1e2d50;--border-subtle:#162040;--border-faint:#141d35;
+    --text-primary:#e2e8f0;--text-secondary:#94a3b8;
+    --text-muted:#64748b;--text-faint:#475569;
+    --text-code:#cbd5e1;--text-detail:#b0bec5;
+    --overlay-bg:rgba(0,0,0,.75);--shadow-panel:-4px 0 40px rgba(0,0,0,.7);
+  }
+  [data-theme="nord"]{
+    --bg-base:#2e3440;--bg-surface:#3b4252;--bg-elevated:#292e39;
+    --bg-input:#434c5e;--bg-code:#252a35;
+    --border:#4c566a;--border-subtle:#434c5e;--border-faint:#3b4252;
+    --text-primary:#eceff4;--text-secondary:#d8dee9;
+    --text-muted:#a8b2c0;--text-faint:#7a8698;
+    --text-code:#d8dee9;--text-detail:#c5ccd8;
+    --overlay-bg:rgba(0,0,0,.55);--shadow-panel:-4px 0 40px rgba(0,0,0,.45);
+  }
+  [data-theme="espresso"]{
+    --bg-base:#1c1410;--bg-surface:#261c14;--bg-elevated:#160f0a;
+    --bg-input:#2e2018;--bg-code:#120d08;
+    --border:#3d2e20;--border-subtle:#2d2218;--border-faint:#2e2018;
+    --text-primary:#f5e6cf;--text-secondary:#c8a880;
+    --text-muted:#8a7055;--text-faint:#6b5540;
+    --text-code:#e8d5b0;--text-detail:#d4bc95;
+    --overlay-bg:rgba(0,0,0,.7);--shadow-panel:-4px 0 40px rgba(0,0,0,.6);
+  }
+  [data-theme="a11y"]{
+    --bg-base:#000000;--bg-surface:#0d0d0d;--bg-elevated:#000000;
+    --bg-input:#141414;--bg-code:#000000;
+    --border:#ffffff;--border-subtle:#cccccc;--border-faint:#999999;
+    --text-primary:#ffffff;--text-secondary:#f0f0f0;
+    --text-muted:#dddddd;--text-faint:#bbbbbb;
+    --text-code:#ffffff;--text-detail:#eeeeee;
+    --overlay-bg:rgba(0,0,0,.92);--shadow-panel:-4px 0 40px rgba(255,255,255,.12);
+  }
+
+  :root {
+    /* Superficies (--bg-*), texto (--text-*) y bordes (--border*) son los de cada tema,
+       arriba. Familias (§4.3) y estados. */
+    --family-knowledge: #38bdf8;
+    --family-work: #a78bfa;
+    --family-decision: #f59e0b;
+    --family-execution: #22c55e;
+    --family-governance: #f472b6;
+    --family-error: #f87171;
+    --family-neutral: #94a3b8;
+    --state-live: #22c55e;
+    --state-warning: #f59e0b;
+    --state-danger: #f87171;
+    --state-focus: #60a5fa;
+
+    /* Espaciado (escala de 4 px), radios, tipografía y movimiento. */
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-7: 32px;
+    --radius-control: 6px; --radius-card: 10px; --radius-panel: 16px;
+    --font-ui: 'Inter', system-ui, sans-serif;
+    --font-data: 'JetBrains Mono', ui-monospace, monospace;
+    --text-10: 10px; --text-11: 11px; --text-12: 12px; --text-13: 13px;
+    --text-15: 15px; --text-16: 16px; --text-22: 22px; --text-26: 26px;
+    --motion-fast: 120ms; --motion-normal: 200ms;
+    --shell-nav-width: 208px;
+    --shell-inspector-width: 340px;
+  }
+
+  [data-theme="a11y"] {
+    --state-focus: #ffff00;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root { --motion-fast: 0ms; --motion-normal: 0ms; }
+  }
+}

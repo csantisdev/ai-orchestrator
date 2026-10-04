@@ -341,10 +341,9 @@ def test_i15_x10_index_preview_count_is_numeric():
 def test_i15_x11_javascript_error_uses_text_content():
     from orchestrator.dashboard import build_html
     html = build_html([], selected_project="", projects_extra=[], session_token="token")
-    start = html.index("catch(e) {"); error_handler = html[start:html.index("</script>", start)]
-    assert "errorBox.textContent" in error_handler
-    assert "e.message" in error_handler and "e.stack" in error_handler
-    assert "errorBox.insertAdjacentHTML" not in error_handler and "errorBox.innerHTML" not in error_handler
+    start = html.index('window.addEventListener("error"'); error_handler = html[start:html.index("</script>", start)]
+    assert "box.textContent" in error_handler and "event.message" in error_handler
+    assert "insertAdjacentHTML" not in error_handler and "innerHTML" not in error_handler
 
 
 def test_i15_r2_post_json_session_expired_notice_is_once():
