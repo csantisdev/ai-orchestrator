@@ -108,6 +108,22 @@ def test_new_dashboard_files_have_no_literal_styles():
     assert offenders == {}
 
 
+def test_new_css_does_not_use_important():
+    """Entre capas, `!important` invierte la prioridad: uno del shell competiría con los
+    `!important` heredados de la capa `legacy`. Solo se permite la regla de `[hidden]`."""
+    root = ORCHESTRATOR / "static" / "dashboard"
+    allowed = "[hidden] { display: none !important; }"
+    offenders = []
+    for path in root.rglob("*.css"):
+        if path.relative_to(root).parts[0] == "legacy":
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "!important" in line and line.strip() != allowed:
+                offenders.append(f"{path.name}:{number}")
+
+    assert offenders == []
+
+
 @pytest.mark.parametrize("text, expected", [
     ('<div style="color:red">', (1, 0, 0)),
     ("'<span style=\\\"x\\\">'", (1, 0, 0)),

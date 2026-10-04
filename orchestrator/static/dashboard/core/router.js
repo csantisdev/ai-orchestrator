@@ -15,9 +15,11 @@ const SELECTION = [
   /^commit:(?:[0-9a-f]{40}|[0-9a-f]{64})$/,
   /^decision:(?:mcp|egress)-[1-9][0-9]{0,9}$/,
 ];
-// Alias de proyecto: letras, números, espacio y `._:-`. Nada que pueda cerrar un atributo
-// o abrir una etiqueta si alguna vez llega al DOM; igual se renderiza siempre como texto.
-const PROJECT = /^[\p{L}\p{N}][\p{L}\p{N} ._:-]{0,99}$/u;
+// Alias de proyecto: el servidor ya valida `?project=` contra los proyectos conocidos y
+// los alias no tienen restricción de caracteres, así que acá solo se descartan caracteres
+// de control y longitudes absurdas. El shell lo usa siempre como texto (textContent o la
+// propiedad `value`), nunca como HTML.
+const PROJECT = /^[^\u0000-\u001f\u007f]{1,200}$/u;
 const TAB = /^[a-z][a-z0-9-]{0,31}$/;
 // Orden fijo de los parámetros: la misma navegación produce siempre la misma URL.
 const KEYS = ["project", "view", "tab", "ctx", "step", "as", "sel"];

@@ -287,6 +287,24 @@ def test_contexts_html_is_byte_identical(outputs, name):
     assert outputs[name] == _golden(name)
 
 
+def test_legacy_css_reconstructs_the_production_stylesheet():
+    """D1b repartió el CSS heredado en los temas de tokens.css y las reglas de
+    legacy/legacy.css (dentro de `@layer`). Unidos, deben ser el CSS que servía
+    production antes de D1b (`legacy_style.css`), salvo indentación y envoltorios."""
+    import textwrap
+
+    static = Path(__file__).parent.parent / "orchestrator" / "static" / "dashboard"
+    tokens = (static / "tokens.css").read_text(encoding="utf-8")
+    themes = tokens[tokens.index("@layer tokens {\n") + len("@layer tokens {\n"):tokens.index("\n  :root {\n")]
+    legacy = (static / "legacy" / "legacy.css").read_text(encoding="utf-8")
+    rules = legacy[legacy.index("@layer legacy {\n") + len("@layer legacy {\n"):legacy.rindex("\n}")]
+
+    def lines(text):
+        return [line.strip() for line in textwrap.dedent(text).splitlines() if line.strip()]
+
+    assert lines(themes) + lines(rules) == lines(_golden("legacy_style.css"))
+
+
 def test_pages_load_legacy_scripts_in_order_and_the_shell_module_last(outputs):
     from orchestrator.dashboard_js import _JS_FILES
 

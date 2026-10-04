@@ -22,12 +22,14 @@ test("parseLocation descarta valores inválidos", () => {
   });
 });
 
-test("project no admite marcado ni comillas", () => {
-  for (const project of ['<img src=x onerror=alert(1)>', 'a"b', "a'b", "a&b", " empieza-con-espacio", "x".repeat(101)]) {
-    assert.equal(parseLocation(`?project=${encodeURIComponent(project)}`).project, null, project);
+test("project acepta cualquier alias imprimible y descarta controles y longitudes absurdas", () => {
+  // El servidor valida el alias contra los proyectos conocidos; el shell lo usa como texto.
+  for (const project of ["mi proyecto.v2_beta:1", "démo", "equipo/web", "a@b", "R&D", "x".repeat(200)]) {
+    assert.equal(parseLocation(`?project=${encodeURIComponent(project)}`).project, project, project);
   }
-  assert.equal(parseLocation("?project=mi%20proyecto.v2_beta:1").project, "mi proyecto.v2_beta:1");
-  assert.equal(parseLocation("?project=d%C3%A9mo").project, "démo");
+  for (const project of ["a\nb", "a\u0000b", "a\u007fb", "x".repeat(201)]) {
+    assert.equal(parseLocation(`?project=${encodeURIComponent(project)}`).project, null, JSON.stringify(project));
+  }
 });
 
 test("sel está tipado por clase de objeto", () => {
@@ -40,7 +42,7 @@ test("sel está tipado por clase de objeto", () => {
 });
 
 test("toSearch valida lo que serializa aunque el estado venga de store.set", () => {
-  const injected = { project: "<b>x</b>", view: "javascript:alert(1)", tab: "A B", ctx: "1;2", step: 3.5,
+  const injected = { project: "a\nb", view: "javascript:alert(1)", tab: "A B", ctx: "1;2", step: 3.5,
                      as: "grafo", sel: "commit:abc" };
 
   assert.equal(toSearch(injected), "");

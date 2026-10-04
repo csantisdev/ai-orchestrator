@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import urllib.parse
 from datetime import datetime
 from orchestrator.dashboard_js import _JS_FILES
 from orchestrator.static_assets import StaticBundle, build_bundle
@@ -39,13 +40,18 @@ NAV_SECTIONS = (
 STYLESHEETS = ("tokens.css", "base.css", "components.css", "legacy/legacy.css")
 
 
-def _shell_navigation() -> str:
-    """Navegación 4 + 3 (spec §23.3); los enlaces funcionan sin JS y el shell los intercepta."""
+def _shell_navigation(selected_project: str = "") -> str:
+    """Navegación 4 + 3 (spec §23.3); los enlaces conservan el proyecto y funcionan sin JS.
+
+    Con JS, el shell los intercepta y cambia la sección sin recargar.
+    """
     parts = []
     for group, sections in NAV_SECTIONS:
         parts.append(f'    <p class="shell-nav-group">{group}</p>\n')
         for view, label in sections:
-            parts.append(f'    <a class="shell-nav-link" href="/?view={view}" data-view="{view}">{label}</a>\n')
+            query = {"project": selected_project, "view": view} if selected_project else {"view": view}
+            href = _escape("/?" + urllib.parse.urlencode(query))
+            parts.append(f'    <a class="shell-nav-link" href="{href}" data-view="{view}">{label}</a>\n')
     return "".join(parts)
 
 
@@ -186,11 +192,16 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     _panel_metrics = metrics.panel()
     _panel_datos = datos.panel()
     _panel_config = config.panel()
+    # El servidor pasa su instantánea de estáticos: el HTML y lo servido comparten versión.
     bundle = static_bundle or build_bundle()
     _stylesheets = "".join(f'  <link rel="stylesheet" href="{bundle.url(name)}">\n' for name in STYLESHEETS)
+    # Los scripts heredados son clásicos y van en orden (comparten el ámbito global como
+    # antes dentro del único bloque). Diferencia deliberada con el `try` anterior: un error
+    # en un archivo detiene solo ese archivo; los demás siguen cargando, así una vista rota
+    # no deja sin funcionar al resto. El aviso de error de carga se muestra igual.
     _legacy_scripts = "".join(f'<script src="{bundle.url(f"legacy/{name}.js")}"></script>\n' for name in _JS_FILES)
     _shell_script = bundle.url("shell.js")
-    _navigation = _shell_navigation()
+    _navigation = _shell_navigation(selected_project)
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>

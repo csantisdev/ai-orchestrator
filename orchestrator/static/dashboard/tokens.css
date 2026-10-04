@@ -84,6 +84,8 @@
     --motion-fast: 120ms; --motion-normal: 200ms;
     --shell-nav-width: 208px;
     --shell-inspector-width: 340px;
+    --shell-header-height: 64px;
+    --shell-activity-height: 48px;
   }
 
   [data-theme="a11y"] {
