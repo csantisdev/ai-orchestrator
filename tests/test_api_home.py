@@ -42,13 +42,14 @@ def overview(conn):
     return build_overview(conn, "mi-proyecto", registered={"mi-proyecto"}, now=NOW)
 
 
-def metric(payload, name): return next(item for item in payload["metrics"] if item["id"] == name)
+def metric(payload, name):
+    return next(item for item in payload["metrics"] if item["id"] == name)
 
 
 def test_metrics_match_independent_queries(conn):
     payload = overview(conn)
     assert metric(payload, "active_contexts")["value"] == conn.execute("SELECT COUNT(*) FROM contexts WHERE project='mi-proyecto' AND status='active'").fetchone()[0]
-    assert metric(payload, "steps_in_progress")["value"] == conn.execute("SELECT COUNT(*) FROM steps WHERE status='in_progress'").fetchone()[0]
+    assert metric(payload, "steps_in_progress")["value"] == conn.execute("SELECT COUNT(*) FROM steps s JOIN contexts c ON c.id=s.context_id WHERE c.project='mi-proyecto' AND s.status='in_progress'").fetchone()[0]
     assert metric(payload, "agent_activity_24h")["value"] == 1
     assert metric(payload, "mcp_denied_or_error")["value"] == 1
     assert metric(payload, "cost_period")["value"] == 2.5
@@ -64,7 +65,7 @@ def test_schema_and_no_run_text(conn):
 
 
 def test_unknown_project_and_bad_period(conn):
-    assert build_overview(conn, "no", registered=set(), now=NOW)["_unknown"]
+    assert build_overview(conn, "no", registered=set(), now=NOW) is None
     with pytest.raises(ValueError, match="period"):
         build_overview(conn, "mi-proyecto", registered={"mi-proyecto"}, now=NOW, period="1y")
 
@@ -75,3 +76,26 @@ def test_dispatch_registers_the_vertical(conn):
     status, payload = api_v1.dispatch(api_v1.Request("GET", "/api/v1/projects/mi-proyecto/overview"))
     assert status == 200
     assert payload["project"] == "mi-proyecto"
+
+
+def test_dispatch_returns_404_for_unknown_and_400_for_bad_period(conn):
+    from orchestrator import api_v1
+
+    api_v1.discover()
+    status, payload = api_v1.dispatch(api_v1.Request("GET", "/api/v1/projects/no/overview"))
+    assert (status, payload) == (404, {"error": "unknown project"})
+    status, payload = api_v1.dispatch(
+        api_v1.Request(
+            "GET",
+            "/api/v1/projects/mi-proyecto/overview",
+            query={"period": ["1y"]},
+        )
+    )
+    assert (status, payload) == (400, {"error": "period must be '7d' or '30d'"})
+
+
+def test_project_with_context_but_without_runs_is_known(conn):
+    conn.execute("INSERT INTO contexts(ts, updated_at, project, title, status, metadata) VALUES ('2026-06-01T12:00:00Z', '2026-06-01T12:00:00Z', 'solo-contexto', 'x', 'active', '{}')")
+    conn.commit()
+
+    assert build_overview(conn, "solo-contexto", registered=set(), now=NOW)["project"] == "solo-contexto"
