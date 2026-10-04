@@ -317,3 +317,26 @@ def test_project_summaries_put_registered_first_by_latest_activity():
     assert summaries[2] == {"alias": "vacio", "registered": True, "has_runs": False, "runs": 0, "contexts": 0,
                             "active_contexts": 0, "last_activity": None}
     assert [item["registered"] for item in summaries[3:]] == [False, False]
+
+
+def test_project_summaries_skip_empty_aliases_and_break_ties_by_alias():
+    import sqlite3
+
+    from orchestrator.api_v1.meta import project_summaries
+    from orchestrator.api_v1.work import project_known
+    from orchestrator.db import _conn
+
+    conn = sqlite3.connect(":memory:")
+    for (sql,) in _conn().execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name IN ('runs', 'contexts')"
+    ).fetchall():
+        conn.execute(sql)
+    conn.executemany("INSERT INTO runs (ts, project) VALUES (?, ?)",
+                     [("2026-06-01T00:00:00Z", "b"), ("2026-06-01T00:00:00Z", "a"), ("2026-06-01T00:00:00Z", "")])
+    conn.execute("INSERT INTO contexts (ts, updated_at, project, status) VALUES "
+                 "('2026-06-01T00:00:00Z', 'no es fecha', 'c', 'active')")
+    summaries = project_summaries(conn, {"", None, "a", "b"})
+    assert [item["alias"] for item in summaries] == ["a", "b", "c"]
+    assert summaries[2]["last_activity"] is None and summaries[2]["active_contexts"] == 1
+    assert not project_known(conn, "", {""})
+    assert project_known(conn, "c", set())

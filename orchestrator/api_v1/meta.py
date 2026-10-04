@@ -27,7 +27,8 @@ def project_summaries(conn, registered: Iterable[str]) -> list[dict]:
     registrados van primero; dentro de cada grupo, el de actividad más reciente (último
     run o última actualización de un contexto, en UTC) y después por alias.
     """
-    registered = set(registered)
+    # Mismo criterio de alias válido que `work.project_known`: texto no vacío.
+    registered = {alias for alias in registered if isinstance(alias, str) and alias}
     stats: dict[str, dict] = {}
 
     def entry(alias: str) -> dict:
