@@ -9,7 +9,7 @@ from datetime import datetime
 from orchestrator.dashboard_js import _JS_FILES
 from orchestrator.static_assets import StaticBundle, build_bundle
 from orchestrator.timeutil import local_date_from_ts as _local_date_from_ts
-from orchestrator.legacy_dashboard import actividad, config, datos, flujos, metrics, proyectos
+from orchestrator.legacy_dashboard import actividad, config, datos, flujos, proyectos
 from orchestrator.legacy_dashboard.common import (  # noqa: F401  (API usada por cli, server y tests)
     PROVIDER_COLORS,
     PROVIDER_BG,
@@ -189,7 +189,6 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     _panel_actividad = actividad.panel(project_options_form=project_options_form, total=total, cost_display=cost_display, tokens_display=tokens_display, cache_display=cache_display, avg_dur=avg_dur, provider_bars=provider_bars, model_bars=model_bars, purpose_bars=purpose_bars, filter_project_opts=filter_project_opts, filter_model_opts=filter_model_opts)
     _panel_flujos = flujos.panel(project_options_form=project_options_form)
     _panel_proyectos = proyectos.panel()
-    _panel_metrics = metrics.panel()
     _panel_datos = datos.panel()
     _panel_config = config.panel()
     # El servidor pasa su instantánea de estáticos: el HTML y lo servido comparten versión.
@@ -249,7 +248,6 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <button class="tab-btn tab-active" id="tab-btn-actividad" onclick="switchTab('actividad')">Actividad</button>
     <button class="tab-btn" id="tab-btn-flujos" onclick="switchTab('flujos')">Flujos</button>
     <button class="tab-btn" id="tab-btn-proyectos" onclick="switchTab('proyectos')">Proyectos</button>
-    <button class="tab-btn" id="tab-btn-metrics" onclick="switchTab('metrics')">Métricas</button>
     <button class="tab-btn" id="tab-btn-datos" onclick="switchTab('datos')">Datos</button>
     <button class="tab-btn" id="tab-btn-config" onclick="switchTab('config')">Configuración</button>
   </div>
@@ -270,7 +268,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     </section>
     <div class="shell-view-root" id="view-root" hidden></div>
     <div id="legacy-views">
-{_panel_actividad}{_panel_flujos}{_panel_proyectos}{_panel_metrics}{_panel_datos}{_panel_config}    </div>
+{_panel_actividad}{_panel_flujos}{_panel_proyectos}{_panel_datos}{_panel_config}    </div>
   </main>
 
   <aside class="shell-inspector" id="shell-inspector" aria-label="Inspector" data-open="false">

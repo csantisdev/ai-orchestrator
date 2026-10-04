@@ -69,7 +69,7 @@ def test_every_tab_button_has_its_panel(page_and_script):
     html, _ = page_and_script
     tabs = TAB_BUTTON.findall(html)
 
-    assert tabs == ["actividad", "flujos", "proyectos", "metrics", "datos", "config"]
+    assert tabs == ["actividad", "flujos", "proyectos", "datos", "config"]
     for tab in tabs:
         assert f'id="tab-btn-{tab}"' in html and f'<div id="tab-{tab}"' in html
 
@@ -139,11 +139,11 @@ def test_switch_tab_shows_one_panel_activates_its_button_and_loads_once():
 
     for step in steps:
         assert step["visible"] == [step["tab"]] and step["active"] == [step["tab"]], step
-    first_visit = {step["tab"]: step["calls"] for step in steps[:6]}
+    first_visit = {step["tab"]: step["calls"] for step in steps[:5]}
     assert first_visit == {"actividad": [], "flujos": ["_refreshContexts"], "proyectos": ["loadProyectos"],
-                           "metrics": ["loadMetrics"], "datos": ["loadDatos"], "config": ["loadConfig"]}
-    second_visit = {step["tab"]: step["calls"] for step in steps[6:]}
-    assert second_visit == {"proyectos": [], "metrics": [], "datos": [], "config": [],
+                           "datos": ["loadDatos"], "config": ["loadConfig"]}
+    second_visit = {step["tab"]: step["calls"] for step in steps[5:]}
+    assert second_visit == {"proyectos": [], "datos": [], "config": [],
                             "flujos": ["_refreshContexts"], "actividad": []}
 
 

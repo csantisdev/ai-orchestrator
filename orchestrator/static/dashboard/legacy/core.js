@@ -409,20 +409,17 @@ document.addEventListener("click", function(e) {
 
 let _proyectosLoaded = false;
 
-let _metricsLoaded   = false;
 
 function switchTab(name) {
   document.getElementById("tab-actividad").style.display  = name === "actividad"  ? "" : "none";
   document.getElementById("tab-flujos").style.display     = name === "flujos"     ? "" : "none";
   document.getElementById("tab-proyectos").style.display  = name === "proyectos"  ? "" : "none";
-  document.getElementById("tab-metrics").style.display    = name === "metrics"    ? "" : "none";
   document.getElementById("tab-datos").style.display      = name === "datos"      ? "" : "none";
   document.getElementById("tab-config").style.display     = name === "config"     ? "" : "none";
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("tab-active"));
   document.getElementById("tab-btn-" + name).classList.add("tab-active");
   if (name === "proyectos" && !_proyectosLoaded) { _proyectosLoaded = true; loadProyectos(); }
   if (name === "flujos") _refreshContexts();
-  if (name === "metrics" && !_metricsLoaded) { _metricsLoaded = true; loadMetrics(); }
   if (name === "datos" && !_datosLoaded) { _datosLoaded = true; loadDatos(); }
   if (name === "config" && !_configLoaded) { _configLoaded = true; loadConfig(); }
 }
