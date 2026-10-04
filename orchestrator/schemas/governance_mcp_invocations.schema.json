@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/governance_mcp_invocations.schema.json",
+  "title": "Gobernanza: invocaciones MCP",
+  "description": "GET /api/v1/projects/{p}/mcp-invocations (spec §19.6). Más recientes primero por instante UTC, con cursor (instante, id). Sin hashes, payloads ni actor_id.",
+  "type": "object",
+  "required": [
+    "project",
+    "status",
+    "items",
+    "next_cursor"
+  ],
+  "properties": {
+    "project": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "problems",
+        "denied",
+        "error",
+        "in_progress",
+        "all"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "sel",
+          "ts",
+          "agent",
+          "client_surface",
+          "transport",
+          "capability_profile",
+          "tool_name",
+          "tool_category",
+          "status",
+          "is_error",
+          "reason_code",
+          "error_code",
+          "duration_ms",
+          "request_source",
+          "replay_safe"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sel": {
+            "type": "string",
+            "pattern": "^decision:mcp-[1-9][0-9]{0,9}$"
+          },
+          "ts": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "agent": {
+            "enum": [
+              "claude",
+              "codex",
+              "copilot",
+              "otros",
+              "sin agente"
+            ]
+          },
+          "client_surface": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "capability_profile": {
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "tool_category": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "is_error": {
+            "type": "boolean"
+          },
+          "reason_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "request_source": {
+            "type": "string"
+          },
+          "replay_safe": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(?:[0-9]{1,7}(?:\\.[0-9]{1,17})?|-)\\|[1-9][0-9]{0,9}$"
+    }
+  },
+  "additionalProperties": false
+}

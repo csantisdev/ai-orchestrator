@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/governance_egress_decisions.schema.json",
+  "title": "Gobernanza: decisiones de egress",
+  "description": "GET /api/v1/projects/{p}/egress-decisions. Más recientes primero; run_id solo si el run es del proyecto.",
+  "type": "object",
+  "required": [
+    "project",
+    "items",
+    "next_cursor"
+  ],
+  "properties": {
+    "project": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "sel",
+          "ts",
+          "provider",
+          "phase",
+          "decision",
+          "reason_code",
+          "sensitivity",
+          "clearance",
+          "run_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sel": {
+            "type": "string",
+            "pattern": "^decision:egress-[1-9][0-9]{0,9}$"
+          },
+          "ts": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "sensitivity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clearance": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(?:[0-9]{1,7}(?:\\.[0-9]{1,17})?|-)\\|[1-9][0-9]{0,9}$"
+    }
+  },
+  "additionalProperties": false
+}
