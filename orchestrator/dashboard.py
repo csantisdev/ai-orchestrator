@@ -8,278 +8,28 @@ from datetime import datetime
 from orchestrator.dashboard_css import _build_css
 from orchestrator.dashboard_js import _build_js
 from orchestrator.timeutil import local_date_from_ts as _local_date_from_ts
-
-
-PROVIDER_COLORS = {
-    "claude":   "#fb923c",
-    "deepseek": "#22c55e",
-    "openai":   "#818cf8",
-}
-
-PROVIDER_BG = {
-    "claude":   "rgba(251,146,60,0.15)",
-    "deepseek": "rgba(34,197,94,0.15)",
-    "openai":   "rgba(129,140,248,0.15)",
-}
-
-
-def _text(value: object, default: str = "") -> str:
-    if value is None:
-        return default
-    return str(value)
-
-
-def _int_or_none(value: object) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _float_or_none(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _escape(value: object) -> str:
-    return html.escape(_text(value), quote=True)
-
-
-def _json_for_script(value: object) -> str:
-    """JSON safe to embed inside a <script> block.
-
-    json.dumps leaves "</script>" and "<!--" intact, so a run's text could
-    close the block and inject markup. Escaping <, > and & (plus the JS line
-    separators) keeps the same value once parsed.
-    """
-    return (
-        json.dumps(value, ensure_ascii=False, default=str)
-        .replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-        .replace("&", "\\u0026")
-        .replace("\u2028", "\\u2028")
-        .replace("\u2029", "\\u2029")
-    )
-
-
-def _fmt_ts(ts: object) -> str:
-    value = _text(ts)
-    try:
-        dt = datetime.fromisoformat(value).astimezone()
-        return dt.strftime("%d/%m %H:%M")
-    except (TypeError, ValueError):
-        return value[:16]
-
-
-def _fmt_ms(ms: object) -> str:
-    value = _int_or_none(ms)
-    if value is None:
-        return "—"
-    if value >= 3_600_000:
-        return f"{value / 3_600_000:.1f}h"
-    if value >= 60_000:
-        return f"{value / 60_000:.1f}m"
-    if value >= 1_000:
-        return f"{value / 1_000:.1f}s"
-    return f"{value}ms"
-
-
-def _fmt_tokens(inp: object, out: object) -> str:
-    input_tokens = _int_or_none(inp)
-    output_tokens = _int_or_none(out)
-    if input_tokens is None and output_tokens is None:
-        return "—"
-    total = (input_tokens or 0) + (output_tokens or 0)
-    if total >= 1000:
-        return f"{total // 1000}K"
-    return str(total)
-
-
-def _fmt_cost(cost: object) -> str:
-    v = _float_or_none(cost)
-    if v is None:
-        return "—"
-    if v > 0 and v < 0.0001:
-        return "<0,0001 USD"
-    formatted = f"{v:,.4f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"{formatted} USD"
-
-
-def _fmt_cache_pct(cr: object, inp: object) -> str:
-    cache_read = _int_or_none(cr)
-    input_tok = _int_or_none(inp) or 0
-    if not cache_read:
-        return "—"
-    total = input_tok + cache_read
-    pct = round(cache_read / total * 100)
-    return f"{pct}%"
-
-
-def _model_color(model: str) -> tuple[str, str]:
-    ml = model.lower()
-    if "claude" in ml:
-        return PROVIDER_COLORS["claude"], PROVIDER_BG["claude"]
-    if "deepseek" in ml:
-        return PROVIDER_COLORS["deepseek"], PROVIDER_BG["deepseek"]
-    if "gpt" in ml or "openai" in ml:
-        return PROVIDER_COLORS["openai"], PROVIDER_BG["openai"]
-    return "#71717a", "rgba(113,113,122,0.12)"
-
-
-def _purpose_color(purpose: str) -> tuple[str, str]:
-    pl = purpose.lower()
-    if "claude" in pl:
-        return PROVIDER_COLORS["claude"], PROVIDER_BG["claude"]
-    if "deepseek" in pl:
-        return PROVIDER_COLORS["deepseek"], PROVIDER_BG["deepseek"]
-    if "openai" in pl or "gpt" in pl:
-        return PROVIDER_COLORS["openai"], PROVIDER_BG["openai"]
-    if "research" in pl:
-        return "#c084fc", "rgba(192,132,252,0.12)"
-    if "router" in pl:
-        return "#38bdf8", "rgba(56,189,248,0.12)"
-    return "#71717a", "rgba(113,113,122,0.12)"
-
-
-def _purpose_bucket(reason: object, provider: object) -> str:
-    rl = _text(reason).strip().lower()
-    if "manual" in rl:
-        return f"Manual · {_text(provider, '?')}"
-    if "research" in rl:
-        return "Research"
-    if not rl or rl == "—":
-        return "Sin razón"
-    return "Router"
-
-
-def _status_badge(status: object) -> str:
-    s = _text(status, "done")
-    if s == "running":
-        return '<span class="badge badge-running">⟳ running</span>'
-    if s == "pending":
-        return '<span class="badge badge-pending">… pending</span>'
-    if s == "failed":
-        return '<span class="badge badge-failed">✗ failed</span>'
-    return ""
-
-
-_STEP_STATUS_STYLE: dict[str, tuple[str, str]] = {
-    "pending":     ("#71717a", "rgba(113,113,122,0.12)"),
-    "in_progress": ("#38bdf8", "rgba(56,189,248,0.12)"),
-    "completed":   ("#22c55e", "rgba(34,197,94,0.12)"),
-    "blocked":     ("#f87171", "rgba(248,113,113,0.12)"),
-    "skipped":     ("#52525b", "rgba(82,82,91,0.10)"),
-}
-
-_CTX_STATUS_STYLE: dict[str, tuple[str, str]] = {
-    "active":      ("#22c55e", "rgba(34,197,94,0.12)"),
-    "programado":  ("#818cf8", "rgba(129,140,248,0.12)"),
-    "completed":   ("#71717a", "rgba(113,113,122,0.12)"),
-    "abandoned":   ("#f87171", "rgba(248,113,113,0.12)"),
-}
-
-
-def _build_contexts_section(contexts: list[dict]) -> str:
-    if not contexts:
-        return '<div id="contextsSection"></div>'
-
-    cards = ""
-    for ctx in contexts:
-        ctx_id = _int_or_none(ctx.get("id"))
-        if ctx_id is None:
-            continue
-        ctx_status = _text(ctx.get("status"), "active")
-        sc, sbg = _CTX_STATUS_STYLE.get(ctx_status, ("#6b7280", "#f3f4f6"))
-        steps = ctx.get("steps", [])
-
-        steps_html = ""
-        for step in steps:
-            st = _text(step.get("status"), "pending")
-            fc, fbg = _STEP_STATUS_STYLE.get(st, ("#6b7280", "#f3f4f6"))
-            provider = _text(step.get("provider"))
-            is_active = st == "in_progress"
-            left_border = "border-left:2px solid #38bdf8;" if is_active else "border-left:2px solid var(--border);"
-            active_bg = "background:rgba(56,189,248,0.06);" if is_active else ""
-            prov_html = ""
-            if provider:
-                pc = PROVIDER_COLORS.get(provider, "var(--text-muted)")
-                pbg = PROVIDER_BG.get(provider, "rgba(113,113,122,0.12)")
-                prov_html = f'<span style="font-size:10px;background:{pbg};color:{pc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(provider)}</span>'
-            action_html = ""
-            if is_active:
-                sid = _int_or_none(step.get("id"))
-                if sid is None:
-                    continue
-                action_html = (
-                    f'<button class="ctx-step-btn ctx-step-advance" data-step-id="{sid}" onclick="advanceStep(Number(this.dataset.stepId))" title="Completar y continuar">✓</button>'
-                    f'<button class="ctx-step-btn ctx-step-skip" data-step-id="{sid}" onclick="skipStep(Number(this.dataset.stepId))" title="Omitir paso">↷</button>'
-                )
-            steps_html += (
-                f'<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;{left_border}{active_bg}border-radius:6px;margin-bottom:2px">'
-                f'<span class="step-idx">{_escape(str(_int_or_none(step.get("order_idx")) if _int_or_none(step.get("order_idx")) is not None else "?"))}</span>'
-                f'<span class="step-title">{_escape(_text(step.get("title")))}</span>'
-                f'{prov_html}'
-                f'<span style="font-size:10px;background:{fbg};color:{fc};padding:1px 7px;border-radius:20px;font-weight:600">{_escape(st)}</span>'
-                f'{action_html}'
-                f'</div>'
-            )
-
-        desc_html = ""
-        if ctx.get("description"):
-            desc_html = f'<p class="ctx-desc">{_escape(_text(ctx.get("description")))}</p>'
-
-        body_html = steps_html if steps_html else '<p class="ctx-desc" style="padding:8px 0">Sin pasos definidos.</p>'
-
-        # Texto de tarea para el botón play: paso in_progress o título del contexto
-        active_step = next((s for s in steps if _text(s.get("status")) == "in_progress"), None)
-        run_task = _text(active_step.get("title") if active_step else ctx.get("title"))
-        run_project = _text(ctx.get("project"))
-
-        play_btn = ""
-        if ctx_status == "active":
-            play_btn = (
-                f'<button class="ctx-step-btn ctx-play-btn" '
-                f'data-project="{_escape(run_project)}" data-task="{_escape(run_task)}" '
-                f'onclick="runContext(this)" '
-                f'title="Ejecutar paso activo como nuevo run">▶ Ejecutar</button>'
-            )
-
-        ctx_title_escaped = _escape(_text(ctx.get("title"), "(sin título)"))
-        delete_btn = (
-            f'<button class="ctx-step-btn ctx-delete-btn" '
-            f'data-ctx-id="{ctx_id}" data-ctx-title="{ctx_title_escaped}" '
-            f'onclick="deleteContextFromButton(this)" '
-            f'title="Eliminar contexto">✕</button>'
-        )
-
-        cards += (
-            f'<div class="ctx-card">'
-            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
-            f'<span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">{ctx_title_escaped}</span>'
-            f'<span style="font-size:11px;color:var(--text-faint);font-family:\'JetBrains Mono\',monospace">{_escape(_text(ctx.get("project")))}</span>'
-            f'<span style="font-size:10px;background:{sbg};color:{sc};padding:2px 8px;border-radius:20px;font-weight:600">{_escape(ctx_status)}</span>'
-            f'{play_btn}'
-            f'<button data-ctx-id="{ctx_id}" onclick="openContextDetail(Number(this.dataset.ctxId))" class="ctx-step-btn" style="font-size:10px;padding:2px 8px;border-radius:20px">→ Detalle</button>'
-            f'{delete_btn}'
-            f'</div>'
-            f'{desc_html}'
-            f'<div>{body_html}</div>'
-            f'</div>'
-        )
-
-    return (
-        f'<div id="contextsSection"><div class="panel" style="margin-bottom:20px">'
-        f'<h2>Contextos <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-faint);letter-spacing:0">({len(contexts)})</span></h2>'
-        f'{cards}'
-        f'</div></div>'
-    )
-
+from orchestrator.legacy_dashboard import actividad, config, datos, flujos, metrics, proyectos
+from orchestrator.legacy_dashboard.common import (  # noqa: F401  (API usada por cli, server y tests)
+    PROVIDER_COLORS,
+    PROVIDER_BG,
+    _text,
+    _int_or_none,
+    _float_or_none,
+    _escape,
+    _json_for_script,
+    _fmt_ts,
+    _fmt_ms,
+    _fmt_tokens,
+    _fmt_cost,
+    _fmt_cache_pct,
+    _model_color,
+    _purpose_color,
+    _purpose_bucket,
+    _status_badge,
+    _STEP_STATUS_STYLE,
+    _CTX_STATUS_STYLE,
+)
+from orchestrator.legacy_dashboard.flujos import _build_contexts_section  # noqa: F401
 
 
 def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None,
@@ -413,6 +163,12 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     cache_display = f"{cache_pct}%" if cache_pct else "—"
     now = now_dt.strftime("%d/%m/%Y %H:%M ") + now_dt.strftime("%Z")
 
+    _panel_actividad = actividad.panel(project_options_form=project_options_form, total=total, cost_display=cost_display, tokens_display=tokens_display, cache_display=cache_display, avg_dur=avg_dur, provider_bars=provider_bars, model_bars=model_bars, purpose_bars=purpose_bars, filter_project_opts=filter_project_opts, filter_model_opts=filter_model_opts)
+    _panel_flujos = flujos.panel(project_options_form=project_options_form)
+    _panel_proyectos = proyectos.panel()
+    _panel_metrics = metrics.panel()
+    _panel_datos = datos.panel()
+    _panel_config = config.panel()
     _css = _build_css()
     _js = _build_js()
     return f"""<!DOCTYPE html>
@@ -467,165 +223,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   </div>
 </div>
 
-<div id="tab-actividad">
-<div class="container">
-
-  <div class="sender-panel" id="senderPanel">
-    <h2 style="font-size:13px;font-weight:700;color:var(--text-muted);margin-bottom:14px;text-transform:uppercase;letter-spacing:.4px">Enviar tarea</h2>
-    <div class="sender-form">
-      <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
-        <select id="senderProject" style="width:100%">{project_options_form}</select>
-      </div>
-      <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Modelo (opcional)</label>
-        <select id="senderModel" style="width:100%">
-          <option value="">Router automático</option>
-          <option value="claude">Claude</option>
-          <option value="openai">OpenAI</option>
-          <option value="deepseek">DeepSeek</option>
-        </select>
-      </div>
-      <div class="full">
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Tarea</label>
-        <textarea id="senderTask" placeholder="Describí la tarea que querés resolver..."></textarea>
-      </div>
-      <div class="full" style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-primary" onclick="submitTask()">Enviar</button>
-        <span id="senderStatus" class="text-muted" style="font-size:12px"></span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cards">
-    <div class="card">
-      <div class="label">Total Runs</div>
-      <div class="value" id="card-total">{total}</div>
-    </div>
-    <div class="card">
-      <div class="label">Costo Hoy</div>
-      <div class="value" id="card-cost">{cost_display}</div>
-      <div class="sub">dólares estadounidenses (USD)</div>
-    </div>
-    <div class="card">
-      <div class="label">Tokens Usados</div>
-      <div class="value">{tokens_display}</div>
-    </div>
-    <div class="card">
-      <div class="label">Ahorro en Caché</div>
-      <div class="value">{cache_display}</div>
-      <div class="sub">de tokens vía caché</div>
-    </div>
-    <div class="card">
-      <div class="label">Duración Prom.</div>
-      <div class="value">{_fmt_ms(avg_dur)}</div>
-    </div>
-  </div>
-
-  <div id="budgetSection"></div>
-
-  <div class="grid-charts">
-    <div class="panel"><h2>Por Proveedor</h2>{provider_bars}</div>
-    <div class="panel"><h2>Por Modelo</h2>{model_bars}</div>
-    <div class="panel"><h2>Por Propósito</h2>{purpose_bars}</div>
-  </div>
-
-  <div class="panel" style="margin-bottom:20px;overflow-x:auto">
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-      <h2 style="margin-bottom:0">Runs <span id="runs-count" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-faint)"></span></h2>
-      <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap">
-        <label style="font-size:11px;color:var(--text-muted)">Proyecto</label>
-        <select id="filterProject" onchange="applyRunFilters()" style="font-size:12px;padding:4px 8px">{filter_project_opts}</select>
-        <label style="font-size:11px;color:var(--text-muted)">Modelo</label>
-        <select id="filterModel" onchange="applyRunFilters()" style="font-size:12px;padding:4px 8px">{filter_model_opts}</select>
-        <button class="btn btn-secondary" onclick="exportCSV()" style="font-size:12px;padding:5px 12px">↓ CSV</button>
-      </div>
-    </div>
-    <table id="runs-table" style="display:none"><thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Modelo</th><th style="text-align:right">Dur.</th><th style="text-align:right">Tokens</th><th style="text-align:right">Costo (USD)</th><th style="text-align:center">Cache</th><th>Tarea</th><th>Estado</th></tr></thead><tbody id="runs-body"></tbody></table>
-    <p class="empty" id="empty-msg" style="display:none">No hay runs aún. Usá el botón <strong>+ Nueva tarea</strong> para enviar una.</p>
-    <div id="runs-pagination"></div>
-  </div>
-
-</div>
-</div>
-
-<div id="tab-flujos" style="display:none">
-<div class="container">
-
-  <div class="panel" style="margin-bottom:16px">
-    <h2>Nuevo flujo</h2>
-    <div class="sender-form">
-      <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Proyecto</label>
-        <select id="ctxProject" style="width:100%">{project_options_form}</select>
-      </div>
-      <div>
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Título</label>
-        <input id="ctxTitle" type="text" placeholder="Objetivo del contexto..." style="width:100%">
-      </div>
-      <div class="full">
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Descripción (opcional)</label>
-        <input id="ctxDesc" type="text" placeholder="Detalle adicional..." style="width:100%">
-      </div>
-      <div class="full">
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Pasos</label>
-        <div id="ctxSteps"></div>
-        <button class="btn btn-secondary" onclick="addCtxStep()" style="margin-top:8px;font-size:12px;padding:5px 12px">+ Paso</button>
-      </div>
-      <div class="full" style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-primary" onclick="submitContext()">Crear flujo</button>
-        <span id="ctxStatus" class="text-muted" style="font-size:12px"></span>
-      </div>
-    </div>
-  </div>
-
-  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted)">Estado</span>
-    <button class="pg-btn pg-btn-active ctx-filter-btn" id="ctx-filter-all" onclick="setCtxFilter('all')">Todos</button>
-    <button class="pg-btn ctx-filter-btn" id="ctx-filter-active" onclick="setCtxFilter('active')">Activo</button>
-    <button class="pg-btn ctx-filter-btn" id="ctx-filter-programado" onclick="setCtxFilter('programado')">Programado</button>
-    <button class="pg-btn ctx-filter-btn" id="ctx-filter-completed" onclick="setCtxFilter('completed')">Completado</button>
-    <button class="pg-btn ctx-filter-btn" id="ctx-filter-abandoned" onclick="setCtxFilter('abandoned')">Abandonado</button>
-  </div>
-
-  <div id="contextsSection"></div>
-
-</div>
-</div>
-
-<div id="tab-proyectos" style="display:none">
-<div class="container">
-  <div id="proyectos-content" style="padding-top:4px">
-    <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
-  </div>
-</div>
-</div>
-
-<div id="tab-metrics" style="display:none">
-<div class="container">
-  <div id="metrics-content" style="padding-top:4px">
-    <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
-  </div>
-</div>
-</div>
-
-<div id="tab-datos" style="display:none">
-<div class="container" style="padding-top:20px">
-  <div id="datos-content">
-    <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
-  </div>
-</div>
-</div>
-
-<div id="tab-config" style="display:none">
-<div class="container" style="padding-top:20px">
-  <div id="config-content">
-    <p class="text-muted" style="font-size:13px">Haz clic en la pestaña para cargar.</p>
-  </div>
-</div>
-</div>
-
-<div class="detail-overlay" id="confirmModal" onclick="_confirmModalBackdrop(event)" style="align-items:center;justify-content:center">
+{_panel_actividad}{_panel_flujos}{_panel_proyectos}{_panel_metrics}{_panel_datos}{_panel_config}<div class="detail-overlay" id="confirmModal" onclick="_confirmModalBackdrop(event)" style="align-items:center;justify-content:center">
   <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:28px 24px 20px;width:min(440px,92vw);box-shadow:var(--shadow-panel)">
     <h3 id="confirmModalTitle" style="margin:0 0 10px;font-size:15px;font-weight:700"></h3>
     <div id="confirmModalBody" style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:20px"></div>
