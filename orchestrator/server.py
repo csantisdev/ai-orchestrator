@@ -119,6 +119,13 @@ def serve(
     _sync_lock = _threading.Lock()
     _session_token = secrets.token_urlsafe(32)
     _chroma_cache: dict = {"stats": None, "updated_at": None}
+    from orchestrator import api_v1
+    from orchestrator.static_assets import CACHE_CONTROL as _STATIC_CACHE_CONTROL
+    from orchestrator.static_assets import URL_PREFIX as _STATIC_PREFIX
+    from orchestrator.static_assets import build_bundle
+
+    _static_bundle = build_bundle()
+    api_v1.discover()
 
     def _store_chroma_stats() -> bool:
         """Calcula las estadísticas de ChromaDB y solo las guarda si el cálculo funcionó.
@@ -203,6 +210,10 @@ def serve(
         def do_GET(self):
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
+            if path.startswith(_STATIC_PREFIX):
+                return self._get_dashboard_static(path)
+            if path.startswith(api_v1.PREFIX):
+                return self._api_v1("GET", parsed, None)
             if path == "/pick-folder":
                 self._json({"error": "method not allowed"}, 405)
                 return
@@ -815,6 +826,16 @@ def serve(
             if not self._buffer_post_body(self._post_body_length() or 0):
                 self._json({"error": "incomplete request body"}, 400, close=True)
                 return
+            if self.path.startswith(api_v1.PREFIX):
+                try:
+                    body = json_mod.loads(self.rfile.read() or b"{}")
+                except (ValueError, UnicodeDecodeError):
+                    self._json({"error": "invalid JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self._json({"error": "the JSON body must be an object"}, 400)
+                    return
+                return self._api_v1("POST", urllib.parse.urlparse(self.path), body)
             if self.path.startswith("/context/") and self.path.endswith("/delete"):
                 if not self._require_json_ct():
                     return
@@ -1752,6 +1773,42 @@ def serve(
 
         _MIME_TYPES = {".ico": "image/x-icon", ".png": "image/png", ".json": "application/json"}
         _DOCS_IMG = Path(__file__).parent.parent / "docs" / "img"
+
+        def _get_dashboard_static(self, path: str) -> None:
+            """Estáticos del dashboard con hash de directorio (§19.4 O3, §23.7)."""
+            resolved = _static_bundle.resolve(path)
+            if resolved is None:
+                self._json({"error": "not found"}, 404)
+                return
+            file_path, content_type = resolved
+            try:
+                data = file_path.read_bytes()
+            except OSError:
+                self._json({"error": "not found"}, 404)
+                return
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", _STATIC_CACHE_CONTROL)
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionAbortedError, OSError):
+                pass
+
+        def _api_v1(self, method: str, parsed, body) -> None:
+            """Endpoints de `orchestrator/api_v1/`, descubiertos al iniciar (§24.3.2)."""
+            request = api_v1.Request(
+                method=method,
+                path=parsed.path,
+                query=urllib.parse.parse_qs(parsed.query),
+                body=body,
+            )
+            try:
+                status, payload = api_v1.dispatch(request)
+            except Exception as exc:
+                status, payload = 500, {"error": str(exc)}
+            self._json(payload, status)
 
         def _file(self, file_path: Path) -> None:
             suffix = file_path.suffix.lower()
