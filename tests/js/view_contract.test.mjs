@@ -335,8 +335,9 @@ test("un error de la vista vigente va a onError y reemplaza su contenido por el 
 
 test("resolveSection prioriza `module` sobre la vista heredada", () => {
   const resolved = resolveSection({ view: "inicio", project: null });
-  assert.equal(resolved.module, null);
-  assert.equal(resolved.legacy, "metrics");
+  assert.equal(resolved.module, "./views/home.js");
+  assert.equal(resolved.legacy, null);
+  assert.equal(resolved.note, null);
 });
 
 test("un onError que lanza no deja una promesa rechazada", async () => {

@@ -40,6 +40,9 @@ test("resolveSection arma el breadcrumb y cae en valores válidos", () => {
   assert.equal(fallback.tab.id, "proyectos");
   assert.equal(fallback.legacy, "proyectos");
   assert.equal(resolveSection({ view: "nada", project: null }).section.id, "inicio");
+  assert.equal(resolveSection({ view: "inicio", project: null }).module, "./views/home.js");
+  assert.deepEqual(resolveSection({ view: "ejecuciones", tab: "costos", project: "mi-proyecto" }).crumbs,
+    ["mi-proyecto", "Ejecuciones", "Costos"]);
 });
 
 test("describeSelection da una etiqueta corta y el id completo", () => {
