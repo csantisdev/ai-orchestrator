@@ -4,9 +4,20 @@
 import { createStore } from "./core/store.js";
 import { connectRouter } from "./core/router.js";
 import { SECTIONS, describeSelection, resolveSection } from "./core/sections.js";
+import { createApi } from "./core/api.js";
+import { createViewHost } from "./core/mount.js";
 
 const $ = (id) => document.getElementById(id);
 const store = createStore({});
+const api = createApi({
+  fetch: window.fetch.bind(window),
+  sessionToken: () => document.querySelector('meta[name="orchestrator-session"]')?.content ?? "",
+});
+// Vistas migradas (core/mount.js): se cargan bajo demanda, relativas a este módulo.
+const views = createViewHost({
+  root: $("view-root"),
+  load: (path) => import(new URL(path, import.meta.url).href),
+});
 // 768–1279 px: Inspector y Activity se superponen al contenido; nunca los dos abiertos.
 const overlayLayout = window.matchMedia("(max-width: 1279px)");
 let inspectorDismissed = false;
@@ -39,7 +50,11 @@ function renderNavigation(resolved) {
 
 function renderTabs(resolved) {
   const tabs = $("shell-tabs");
-  const panel = $("legacy-views");
+  const panelId = resolved.module ? "view-root" : "legacy-views";
+  const panel = $(panelId);
+  const other = $(resolved.module ? "legacy-views" : "view-root");
+  other.removeAttribute("role");
+  other.removeAttribute("aria-labelledby");
   const own = resolved.section.tabs ?? [];
   tabs.hidden = own.length === 0;
   tabs.replaceChildren(...own.map((tab) => {
@@ -49,7 +64,7 @@ function renderTabs(resolved) {
     button.className = "shell-tab";
     button.id = `shell-tab-${tab.id}`;
     button.setAttribute("role", "tab");
-    button.setAttribute("aria-controls", "legacy-views");
+    button.setAttribute("aria-controls", panelId);
     button.setAttribute("aria-selected", String(selected));
     button.tabIndex = selected ? 0 : -1;
     button.dataset.view = resolved.section.id;
@@ -66,7 +81,19 @@ function renderTabs(resolved) {
   }
 }
 
-function renderContent(resolved) {
+function showViewError(error) {
+  console.error("No se pudo mostrar la vista:", error);
+  const box = document.createElement("section");
+  box.className = "shell-empty";
+  const title = document.createElement("h2");
+  title.textContent = "No se pudo cargar esta vista";
+  const body = document.createElement("p");
+  body.textContent = error?.message ?? String(error);
+  box.append(title, body);
+  $("view-root").replaceChildren(box);
+}
+
+function renderContent(resolved, state) {
   const note = $("shell-note");
   note.hidden = !resolved.note;
   note.textContent = resolved.note ?? "";
@@ -75,6 +102,13 @@ function renderContent(resolved) {
   $("shell-empty-body").textContent = resolved.empty?.body ?? "";
   $("legacy-views").hidden = !resolved.legacy;
   if (resolved.legacy && typeof window.switchTab === "function") window.switchTab(resolved.legacy);
+  $("view-root").hidden = !resolved.module;
+  if (resolved.module) {
+    const key = resolved.tab ? `${resolved.section.id}:${resolved.tab.id}` : resolved.section.id;
+    views.show(key, resolved.module, { store, api, state }).catch(showViewError);
+  } else {
+    views.hide().catch(showViewError);
+  }
 }
 
 function renderInspector(state) {
@@ -97,7 +131,7 @@ function render(state, previous = {}) {
   const resolved = resolveSection(state);
   renderNavigation(resolved);
   renderTabs(resolved);
-  renderContent(resolved);
+  renderContent(resolved, state);
   renderInspector(state);
   // El selector de proyecto recarga la página con ?project=; conserva la sección.
   $("shell-view-input").value = resolved.section.id;

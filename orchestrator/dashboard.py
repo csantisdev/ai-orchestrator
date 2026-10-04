@@ -268,6 +268,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
       <h2 id="shell-empty-title"></h2>
       <p id="shell-empty-body"></p>
     </section>
+    <div class="shell-view-root" id="view-root" hidden></div>
     <div id="legacy-views">
 {_panel_actividad}{_panel_flujos}{_panel_proyectos}{_panel_metrics}{_panel_datos}{_panel_config}    </div>
   </main>
