@@ -39,19 +39,33 @@ export const GROUPS = Object.freeze([
   { id: "control", label: "Control" },
 ]);
 
-// Qué mostrar para un estado del router: sección, pestaña, vista heredada o estado vacío,
+// Una sección (o pestaña) migrada declara `module` (core/mount.js) y deja de mostrar su
+// vista heredada, su estado vacío y su nota provisoria. Una pestaña sin `module` propio
+// hereda el de su sección.
+export function moduleFor(section, tab) {
+  return tab?.module ?? section.module ?? null;
+}
+
+// Panel que muestra una pestaña, para su `aria-controls`.
+export function panelFor(section, tab) {
+  return moduleFor(section, tab) ? "view-root" : "legacy-views";
+}
+
+// Qué mostrar para un estado del router: sección, pestaña, vista nueva, heredada o vacía,
 // y el breadcrumb (§23.3). Una sección o pestaña desconocida cae en la primera válida.
 export function resolveSection(state) {
   const section = SECTIONS.find((s) => s.id === state.view) ?? SECTIONS[0];
   const tab = section.tabs ? (section.tabs.find((t) => t.id === state.tab) ?? section.tabs[0]) : null;
   const crumbs = [state.project ?? "Todos los proyectos", section.label];
   if (tab) crumbs.push(tab.label);
+  const module = moduleFor(section, tab);
   return {
     section,
     tab,
-    legacy: tab ? tab.legacy : (section.legacy ?? null),
-    empty: section.empty ?? null,
-    note: section.note ?? null,
+    module,
+    legacy: module ? null : (tab ? tab.legacy : (section.legacy ?? null)),
+    empty: module ? null : (section.empty ?? null),
+    note: module ? null : (section.note ?? null),
     crumbs,
   };
 }
