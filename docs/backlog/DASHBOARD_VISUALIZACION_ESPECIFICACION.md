@@ -1266,7 +1266,9 @@ Ubicación y enlaces:
   - `ctx` y `step` indican la página;
   - `as`, la representación;
   - `sel`, el objeto seleccionado en el Inspector, con el formato `tipo:id`: `commit:<sha
-    completo>`, `run:<id>`, `decision:<id de la invocación MCP o de egress>`, `step:<id>`.
+    completo>`, `run:<id>`, `decision:mcp-<id>` o `decision:egress-<id>`, `step:<id>`,
+    `context:<id>`. Las decisiones llevan su origen porque los ids de `mcp_invocations` y de
+    `egress_decisions` son secuencias distintas y pueden coincidir (aclarado en D1a, ola 2).
 
   Cualquier vista y selección se puede compartir o recargar.
 - Trace deja de ser una entrada de navegación: es el detalle de un paso.

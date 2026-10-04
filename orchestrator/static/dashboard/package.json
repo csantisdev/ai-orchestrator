@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Módulos ES del dashboard; Node los carga igual que el navegador en tests/js. No se sirve."
+}
