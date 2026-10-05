@@ -7,7 +7,7 @@ import { toSearch } from "../core/router.js";
 import { facts, objectList, statusPill } from "../renderers/list.js";
 import { renderTrace } from "../renderers/trace.js";
 import { panel, progress, segmented } from "../core/ui.js";
-import { layoutMap, renderMap, select as selectOnMap } from "../renderers/map.js";
+import { citingSteps, layoutMap, renderMap, select as selectOnMap } from "../renderers/map.js";
 
 export const CONTEXT_STATUS = Object.freeze({
   active: "Activo", programado: "Programado", completed: "Completado", abandoned: "Abandonado",
@@ -170,7 +170,8 @@ function mapSection(state, map, view) {
     windowControls,
     h("div", { class: "map-wrap" }, graphic),
     map.map.more_commits
-      ? h("p", { class: "empty-note" }, `+${map.map.more_commits} commits compartidos sin dibujar (ver la lista de pasos).`)
+      ? h("button", { type: "button", class: "ui-button", data: { stepFilter: "more-commits" }, "aria-pressed": String(view.stepFilter === "more-commits") },
+        `+${map.map.more_commits} commits compartidos: ver los pasos que los citan`)
       : null);
 }
 
@@ -180,7 +181,12 @@ function contextPage(state, data, map = null, view = null) {
     ? h("p", { class: "work-subtle" }, "Creado desde ",
       navLink(state, { ctx: context.parent.context_id, step: context.parent.step_id }, `el paso #${context.parent.step_id} del contexto #${context.parent.context_id}`))
     : null;
-  const list = objectList(steps, (step) => [
+  const citing = map ? citingSteps(map) : new Map();
+  const relatedSteps = new Set(state.sel?.startsWith("commit:") ? (citing.get(state.sel) ?? []) : []);
+  const filterSteps = view?.stepFilter === "more-commits" ? new Set(map?.map.more_commit_steps ?? []) : null;
+  const visibleSteps = filterSteps ? steps.filter((step) => filterSteps.has(`step:${step.id}`)) : steps;
+  const list = objectList(visibleSteps, (step) => [
+    relatedSteps.has(`step:${step.id}`) ? h("span", { class: "work-related" }, "cita el commit seleccionado") : null,
     h("div", { class: "object-main" },
       // Con el mapa, la lista es su equivalente sincronizado: el número del paso lo selecciona.
       state.as === "map"
@@ -208,8 +214,16 @@ function contextPage(state, data, map = null, view = null) {
       step.children.length ? h("span", {}, "Contextos derivados: ",
         step.children.map((child) => navLink(state, { ctx: child, step: null }, `#${child}`))) : null),
   ], { label: "Pasos", empty: "El contexto no tiene pasos." });
+  const listNote = filterSteps
+    ? h("p", { class: "empty-note" }, "Mostrando solo los pasos que citan commits compartidos sin dibujar. ",
+      h("button", { type: "button", class: "ui-button", data: { stepFilter: "" } }, "Ver todos los pasos"))
+    : null;
+  // §23.2: si el mapa no aplica, la pestaña lo dice (con el motivo) y sigue permitiendo verlo.
+  const options = map && !map.map.eligible
+    ? [["list", "Pasos"], ["map", "◇ Mapa (no aplica)"]]
+    : REPRESENTATIONS;
   const representation = segmented({
-    label: "Representación", options: REPRESENTATIONS, current: state.as === "map" ? "map" : "list", attribute: "as",
+    label: "Representación", options, current: state.as === "map" ? "map" : "list", attribute: "as",
   });
   return [
     h("nav", { class: "work-back" }, navLink(state, { ctx: null, step: null }, "← Contextos")),
@@ -217,6 +231,7 @@ function contextPage(state, data, map = null, view = null) {
     context.description ? h("p", { class: "work-description" }, context.description) : null,
     parent,
     state.as === "map" ? mapSection(state, map, view) : null,
+    listNote,
     list,
   ];
 }
@@ -250,7 +265,8 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
   let lastData = null;
   let lastMap = null;
   // Estado local del mapa: grupos abiertos, ventana de columnas y "ver el mapa igual".
-  const freshMapView = () => ({ expanded: new Set(), start: 0, force: false, layout: null, svg: null });
+  // Los grupos se expanden (no se seleccionan); `stepFilter` filtra la lista sincronizada.
+  const freshMapView = () => ({ expanded: new Set(), start: 0, force: false, stepFilter: null, layout: null, svg: null });
   let mapView = freshMapView();
 
   async function load() {
@@ -276,7 +292,8 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     root.replaceChildren(h("p", { class: "work-loading", role: "status" }, "Cargando…"));
     try {
       const params = page === "contexts" && filter ? { status: filter } : {};
-      const wantsMap = page === "context" && current.as === "map";
+      // El mapa se pide siempre en la página del contexto: la pestaña dice si aplica (§23.2).
+      const wantsMap = page === "context";
       const [data, map] = await Promise.all([
         api.get(path, { params, signal: controller.signal }),
         wantsMap ? api.get(`${path}/map`, { signal: controller.signal }) : Promise.resolve(null),
@@ -311,7 +328,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     root.replaceChildren(...contextPage(current, lastData, lastMap, mapView).filter(Boolean));
   }
 
-  const TARGETS = "[data-nav], [data-sel], [data-filter], [data-as], [data-group], [data-force-map], [data-map-window]";
+  const TARGETS = "[data-nav], [data-sel], [data-filter], [data-as], [data-group], [data-force-map], [data-map-window], [data-step-filter]";
 
   function onClick(event) {
     const target = event.target.closest?.(TARGETS);
@@ -329,6 +346,11 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     }
     if (target.dataset.forceMap !== undefined) {
       mapView.force = true;
+      redrawContext();
+      return;
+    }
+    if (target.dataset.stepFilter !== undefined) {
+      mapView.stepFilter = target.dataset.stepFilter || null;
       redrawContext();
       return;
     }
@@ -383,10 +405,18 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
         return;
       }
       if (next.as !== previous.as) {
-        load();
+        if (lastData && pageFor(next) === "context") redrawContext();
+        else load();
         return;
       }
-      if (next.sel !== previous.sel && mapView.svg && mapView.layout) selectOnMap(mapView.svg, mapView.layout, next.sel);
+      if (next.sel !== previous.sel && pageFor(next) === "context" && lastMap) {
+        // La lista resalta los pasos del commit seleccionado; el mapa solo cambia clases.
+        if (next.sel?.startsWith("commit:") || previous.sel?.startsWith("commit:")) {
+          redrawContext();
+          return;
+        }
+        if (mapView.svg && mapView.layout) selectOnMap(mapView.svg, mapView.layout, next.sel);
+      }
       if (next.sel !== previous.sel) {
         for (const chip of root.querySelectorAll("[data-sel]")) {
           const selected = chip.dataset.sel === next.sel;

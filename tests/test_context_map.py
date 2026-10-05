@@ -123,6 +123,8 @@ def test_extreme_case_keeps_the_most_cited_shared_commits_and_caps_edges(conn):
     # Ranking: más citantes primero (sha 4), después columna y SHA (sha 1).
     assert sorted(drawn) == sorted([f"commit:{shas[3]}", f"commit:{shas[0]}"])
     assert mp["more_commits"] == 2
+    # Los dos compartidos sin dibujar los citan los pasos 1 y 2.
+    assert mp["more_commit_steps"] == [node["id"] for node in result["nodes"] if node["kind"] == "step"][:2]
     cites = [edge for edge in result["edges"] if edge["relation_type"] == "cites"]
     assert len(cites) == 4
     assert sum(mp["hidden_edges"].values()) == 5 - 4

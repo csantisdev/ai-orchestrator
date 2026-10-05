@@ -19,6 +19,12 @@
   .work-description { font-size: var(--text-13); line-height: 1.6; color: var(--text-secondary); white-space: pre-wrap; }
   .work-subtle, .work-loading { font-size: var(--text-12); color: var(--text-muted); }
   .work-warning { color: var(--state-warning); }
+  .work-related {
+    display: inline-block;
+    margin-bottom: var(--space-1);
+    font-size: var(--text-11);
+    color: var(--family-execution);
+  }
   .work-view .shell-empty { margin: 0; }
 
   @media (max-width: 767px) {

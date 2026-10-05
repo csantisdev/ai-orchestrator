@@ -37,7 +37,8 @@
         "single_commits",
         "more_commits",
         "hidden_edges",
-        "max_columns"
+        "max_columns",
+        "more_commit_steps"
       ],
       "additionalProperties": false,
       "properties": {
@@ -165,6 +166,14 @@
         "max_columns": {
           "type": "integer",
           "minimum": 1
+        },
+        "more_commit_steps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^step:[0-9]+$"
+          },
+          "uniqueItems": true
         }
       }
     }

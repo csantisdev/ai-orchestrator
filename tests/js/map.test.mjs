@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { h, svg } from "../../orchestrator/static/dashboard/core/dom.js";
-import { LAYOUT, layoutMap, relatedTo, renderMap, select } from "../../orchestrator/static/dashboard/renderers/map.js";
+import { LAYOUT, citingSteps, layoutMap, relatedTo, renderMap, select } from "../../orchestrator/static/dashboard/renderers/map.js";
 
 const SHA_A = "a".repeat(8) + "0123456789abcdef".repeat(2);
 const SHA_B = "b".repeat(8) + "0123456789abcdef".repeat(2);
@@ -23,7 +23,7 @@ function dto({ steps, commits = [], cites = [], map = {} }) {
       confidence: 1, evidence_ref: "steps.notes" })),
     metadata: { project: "mi-proyecto", context_id: 1, generated_at: "2026-06-01T00:00:00+00:00" },
     map: { lanes: ["claude", "codex"], eligible: true, shared: [], placement: {}, groups: [], single_commits: {},
-      more_commits: 0, hidden_edges: {}, max_columns: 30, ...map },
+      more_commits: 0, more_commit_steps: [], hidden_edges: {}, max_columns: 30, ...map },
   };
 }
 
@@ -153,4 +153,48 @@ test("renderMap y select: nodos enfocables con nombre accesible y atenuado por c
   assert.ok(byId("step:3").classes.has("is-dim"));
   select(root, layout, null);
   assert.ok(root.querySelectorAll().every((node) => !node.classes.has("is-dim")));
+}));
+
+
+test("un commit cuyo primer citante quedó fuera de la ventana se dibuja bajo el primer citante visible", () => {
+  const steps = [1, 2, 3, 4].map((n) => step(n, n, "claude"));
+  const data = dto({
+    steps, commits: [SHA_A, SHA_B],
+    cites: [["step:1", `commit:${SHA_A}`], ["step:4", `commit:${SHA_A}`], ["step:3", `commit:${SHA_B}`], ["step:4", `commit:${SHA_B}`]],
+    map: {
+      lanes: ["claude"], max_columns: 2, shared: [`commit:${SHA_A}`, `commit:${SHA_B}`],
+      placement: { [`commit:${SHA_A}`]: { column: 1, stack: 0 }, [`commit:${SHA_B}`]: { column: 3, stack: 0 } },
+    },
+  });
+  const layout = layoutMap(data, { start: 2 });
+  assert.deepEqual(layout.nodes.map((node) => node.idx), [3, 4]);
+  const placed = Object.fromEntries(layout.commits.map((commit) => [commit.id, [commit.column, commit.y]]));
+  // SHA_A: su primer citante (paso 1) no se ve; queda bajo el paso 4. SHA_B: bajo el paso 3.
+  assert.equal(placed[`commit:${SHA_A}`][0], 3);
+  assert.equal(placed[`commit:${SHA_B}`][0], 2);
+  assert.equal(layout.edges.filter((edge) => edge.target === `commit:${SHA_A}`).length, 1);
+  assert.deepEqual([...relatedTo(layout, "step:4")].sort(), [`commit:${SHA_A}`, `commit:${SHA_B}`, "step:3", "step:4"].sort());
+  assert.deepEqual(citingSteps(data).get(`commit:${SHA_A}`), ["step:1", "step:4"]);
+});
+
+test("el grupo cerrado suma los commits citados por un solo paso de sus miembros", () => {
+  const steps = [1, 2, 3].map((n) => step(n, n, "claude"));
+  const group = { id: "group:1-2", from_idx: 1, to_idx: 2, count: 2, members: ["step:1", "step:2"], lane: "claude", lanes: { claude: 2 } };
+  const layout = layoutMap(dto({ steps, map: { lanes: ["claude"], groups: [group], single_commits: { "step:1": 2, "step:2": 1, "step:3": 4 } } }));
+  assert.equal(layout.nodes[0].singleCommits, 3);
+  assert.equal(layout.nodes[0].sub, "Claude 2 · ◇3");
+});
+
+test("los nodos seleccionables nacen con aria-pressed=false y los grupos con aria-expanded", () => withSvgDoc(() => {
+  const group = { id: "group:1-2", from_idx: 1, to_idx: 2, count: 2, members: ["step:1", "step:2"], lane: "claude", lanes: { claude: 2 } };
+  const data = dto({
+    steps: [1, 2, 3].map((n) => step(n, n, "claude")), commits: [SHA_A], cites: [["step:3", `commit:${SHA_A}`]],
+    map: { lanes: ["claude"], groups: [group], placement: { [`commit:${SHA_A}`]: { column: 3, stack: 0 } } },
+  });
+  const root = renderMap(layoutMap(data));
+  const buttons = root.querySelectorAll().filter((node) => node.attributes.role === "button");
+  const groupNode = buttons.find((node) => node.attributes["data-group"]);
+  assert.equal(groupNode.attributes["aria-expanded"], "false");
+  assert.equal(groupNode.attributes["aria-pressed"], undefined);
+  assert.ok(buttons.filter((node) => node.attributes["data-sel"]).every((node) => node.attributes["aria-pressed"] === "false"));
 }));

@@ -56,11 +56,14 @@ export function layoutMap(dto, { expanded = new Set(), start = 0 } = {}) {
   const nodes = visible.map((item, offset) => {
     const column = first + offset;
     if (item.kind === "group") {
+      const singleCommits = item.group.members.reduce((sum, member) => sum + (dto.map.single_commits[member] ?? 0), 0);
       return {
         kind: "group", id: item.id, column, x: x(column), y: laneY.get(item.group.lane) ?? L.top,
         label: `Pasos ${item.group.from_idx}–${item.group.to_idx}`,
-        sub: Object.entries(item.group.lanes).map(([lane, count]) => `${agentLabel(lane)} ${count}`).join(" · "),
+        sub: [Object.entries(item.group.lanes).map(([lane, count]) => `${agentLabel(lane)} ${count}`).join(" · "),
+          singleCommits ? `◇${singleCommits}` : null].filter(Boolean).join(" · "),
         members: item.group.members,
+        singleCommits,
       };
     }
     const step = item.step;
@@ -81,19 +84,30 @@ export function layoutMap(dto, { expanded = new Set(), start = 0 } = {}) {
   const commitTop = channel + L.channelGap;
   const shared = new Set(dto.map.shared);
   const stepColumn = new Map(dto.nodes.filter((node) => node.kind === "step").map((node) => [node.id, columnOf.get(node.id)]));
+  // Columna del commit: la del primer paso que lo cita dentro de la ventana (§21.3 lo pone bajo
+  // el primer citante; si ese queda fuera de la ventana, el commit sigue visible bajo el primer
+  // citante que sí se ve). Sin citantes visibles, el commit no se dibuja.
+  const citingColumns = new Map();
+  for (const edge of dto.edges) {
+    if (edge.relation_type !== "cites") continue;
+    const column = stepColumn.get(edge.source);
+    if (column === undefined || !inWindow(column)) continue;
+    citingColumns.set(edge.target, Math.min(citingColumns.get(edge.target) ?? Infinity, column));
+  }
+  const placed = dto.nodes
+    .filter((node) => node.kind === "commit" && dto.map.placement[node.id] && citingColumns.has(node.id))
+    .map((node) => ({ node, column: citingColumns.get(node.id) }))
+    .sort((a, b) => a.column - b.column || (a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 : 0));
+  const stacks = new Map();
   const commits = [];
   let maxStack = 0;
-  for (const node of dto.nodes) {
-    if (node.kind !== "commit") continue;
-    const place = dto.map.placement[node.id];
-    if (!place) continue;
-    const firstStep = dto.nodes.find((candidate) => candidate.kind === "step" && candidate.attrs.idx === place.column);
-    const column = firstStep ? stepColumn.get(firstStep.id) : null;
-    if (column === null || column === undefined || !inWindow(column)) continue;
-    maxStack = Math.max(maxStack, place.stack);
+  for (const { node, column } of placed) {
+    const stack = stacks.get(column) ?? 0;
+    stacks.set(column, stack + 1);
+    maxStack = Math.max(maxStack, stack);
     commits.push({
       id: node.id, label: node.label, shared: shared.has(node.id), column,
-      x: x(column) + L.nodeWidth / 2, y: commitTop + place.stack * L.commitGap,
+      x: x(column) + L.nodeWidth / 2, y: commitTop + stack * L.commitGap,
       hidden: dto.map.hidden_edges[node.id] ?? 0,
     });
   }
@@ -170,6 +184,7 @@ export function renderMap(layout) {
   const nodes = layout.nodes.map((node) => {
     if (node.kind === "group") {
       return svg("g", { class: "map-node map-group", tabindex: 0, role: "button", data: { group: node.id, node: node.id },
+        "aria-expanded": "false",
         "aria-label": `${node.label}, agrupados (${node.sub}). Enter para expandir.` },
       svg("rect", { x: node.x, y: node.y, width: L.nodeWidth, height: L.nodeHeight, rx: 8 }),
       svg("text", { x: node.x + 10, y: node.y + 17 }, node.label),
@@ -179,7 +194,7 @@ export function renderMap(layout) {
       node.singleCommits ? `◇${node.singleCommits}` : null].filter(Boolean).join(" ");
     return svg("g", {
       class: ["map-node", "map-step", `is-${node.state.replace(/_/g, "-")}`], tabindex: 0, role: "button",
-      data: { sel: node.id, node: node.id, column: node.column }, "aria-label": stepLabel(node),
+      data: { sel: node.id, node: node.id, column: node.column }, "aria-label": stepLabel(node), "aria-pressed": "false",
     },
     svg("rect", { x: node.x, y: node.y, width: L.nodeWidth, height: L.nodeHeight, rx: 8 }),
     svg("text", { x: node.x + 10, y: node.y + 17 }, `${node.symbol} Paso ${node.idx}`),
@@ -191,7 +206,7 @@ export function renderMap(layout) {
     const s = L.commitSize;
     return svg("g", {
       class: ["map-node", "map-commit", commit.shared && "is-shared"], tabindex: 0, role: "button",
-      data: { sel: commit.id, node: commit.id },
+      data: { sel: commit.id, node: commit.id }, "aria-pressed": "false",
       "aria-label": `Commit ${commit.label}${commit.shared ? ", compartido por varios pasos" : ""}`
         + `${commit.hidden ? `, ${commit.hidden} citas más sin dibujar` : ""}`,
     },
@@ -217,6 +232,18 @@ export function select(root, layout, sel) {
     const isRelated = !related || (id ? related.has(id) : related.has(from) && related.has(to));
     element.classList.toggle("is-dim", !isRelated);
     element.classList.toggle("is-selected", Boolean(sel) && id === sel);
-    if (id && element.getAttribute("role") === "button") element.setAttribute("aria-pressed", String(Boolean(sel) && id === sel));
+    if (id && element.getAttribute("data-sel")) element.setAttribute("aria-pressed", String(Boolean(sel) && id === sel));
   }
+}
+
+// Pasos que citan cada commit dibujado: la lista sincronizada los resalta al seleccionar el
+// commit en el mapa.
+export function citingSteps(dto) {
+  const citing = new Map();
+  for (const edge of dto.edges) {
+    if (edge.relation_type !== "cites") continue;
+    if (!citing.has(edge.target)) citing.set(edge.target, []);
+    citing.get(edge.target).push(edge.source);
+  }
+  return citing;
 }

@@ -185,7 +185,10 @@ test("mount no deja listeners en el signal y una carga superada no dibuja", asyn
     const api = {
       get: (path, { signal }) => new Promise((resolve, reject) => {
         calls.push(path);
-        gates.push(() => resolve({ contexts: [], context: { id: 21, title: "C", description: "", status: "active", parent: null }, steps: [] }));
+        gates.push(() => resolve(path.endsWith("/map")
+          ? { nodes: [], edges: [], metadata: {}, map: { lanes: [], eligible: false, shared: [], placement: {}, groups: [],
+            single_commits: {}, more_commits: 0, more_commit_steps: [], hidden_edges: {}, max_columns: 30 } }
+          : { contexts: [], context: { id: 21, title: "C", description: "", status: "active", parent: null }, steps: [] }));
         signal.addEventListener("abort", () => reject(new DOMException("abortado", "AbortError")));
       }),
     };
@@ -198,8 +201,11 @@ test("mount no deja listeners en el signal y una carga superada no dibuja", asyn
     assert.equal(calls.length, 0);
     handle.update({ ...BASE });
     handle.update({ ...BASE, ctx: 21 });
-    assert.deepEqual(calls, ["/api/v1/projects/mi-proyecto/contexts", "/api/v1/projects/mi-proyecto/contexts/21"]);
+    // La página del contexto pide también el mapa, para saber si la pestaña aplica.
+    assert.deepEqual(calls, ["/api/v1/projects/mi-proyecto/contexts", "/api/v1/projects/mi-proyecto/contexts/21",
+      "/api/v1/projects/mi-proyecto/contexts/21/map"]);
     gates[1]();
+    gates[2]();
     await new Promise((r) => setImmediate(r));
     assert.equal(active(), 0);
     assert.match(root.textContent, /El contexto no tiene pasos/);
@@ -224,4 +230,49 @@ test("pageTitle: el encabezado nombra el objeto de cada página", () => {
   assert.deepEqual(pageTitle("step", {
     step: { idx: 3, title: "" }, navigation: { total: 5 }, context: { id: 21, title: "Migrar" },
   }), { title: "Paso 3 de 5 · Sin título", subtitle: "Contexto #21 · Migrar" });
+});
+
+
+test("contexto con mapa: pestaña 'no aplica', lista resaltada por commit y filtro de compartidos sin dibujar", async () => {
+  const doc = fakeRoot().ownerDocument;
+  h.document = doc;
+  try {
+    const sha = "a".repeat(8) + "0123456789abcdef".repeat(2);
+    const context = { id: 21, title: "C", description: "", status: "active", parent: null };
+    const stepRow = (id, idx) => ({ id, idx, title: `P${idx}`, status: "completed", provider: "claude", lane: "claude", secondary: [],
+      started_at: null, completed_at: null, has_notes: true, alignments: 0, deviations: 0, tool_calls: 0, runs: 0, cost_usd: 0,
+      verified_commits: 0, prs: [], children: [] });
+    const steps = [stepRow(1, 1), stepRow(2, 2), stepRow(3, 3)];
+    let eligible = false;
+    const mapDto = () => ({
+      nodes: [], metadata: {},
+      edges: [{ source: "step:1", target: `commit:${sha}`, relation_type: "cites" }, { source: "step:3", target: `commit:${sha}`, relation_type: "cites" }],
+      map: { lanes: ["claude"], eligible, shared: [], placement: {}, groups: [], single_commits: {}, more_commits: 1,
+        more_commit_steps: ["step:2"], hidden_edges: {}, max_columns: 30 },
+    });
+    const api = { get: async (path) => (path.endsWith("/map") ? mapDto() : { context, steps }) };
+    const root = fakeRoot();
+    const listeners = [];
+    root.addEventListener = (_, handler) => { root.listeners += 1; listeners.push(handler); };
+    const click = (target) => listeners.forEach((handler) => handler({ target: { closest: () => target }, preventDefault() {} }));
+    const contains = root.contains;
+    root.contains = () => true;
+    const state = { ...BASE, ctx: 21 };
+    const handle = await mount(root, { api, store: { set() {} }, state, signal: new AbortController().signal });
+    assert.match(root.textContent, /◇ Mapa \(no aplica\)/);
+    eligible = true;
+    handle.update({ ...state, as: "map" });
+    await new Promise((r) => setImmediate(r));
+    handle.update({ ...state, as: "map", sel: `commit:${sha}` });
+    assert.equal((root.textContent.match(/cita el commit seleccionado/g) ?? []).length, 2);
+    click({ dataset: { stepFilter: "more-commits" } });
+    assert.match(root.textContent, /Mostrando solo los pasos que citan commits compartidos sin dibujar/);
+    assert.doesNotMatch(root.textContent, /P1|P3/);
+    assert.match(root.textContent, /P2/);
+    click({ dataset: { stepFilter: "" } });
+    assert.match(root.textContent, /P1/);
+    root.contains = contains;
+  } finally {
+    delete h.document;
+  }
 });

@@ -588,7 +588,10 @@ def context_map(
         return column[citers[commit][0]]
 
     # Presupuesto de commits y aristas (§21.3): primero los citados por un solo paso pasan a ser
-    # un contador en el paso; si aún sobran compartidos o aristas, el caso extremo.
+    # un contador en el paso; si aún sobran compartidos o aristas, el caso extremo. Se calcula
+    # sobre el contexto entero y no por ventana de 30 columnas: toda ventana es un subconjunto,
+    # así que ninguna supera los topes; a lo sumo resume algo que en una ventana puntual habría
+    # entrado (hoy el contexto más grande tiene 21 pasos y la ventana no se activa).
     all_commits = sorted(citers, key=lambda commit: (first_column(commit), commit))
     drawn = list(all_commits)
     single_counts: dict[str, int] = {}
@@ -599,10 +602,15 @@ def context_map(
                 step = citers[commit][0]
                 single_counts[step] = single_counts.get(step, 0) + 1
     more_commits = 0
+    more_commit_steps: list[str] = []
     if len(drawn) > max_commits:
         ranked = sorted(drawn, key=lambda commit: (-len(citers[commit]), first_column(commit), commit))
         keep = set(ranked[:max_commits])
         more_commits = len(drawn) - len(keep)
+        # Pasos que citan los compartidos sin dibujar: el nodo "+n commits compartidos" filtra
+        # la lista sincronizada a ellos.
+        hidden_citers = {step for commit in drawn if commit not in keep for step in citers[commit]}
+        more_commit_steps = sorted(hidden_citers, key=lambda step: column[step])
         drawn = [commit for commit in drawn if commit in keep]
     drawn_set = set(drawn)
 
@@ -641,6 +649,7 @@ def context_map(
             "groups": _map_groups(steps, shared_citers, max_steps),
             "single_commits": single_counts,
             "more_commits": more_commits,
+            "more_commit_steps": more_commit_steps,
             "hidden_edges": hidden_edges,
             "max_columns": max_steps,
         },
