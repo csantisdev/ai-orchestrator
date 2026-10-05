@@ -113,24 +113,68 @@ function renderOverview(root, data, project, period) {
   ));
 }
 
+// Registrados (los del índice) y alias detectados en runs o contextos sin registrar: estos
+// suelen venir de sesiones importadas desde carpetas sueltas o worktrees.
+export function projectGroups(projects) {
+  return {
+    registered: projects.filter((item) => item.registered),
+    detected: projects.filter((item) => !item.registered),
+  };
+}
+
+function plural(count, singular, pluralText) {
+  return `${formatNumber(count)} ${count === 1 ? singular : pluralText}`;
+}
+
+export function projectFacts(item) {
+  const parts = [];
+  if (item.active_contexts) parts.push(plural(item.active_contexts, "contexto activo", "contextos activos"));
+  if (item.contexts) parts.push(plural(item.contexts, "contexto", "contextos"));
+  if (item.runs) parts.push(plural(item.runs, "run", "runs"));
+  return parts.length ? parts.join(" · ") : "Sin actividad registrada";
+}
+
+export function activityText(iso, { timeZone } = {}) {
+  if (!iso) return "Sin actividad";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Sin actividad";
+  const day = new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short", year: "numeric", timeZone })
+    .format(date);
+  return `Última actividad: ${day}`;
+}
+
+// Enlace de proyecto: cambiar de proyecto recarga la página con `?project=` (el header y el
+// dashboard heredado dependen de eso), así que no lleva `data-view` para que el shell no lo
+// intercepte.
+function projectLink(item, className) {
+  return h("a", { class: className, href: viewHref(item.alias, { view: "inicio", params: {} }) },
+    h("span", { class: "home-project-alias" }, item.alias),
+    h("span", { class: "home-project-facts" }, projectFacts(item)),
+    h("span", { class: "home-project-activity" }, activityText(item.last_activity)));
+}
+
 async function projects(root, api, signal) {
   root.replaceChildren(h("p", { class: "home-muted" }, "Cargando proyectos…"));
   const data = await api.get("/api/v1/meta/projects", { signal });
   if (signal.aborted) return;
-  const list = data.projects.length
-    ? h("ul", { class: "home-projects" }, data.projects.map((item) => h(
-      "li",
-      {},
-      h("a", {
-        href: viewHref(item.alias, { view: "inicio", params: {} }),
-        data: { view: "inicio" },
-      }, item.alias),
-    )))
-    : h("p", { class: "home-muted" }, "Todavía no hay proyectos registrados ni runs.");
-  root.replaceChildren(h("section", { class: "home" },
-    h("p", { class: "home-muted" }, "Elegí un proyecto"),
-    list,
-  ));
+  const { registered, detected } = projectGroups(data.projects);
+  const cards = registered.length
+    ? h("div", { class: "home-project-grid" }, registered.map((item) => projectLink(item, "home-project")))
+    : h("p", { class: "home-muted" }, "No hay proyectos registrados. Registrá uno con ai-orchestrator add.");
+  const others = detected.length
+    ? h("details", { class: "home-detected" },
+      h("summary", {}, `Otros alias detectados (${formatNumber(detected.length)})`),
+      h("p", { class: "home-muted" },
+        "Aparecen en runs o contextos pero no están registrados en el índice; suelen venir de sesiones "
+        + "importadas desde carpetas sueltas o worktrees."),
+      h("div", { class: "home-detected-list" }, detected.map((item) => projectLink(item, "home-project is-detected"))))
+    : null;
+  // `replaceChildren` escribe `null` como texto: solo nodos.
+  root.replaceChildren(h("section", { class: "home" }, ...[
+    h("header", { class: "home-header" }, h("p", { class: "home-muted" }, "Elegí un proyecto para ver su resumen.")),
+    cards,
+    others,
+  ].filter(Boolean)));
 }
 
 function errorMessage(error) {

@@ -45,8 +45,15 @@ def _registered_projects() -> set[str]:
         return set()
 
 
+def valid_alias(value: object) -> bool:
+    """Alias de proyecto utilizable: texto no vacío (en SQL, `typeof(project) = 'text' AND project != ''`)."""
+    return isinstance(value, str) and value != ""
+
+
 def project_known(conn: sqlite3.Connection, project: str, registered: Iterable[str]) -> bool:
-    """Registrado en el índice, o con runs o contextos en la base."""
+    """Registrado en el índice, o con runs o contextos en la base; nunca un alias vacío."""
+    if not valid_alias(project):
+        return False
     if project in set(registered):
         return True
     return conn.execute(
