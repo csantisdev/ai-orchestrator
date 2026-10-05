@@ -5,6 +5,7 @@ import { h } from "../../orchestrator/static/dashboard/core/dom.js";
 import { mount as mountHome } from "../../orchestrator/static/dashboard/views/home.js";
 import { mount as mountRuns } from "../../orchestrator/static/dashboard/views/runs.js";
 import { mount as mountCosts } from "../../orchestrator/static/dashboard/views/costs.js";
+import { navigationFor } from "../../orchestrator/static/dashboard/core/actions.js";
 
 class Node {
   constructor(doc, tag) {
@@ -87,6 +88,11 @@ test("Inicio: tarjetas con navegación por data-view, Salud del tracking como pa
       [["trabajo", undefined], ["trabajo", undefined], ["ejecuciones", "costos"]]);
     assert.equal(cards[2].attributes.href, "?project=mi-proyecto&view=ejecuciones&tab=costos");
     assert.match(cards[1].className, /is-warn/);
+    // El clic en una tarjeta lo resuelve la regla de navegación del shell.
+    assert.deepEqual(navigationFor(cards[2].dataset), { view: "ejecuciones", tab: "costos" });
+    assert.deepEqual(navigationFor(cards[0].dataset), { view: "trabajo", tab: null });
+    assert.equal(navigationFor(cards[2].dataset, { ctrlKey: true }), null);
+    assert.equal(navigationFor({}), null);
     assert.match(root.textContent, /Salud del tracking · 1/);
     assert.match(root.textContent, /3 runs · 1 atribuidos a pasos/);
     click(root, { dataset: { period: "30d" } });

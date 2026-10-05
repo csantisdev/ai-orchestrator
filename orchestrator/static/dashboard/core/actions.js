@@ -28,3 +28,11 @@ export function runAction(name, { store, doc }) {
   action({ store, doc });
   return true;
 }
+
+// Navegación por `data-view`/`data-tab` (enlaces de la navegación, pestañas, tarjetas de las
+// vistas): el estado que el shell pone en el store, o null si el clic no navega acá.
+export function navigationFor(dataset, event = {}) {
+  if (!dataset?.view) return null;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1) return null;
+  return { view: dataset.view, tab: dataset.tab ?? null };
+}

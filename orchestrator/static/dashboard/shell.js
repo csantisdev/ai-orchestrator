@@ -7,7 +7,7 @@ import { SECTIONS, describeSelection, panelFor, resolveSection } from "./core/se
 import { createApi } from "./core/api.js";
 import { createViewHost } from "./core/mount.js";
 import { createPageTitles, deniedText, navCounts } from "./core/page.js";
-import { runAction } from "./core/actions.js";
+import { navigationFor, runAction } from "./core/actions.js";
 
 const $ = (id) => document.getElementById(id);
 const store = createStore({});
@@ -236,10 +236,10 @@ document.addEventListener("click", (event) => {
   const target = event.target.closest?.("[data-view], [data-action]");
   if (!target) return;
   if (target.dataset.action && runAction(target.dataset.action, { store, doc: document })) return;
-  if (!target.dataset.view) return;
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1) return;
+  const navigation = navigationFor(target.dataset, event);
+  if (!navigation) return;
   event.preventDefault();
-  store.set({ view: target.dataset.view, tab: target.dataset.tab ?? null });
+  store.set(navigation);
 });
 
 // Pestañas de representación: flechas, Inicio y Fin mueven la selección (patrón ARIA tabs).

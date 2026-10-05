@@ -34,6 +34,18 @@ def _luminance(hex_color: str) -> float:
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
 
 
+def _mix(color: str, base: str, share: float) -> str:
+    """`color-mix(in srgb, color share, base)` en hexadecimal."""
+    def rgb(value: str) -> list[int]:
+        digits = value.lstrip("#")
+        if len(digits) == 3:
+            digits = "".join(ch * 2 for ch in digits)
+        return [int(digits[i:i + 2], 16) for i in (0, 2, 4)]
+
+    mixed = [round(c * share + b * (1 - share)) for c, b in zip(rgb(color), rgb(base))]
+    return "#" + "".join(f"{value:02x}" for value in mixed)
+
+
 def _contrast(a: str, b: str) -> float:
     high, low = sorted((_luminance(a), _luminance(b)), reverse=True)
     return (high + 0.05) / (low + 0.05)
@@ -66,3 +78,16 @@ def test_body_text_meets_aa(theme):
     # (contraste AA en todos los temas, ola 4), que es dueño de los tokens de texto.
     for text in ("--text-primary", "--text-secondary"):
         assert _contrast(values[text], values["--bg-surface"]) >= 4.5, f"{theme}: {text}"
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_status_pills_meet_aa_on_their_tinted_background(theme):
+    values = _theme(theme)
+    # `.pill.state-*`: texto de la familia sobre `color-mix(familia 12%, transparent)` encima
+    # de la superficie donde aparece la píldora.
+    for family in FAMILIES:
+        color = values[f"--family-{family}"]
+        for surface in ("--bg-surface", "--bg-base"):
+            background = _mix(color, values[surface], 0.12)
+            ratio = _contrast(color, background)
+            assert ratio >= 4.5, f"{theme}: píldora {family} sobre {surface} = {ratio:.2f}"
