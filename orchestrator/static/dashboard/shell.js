@@ -6,6 +6,8 @@ import { connectRouter } from "./core/router.js";
 import { SECTIONS, describeSelection, panelFor, resolveSection } from "./core/sections.js";
 import { createApi } from "./core/api.js";
 import { createViewHost } from "./core/mount.js";
+import { createPageTitles, deniedText, navCounts } from "./core/page.js";
+import { runAction } from "./core/actions.js";
 
 const $ = (id) => document.getElementById(id);
 const store = createStore({});
@@ -19,6 +21,25 @@ const views = createViewHost({
   load: (path) => import(new URL(path, import.meta.url).href),
   onError: showViewError,
 });
+// Título que fija la vista montada con `page.set` (contrato en README.md): vale solo mientras
+// esa vista siga en pantalla; al cambiar de vista vuelve el título de la sección.
+let lastResolved = null;
+const titles = createPageTitles(() => lastResolved && renderTitle(lastResolved));
+
+function viewKey(resolved) {
+  if (!resolved.module) return null;
+  return resolved.tab ? `${resolved.section.id}:${resolved.tab.id}` : resolved.section.id;
+}
+
+function renderTitle(resolved) {
+  const own = titles.current;
+  const fallback = resolved.tab ? `${resolved.section.label} · ${resolved.tab.label}` : resolved.section.label;
+  $("shell-title").textContent = own?.title || fallback;
+  const subtitle = own?.subtitle ?? resolved.section.question ?? "";
+  $("shell-subtitle").textContent = subtitle;
+  $("shell-subtitle").hidden = !subtitle;
+}
+
 // 768–1279 px: Inspector y Activity se superponen al contenido; nunca los dos abiertos.
 const overlayLayout = window.matchMedia("(max-width: 1279px)");
 let inspectorDismissed = false;
@@ -45,7 +66,7 @@ function renderNavigation(resolved) {
     if (index === resolved.crumbs.length - 1) item.setAttribute("aria-current", "location");
     return item;
   }));
-  $("shell-title").textContent = resolved.tab ? `${resolved.section.label} · ${resolved.tab.label}` : resolved.section.label;
+  renderTitle(resolved);
   document.title = `${resolved.crumbs.slice(1).join(" · ")} — Orchestrator`;
 }
 
@@ -84,6 +105,9 @@ function renderTabs(resolved) {
 
 function showViewError(error, root) {
   console.error("No se pudo mostrar la vista:", error);
+  // El host desmontó la vista: su próximo montaje es otra instancia (core/page.js).
+  titles.restart();
+  if (lastResolved) renderTitle(lastResolved);
   const box = document.createElement("section");
   box.className = "shell-empty";
   const title = document.createElement("h2");
@@ -105,8 +129,8 @@ function renderContent(resolved, state) {
   if (resolved.legacy && typeof window.switchTab === "function") window.switchTab(resolved.legacy);
   $("view-root").hidden = !resolved.module;
   if (resolved.module) {
-    const key = resolved.tab ? `${resolved.section.id}:${resolved.tab.id}` : resolved.section.id;
-    views.show(key, resolved.module, { store, api, state });
+    const key = viewKey(resolved);
+    views.show(key, resolved.module, { store, api, state, page: titles.pageFor(key) });
   } else {
     views.hide();
   }
@@ -130,6 +154,8 @@ function render(state, previous = {}) {
     if (overlayLayout.matches) closeActivity();
   }
   const resolved = resolveSection(state);
+  titles.enter(viewKey(resolved));
+  lastResolved = resolved;
   renderNavigation(resolved);
   renderTabs(resolved);
   renderContent(resolved, state);
@@ -181,13 +207,35 @@ function watchConnection() {
     events.readyState === 2 ? "Sin conexión" : "Reconectando…"));
 }
 
+// Contadores de la navegación y aviso de denegadas del header (§23.4), del proyecto elegido.
+async function loadHeaderCounts() {
+  const project = store.get().project;
+  if (!project) return;
+  try {
+    const { projects } = await api.get("/api/v1/meta/projects");
+    for (const [view, value] of Object.entries(navCounts(projects, project))) {
+      const slot = document.querySelector(`.shell-nav-count[data-count="${view}"]`);
+      if (slot) slot.textContent = value === null ? "" : new Intl.NumberFormat("es-CL").format(value);
+    }
+    // La API de proyectos limita la ruta a caracteres seguros; si el alias no cabe, no hay aviso.
+    if (!/^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/.test(project)) return;
+    const summary = await api.get(`/api/v1/projects/${project}/governance/summary`, { params: { period: "7d" } });
+    const text = deniedText(summary);
+    const pill = $("shell-denied");
+    pill.hidden = !text;
+    pill.textContent = text ?? "";
+  } catch (error) {
+    console.warn("No se pudieron cargar los contadores del header:", error);
+  }
+}
+
+$("shell-project").addEventListener("change", (event) => event.currentTarget.form.submit());
+$("themeSelect")?.addEventListener("change", (event) => window.setTheme?.(event.currentTarget.value));
+
 document.addEventListener("click", (event) => {
   const target = event.target.closest?.("[data-view], [data-action]");
   if (!target) return;
-  if (target.dataset.action === "clear-selection") {
-    store.set({ sel: null });
-    return;
-  }
+  if (target.dataset.action && runAction(target.dataset.action, { store, doc: document })) return;
   if (!target.dataset.view) return;
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1) return;
   event.preventDefault();
@@ -217,6 +265,7 @@ store.subscribe(render);
 render(store.get());
 watchActivity();
 watchConnection();
+loadHeaderCounts();
 document.documentElement.dataset.shell = "ready";
 
 export { SECTIONS, store };

@@ -190,7 +190,9 @@ test("mount no deja listeners en el signal y una carga superada no dibuja", asyn
       }),
     };
     const store = { set() {} };
-    const first = mount(root, { api, store, state: { ...BASE, project: null }, signal: controller.signal });
+    const titles = [];
+    const page = { set: (value) => titles.push(value) };
+    const first = mount(root, { api, store, page, state: { ...BASE, project: null }, signal: controller.signal });
     const handle = await first;
     assert.equal(active(), 0);
     assert.equal(calls.length, 0);
@@ -200,7 +202,8 @@ test("mount no deja listeners en el signal y una carga superada no dibuja", asyn
     gates[1]();
     await new Promise((r) => setImmediate(r));
     assert.equal(active(), 0);
-    assert.match(root.textContent, /#21 C/);
+    assert.match(root.textContent, /El contexto no tiene pasos/);
+    assert.deepEqual(titles.at(-1), { title: "Contexto #21 · C", subtitle: "0 de 0 pasos completados" });
     handle.update({ ...BASE, project: null });
     assert.equal(active(), 0);
     handle.unmount();
@@ -208,4 +211,17 @@ test("mount no deja listeners en el signal y una carga superada no dibuja", asyn
   } finally {
     delete h.document;
   }
+});
+
+import { pageTitle } from "../../orchestrator/static/dashboard/views/work.js";
+
+test("pageTitle: el encabezado nombra el objeto de cada página", () => {
+  assert.deepEqual(pageTitle("contexts", { contexts: [{ status: "active" }, { status: "completed" }] }),
+    { title: "Trabajo", subtitle: "2 contextos · 1 activo" });
+  assert.deepEqual(pageTitle("context", {
+    context: { id: 21, title: "Migrar" }, steps: [{ status: "completed" }, { status: "pending" }],
+  }), { title: "Contexto #21 · Migrar", subtitle: "1 de 2 pasos completados" });
+  assert.deepEqual(pageTitle("step", {
+    step: { idx: 3, title: "" }, navigation: { total: 5 }, context: { id: 21, title: "Migrar" },
+  }), { title: "Paso 3 de 5 · Sin título", subtitle: "Contexto #21 · Migrar" });
 });

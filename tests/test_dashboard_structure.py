@@ -221,3 +221,15 @@ def test_event_stream_delivers_published_events(server):
 
     text = b"".join(frame).decode("utf-8")
     assert "event: run_update" in text and 'data: {"id": 42}' in text
+
+
+def test_project_selector_groups_registered_and_detected_aliases():
+    from orchestrator.dashboard import _project_select_options
+
+    html = _project_select_options(["mi-proyecto", "<x>&\"", "suelto"], {"mi-proyecto"}, "suelto")
+    assert html.index('<optgroup label="Registrados">') < html.index('value="mi-proyecto"')
+    assert html.index('<optgroup label="Otros alias detectados">') < html.index('value="suelto"')
+    assert 'value="suelto" selected' in html
+    assert "<x>" not in html and "&lt;x&gt;&amp;&quot;" in html
+    plain = _project_select_options(["a", "b"], {"a", "b"}, "")
+    assert "optgroup" not in plain and plain.count("<option") == 3

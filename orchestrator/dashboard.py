@@ -51,12 +51,33 @@ def _shell_navigation(selected_project: str = "") -> str:
         for view, label in sections:
             query = {"project": selected_project, "view": view} if selected_project else {"view": view}
             href = _escape("/?" + urllib.parse.urlencode(query))
-            parts.append(f'    <a class="shell-nav-link" href="{href}" data-view="{view}">{label}</a>\n')
+            parts.append(
+                f'    <a class="shell-nav-link" href="{href}" data-view="{view}">{label}'
+                f'<span class="shell-nav-count" data-count="{view}"></span></a>\n'
+            )
     return "".join(parts)
 
 
+def _project_select_options(projects: list[str], registered: set[str], selected: str) -> str:
+    """Opciones del selector del header: registrados primero y los alias detectados aparte."""
+    def option(alias: str) -> str:
+        sel = " selected" if alias == selected else ""
+        return f'<option value="{_escape(alias)}"{sel}>{_escape(alias)}</option>'
+
+    own = [alias for alias in projects if alias in registered]
+    detected = [alias for alias in projects if alias not in registered]
+    html = '<option value="">Todos los proyectos</option>'
+    if own and detected:
+        html += '<optgroup label="Registrados">' + "".join(option(alias) for alias in own) + "</optgroup>"
+        html += '<optgroup label="Otros alias detectados">' + "".join(option(alias) for alias in detected) + "</optgroup>"
+    else:
+        html += "".join(option(alias) for alias in projects)
+    return html
+
+
 def build_html(runs: list[dict], selected_project: str = "", projects_extra: list[str] | None = None,
-               session_token: str = "", static_bundle: StaticBundle | None = None) -> str:
+               session_token: str = "", static_bundle: StaticBundle | None = None,
+               registered_projects: list[str] | None = None) -> str:
     selected_project = _text(selected_project)
     all_projects = sorted({_text(r.get("project")) for r in runs if _text(r.get("project"))})
     if projects_extra:
@@ -145,11 +166,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
          for r in _runs_for_js]
     )
 
-    project_options = '<option value="">Todos los proyectos</option>'
-    for p in all_projects:
-        sel = 'selected' if p == selected_project else ''
-        safe_project = _escape(p)
-        project_options += f'<option value="{safe_project}" {sel}>{safe_project}</option>'
+    project_options = _project_select_options(all_projects, set(registered_projects or []), selected_project)
 
     project_options_form = '<option value="">-- elegir proyecto --</option>'
     for p in all_projects:
@@ -201,6 +218,8 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     _legacy_scripts = "".join(f'<script src="{bundle.url(f"legacy/{name}.js")}"></script>\n' for name in _JS_FILES)
     _shell_script = bundle.url("shell.js")
     _navigation = _shell_navigation(selected_project)
+    _governance_query = {"project": selected_project, "view": "gobernanza"} if selected_project else {"view": "gobernanza"}
+    _governance_href = _escape("/?" + urllib.parse.urlencode(_governance_query))
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -217,31 +236,39 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 {_stylesheets}</head>
 <body>
 
-<div class="header">
-  <h1><img src="/static/img/logo.png" alt="Orchestrator" style="height:28px;vertical-align:middle;margin-right:4px"></h1>
-  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <form method="get" style="display:flex;align-items:center;gap:8px">
-      <label style="font-size:12px;color:var(--text-muted);font-weight:500">Proyecto</label>
-      <select name="project" onchange="this.form.submit()">{project_options}</select>
-      <input type="hidden" name="view" id="shell-view-input" value="">
-    </form>
+<header class="shell-header">
+  <a class="shell-brand" href="/">ai-orchestrator</a>
+  <form method="get" class="shell-project">
+    <label class="shell-project-label" for="shell-project">Proyecto</label>
+    <select id="shell-project" name="project">{project_options}</select>
+    <input type="hidden" name="view" id="shell-view-input" value="">
+  </form>
+  <div class="shell-header-status">
     <span class="shell-status" id="shell-status" data-state="connecting" role="status">Conectando…</span>
-    <button class="btn btn-secondary" onclick="toggleSender()">+ Nueva tarea</button>
-    <button class="btn btn-secondary" onclick="toggleContextForm()">+ Nuevo flujo</button>
-    <a href="/docs" class="theme-btn" style="text-decoration:none">Docs</a>
-    <a href="/mcp" class="theme-btn" style="text-decoration:none">MCP</a>
-    <a href="/security" class="theme-btn" style="text-decoration:none">Seguridad</a>
-    <select id="themeSelect" class="theme-btn" onchange="setTheme(this.value)" title="Cambiar tema">
-      <option value="dark">Dark</option>
-      <option value="light">Light</option>
-      <option value="midnight">Midnight</option>
-      <option value="nord">Nord</option>
-      <option value="espresso">Espresso</option>
-      <option value="a11y">Alto contraste</option>
-    </select>
-    <span class="meta">{now}</span>
+    <a class="shell-pill" id="shell-denied" href="{_governance_href}" data-view="gobernanza" hidden></a>
   </div>
-</div>
+  <details class="shell-menu" id="shell-menu">
+    <summary>Acciones</summary>
+    <div class="shell-menu-list">
+      <button type="button" class="shell-menu-item" data-action="new-task">+ Nueva tarea</button>
+      <button type="button" class="shell-menu-item" data-action="new-flow">+ Nuevo flujo</button>
+      <a class="shell-menu-item" href="/docs">Docs</a>
+      <a class="shell-menu-item" href="/mcp">MCP</a>
+      <a class="shell-menu-item" href="/security">Seguridad</a>
+      <label class="shell-menu-item shell-menu-theme">Tema
+        <select id="themeSelect" title="Cambiar tema">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+          <option value="midnight">Midnight</option>
+          <option value="nord">Nord</option>
+          <option value="espresso">Espresso</option>
+          <option value="a11y">Alto contraste</option>
+        </select>
+      </label>
+      <span class="shell-menu-meta">{now}</span>
+    </div>
+  </details>
+</header>
 
 <div class="tabnav" hidden>
   <div class="tabnav-inner">
@@ -259,7 +286,10 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 
   <main class="shell-main" id="shell-main">
     <nav class="shell-breadcrumb" id="shell-breadcrumb" aria-label="Ubicación"></nav>
-    <h1 class="shell-title" id="shell-title"></h1>
+    <div class="shell-heading">
+      <h1 class="shell-title" id="shell-title"></h1>
+      <p class="shell-subtitle" id="shell-subtitle"></p>
+    </div>
     <p class="shell-note" id="shell-note" hidden></p>
     <div class="shell-tabs" id="shell-tabs" role="tablist" hidden></div>
     <section class="shell-empty" id="shell-empty" hidden>
@@ -274,7 +304,16 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <aside class="shell-inspector" id="shell-inspector" aria-label="Inspector" data-open="false">
     <p class="inspector-heading">Inspector</p>
     <div class="inspector-empty" id="inspector-empty">
-      <p>Seleccioná un contexto, paso, run o commit para ver su detalle acá.</p>
+      <h2 class="inspector-title">Nada seleccionado</h2>
+      <p>Seleccioná un contexto, paso, run, commit o decisión para ver su detalle acá. La selección viaja en la URL (sel=).</p>
+      <ul class="inspector-legend" aria-label="Familias de objetos">
+        <li class="family-knowledge">Knowledge · contexto</li>
+        <li class="family-work">Work · paso</li>
+        <li class="family-decision">Decision · atención</li>
+        <li class="family-execution">Execution · run, commit, costo</li>
+        <li class="family-governance">Governance · acceso</li>
+        <li class="family-error">Error técnico</li>
+      </ul>
     </div>
     <div class="inspector-selection" id="inspector-selection" hidden>
       <p class="inspector-kind" id="inspector-kind"></p>

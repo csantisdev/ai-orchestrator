@@ -23,7 +23,7 @@ momento el shell deja de mostrar su vista heredada (`legacy`) y monta el módulo
 ```js
 import { h } from "../core/dom.js";
 
-export async function mount(root, { store, api, state, signal }) {
+export async function mount(root, { store, api, state, signal, page }) {
   const data = await api.get("/api/v1/work", { params: { project: state.project }, signal });
   root.replaceChildren(h("ul", { class: "work-list" }, data.items.map((item) =>
     h("li", { data: { sel: `context:${item.id}` } }, item.title))));
@@ -42,6 +42,10 @@ export async function mount(root, { store, api, state, signal }) {
   reciente. `update` y `unmount` son opcionales.
 - La selección se cambia con `store.set({ sel: "context:7" })`; la URL y el Inspector se
   actualizan solos.
+- `page.set({ title, subtitle })` pone el encabezado de la página: el objeto que muestra la
+  vista ("Contexto #21 · …") y una línea secundaria. Sin llamarlo, el shell muestra la sección
+  (y su pestaña) con la pregunta que responde (§23.3). Solo vale mientras la vista siga en
+  pantalla; `page.set({})` vuelve al encabezado de la sección.
 - Si fallan la carga, `mount` o `update`, la vista se desmonta y el shell muestra un aviso en
   su lugar; volver a entrar a la sección la monta de nuevo. Los errores de `unmount` y de
   montajes ya reemplazados solo van a la consola. Un `ApiError` trae `status` y `reason`;

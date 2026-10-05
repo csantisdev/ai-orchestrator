@@ -10,7 +10,6 @@
   }
   .work-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
   .work-header-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-  .work-header h2 { font-size: var(--text-16); font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
   .work-filters, .work-siblings { display: flex; flex-wrap: wrap; gap: var(--space-1); }
   .work-filter {
     padding: var(--space-1) var(--space-3);

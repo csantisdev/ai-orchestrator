@@ -33,7 +33,7 @@ COLOR = re.compile(r"(?<![&\w])#[0-9a-fA-F]{3,8}\b|(?<![\w.$])(?:rgba?|hsla?)\(\
 
 # (estilos en línea, asignaciones de estilo, colores) por archivo, medidos en D1b (ola 2).
 BASELINE = {
-    "dashboard.py": (22, 0, 2),
+    "dashboard.py": (15, 0, 2),
     "legacy_dashboard/__init__.py": (0, 0, 0),
     "legacy_dashboard/actividad.py": (24, 0, 0),
     "legacy_dashboard/common.py": (0, 0, 32),
