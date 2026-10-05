@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { h, svg } from "../../orchestrator/static/dashboard/core/dom.js";
-import { LAYOUT, citingSteps, layoutMap, relatedTo, renderMap, select } from "../../orchestrator/static/dashboard/renderers/map.js";
+import { LAYOUT, citingSteps, layoutMap, relatedTo, renderMap, select, windowBudget } from "../../orchestrator/static/dashboard/renderers/map.js";
 
 const SHA_A = "a".repeat(8) + "0123456789abcdef".repeat(2);
 const SHA_B = "b".repeat(8) + "0123456789abcdef".repeat(2);
@@ -22,8 +22,8 @@ function dto({ steps, commits = [], cites = [], map = {} }) {
     edges: cites.map(([source, target]) => ({ source, target, relation_type: "cites", origin: "verified_reference",
       confidence: 1, evidence_ref: "steps.notes" })),
     metadata: { project: "mi-proyecto", context_id: 1, generated_at: "2026-06-01T00:00:00+00:00" },
-    map: { lanes: ["claude", "codex"], eligible: true, shared: [], placement: {}, groups: [], single_commits: {},
-      more_commits: 0, more_commit_steps: [], hidden_edges: {}, max_columns: 30, ...map },
+    map: { lanes: ["claude", "codex"], eligible: true, shared: [], placement: {}, groups: [], max_columns: 30,
+      limits: { commits: 20, edges: 60 }, ...map },
   };
 }
 
@@ -177,12 +177,51 @@ test("un commit cuyo primer citante quedó fuera de la ventana se dibuja bajo el
   assert.deepEqual(citingSteps(data).get(`commit:${SHA_A}`), ["step:1", "step:4"]);
 });
 
-test("el grupo cerrado suma los commits citados por un solo paso de sus miembros", () => {
+test("con el tope excedido, el grupo cerrado suma los commits citados por un solo paso de sus miembros", () => {
   const steps = [1, 2, 3].map((n) => step(n, n, "claude"));
-  const group = { id: "group:1-2", from_idx: 1, to_idx: 2, count: 2, members: ["step:1", "step:2"], lane: "claude", lanes: { claude: 2 } };
-  const layout = layoutMap(dto({ steps, map: { lanes: ["claude"], groups: [group], single_commits: { "step:1": 2, "step:2": 1, "step:3": 4 } } }));
-  assert.equal(layout.nodes[0].singleCommits, 3);
-  assert.equal(layout.nodes[0].sub, "Claude 2 · ◇3");
+  const group = { id: "group:1-2", from_idx: 1, to_idx: 2, count: 2, members: ["step:1", "step:2"], lane: "claude",
+    lanes: { claude: 2 }, single_commits: 2 };
+  const data = dto({
+    steps, commits: [SHA_A, SHA_B], cites: [["step:1", `commit:${SHA_A}`], ["step:2", `commit:${SHA_B}`]],
+    map: { lanes: ["claude"], groups: [group], limits: { commits: 1, edges: 60 },
+      placement: { [`commit:${SHA_A}`]: { column: 1, stack: 0 }, [`commit:${SHA_B}`]: { column: 2, stack: 0 } } },
+  });
+  const layout = layoutMap(data);
+  assert.equal(layout.nodes[0].singleCommits, 2);
+  assert.equal(layout.nodes[0].sub, "Claude 2 · ◇2");
+  assert.equal(layout.commits.length, 0);
+  // Sin exceder el tope, los commits se dibujan y no hay contador.
+  const roomy = layoutMap({ ...data, map: { ...data.map, limits: { commits: 20, edges: 60 } } });
+  assert.equal(roomy.nodes[0].singleCommits, 0);
+  assert.equal(roomy.commits.length, 2);
+});
+
+test("windowBudget decide el caso extremo dentro de la ventana visible", () => {
+  // Pasos 1..4; en la ventana [2, 4) solo cuentan las citas de los pasos 3 y 4.
+  const steps = [1, 2, 3, 4].map((n) => step(n, n, "claude"));
+  const shas = [SHA_A, SHA_B, "c".repeat(8) + "0123456789abcdef".repeat(2)];
+  const data = dto({
+    steps, commits: shas,
+    cites: [
+      ["step:1", `commit:${shas[0]}`], ["step:2", `commit:${shas[0]}`],
+      ["step:3", `commit:${shas[1]}`], ["step:4", `commit:${shas[1]}`],
+      ["step:3", `commit:${shas[2]}`], ["step:4", `commit:${shas[2]}`],
+    ],
+    map: { lanes: ["claude"], shared: shas.map((sha) => `commit:${sha}`), limits: { commits: 1, edges: 1 }, max_columns: 2 },
+  });
+  const column = new Map(steps.map((node, index) => [node.id, index]));
+  const visible = (col) => col >= 2 && col < 4;
+  const budget = windowBudget(data, column, visible);
+  // SHA_A no tiene citas visibles: no compite. Entre SHA_B y SHA_C (2 citantes cada uno, misma
+  // columna) gana el SHA menor; el otro se resume y sus pasos quedan para el filtro.
+  assert.deepEqual(budget.drawn, [`commit:${shas[1]}`]);
+  assert.equal(budget.moreCommits, 1);
+  assert.deepEqual(budget.moreCommitSteps, ["step:3", "step:4"]);
+  assert.deepEqual(budget.edges, [{ source: "step:3", target: `commit:${shas[1]}` }]);
+  assert.equal(budget.hiddenEdges.get(`commit:${shas[1]}`), 1);
+  // Con toda la ventana [0, 4), SHA_A también compite: más citantes no hay, desempata la columna.
+  const all = windowBudget(data, column, () => true);
+  assert.deepEqual(all.drawn, [`commit:${shas[0]}`]);
 });
 
 test("los nodos seleccionables nacen con aria-pressed=false y los grupos con aria-expanded", () => withSvgDoc(() => {

@@ -187,7 +187,7 @@ test("mount no deja listeners en el signal y una carga superada no dibuja", asyn
         calls.push(path);
         gates.push(() => resolve(path.endsWith("/map")
           ? { nodes: [], edges: [], metadata: {}, map: { lanes: [], eligible: false, shared: [], placement: {}, groups: [],
-            single_commits: {}, more_commits: 0, more_commit_steps: [], hidden_edges: {}, max_columns: 30 } }
+            max_columns: 30, limits: { commits: 20, edges: 60 } } }
           : { contexts: [], context: { id: 21, title: "C", description: "", status: "active", parent: null }, steps: [] }));
         signal.addEventListener("abort", () => reject(new DOMException("abortado", "AbortError")));
       }),
@@ -233,45 +233,102 @@ test("pageTitle: el encabezado nombra el objeto de cada página", () => {
 });
 
 
-test("contexto con mapa: pestaña 'no aplica', lista resaltada por commit y filtro de compartidos sin dibujar", async () => {
+test("contexto con mapa: pestaña deshabilitada si no aplica, lista resaltada por commit, filtro y selección tras redibujar", async () => {
   const doc = fakeRoot().ownerDocument;
   h.document = doc;
+  doc.createElementNS = (ns, tag) => {
+    const node = new FakeNode(doc, tag);
+    node.classes = new Set();
+    node.classList = { toggle: (name, on) => (on ? node.classes.add(name) : node.classes.delete(name)) };
+    node.getAttribute = (name) => node.attributes[name] ?? null;
+    node.querySelectorAll = () => {
+      const found = [];
+      const walk = (item) => {
+        if (!item || item.nodeType === 3) return;
+        if (item !== node && ("data-node" in (item.attributes ?? {}) || "data-from" in (item.attributes ?? {}) || "data-owner" in (item.attributes ?? {}))) found.push(item);
+        (item.childNodes ?? []).forEach(walk);
+      };
+      walk(node);
+      return found;
+    };
+    return node;
+  };
   try {
-    const sha = "a".repeat(8) + "0123456789abcdef".repeat(2);
+    const shas = ["a", "b", "c"].map((ch) => ch.repeat(8) + "0123456789abcdef".repeat(2));
     const context = { id: 21, title: "C", description: "", status: "active", parent: null };
     const stepRow = (id, idx) => ({ id, idx, title: `P${idx}`, status: "completed", provider: "claude", lane: "claude", secondary: [],
       started_at: null, completed_at: null, has_notes: true, alignments: 0, deviations: 0, tool_calls: 0, runs: 0, cost_usd: 0,
       verified_commits: 0, prs: [], children: [] });
     const steps = [stepRow(1, 1), stepRow(2, 2), stepRow(3, 3)];
+    const graphStep = (id) => ({ id: `step:${id}`, kind: "step", label: `Paso ${id}`, state: "completed",
+      attrs: { idx: id, order_idx: id, lane: "claude", secondary: [], alignments: 0, deviations: 0, runs: 0, cost_usd: 0, prs: [],
+        unverified_shas: 0, mentions_tests: false } });
     let eligible = false;
+    const cite = (step, sha) => ({ source: `step:${step}`, target: `commit:${sha}`, relation_type: "cites" });
     const mapDto = () => ({
-      nodes: [], metadata: {},
-      edges: [{ source: "step:1", target: `commit:${sha}`, relation_type: "cites" }, { source: "step:3", target: `commit:${sha}`, relation_type: "cites" }],
-      map: { lanes: ["claude"], eligible, shared: [], placement: {}, groups: [], single_commits: {}, more_commits: 1,
-        more_commit_steps: ["step:2"], hidden_edges: {}, max_columns: 30 },
+      nodes: [graphStep(1), graphStep(2), graphStep(3), ...shas.map((sha) => ({ id: `commit:${sha}`, kind: "commit", label: sha.slice(0, 7) }))],
+      metadata: {},
+      edges: [cite(1, shas[0]), cite(3, shas[0]), cite(2, shas[1]), cite(3, shas[1]), cite(2, shas[2]), cite(3, shas[2])],
+      map: { lanes: ["claude"], eligible, shared: shas.map((sha) => `commit:${sha}`),
+        placement: Object.fromEntries(shas.map((sha, index) => [`commit:${sha}`, { column: 1 + Math.min(index, 1), stack: 0 }])),
+        groups: [], max_columns: 30, limits: { commits: 2, edges: 60 } },
     });
     const api = { get: async (path) => (path.endsWith("/map") ? mapDto() : { context, steps }) };
     const root = fakeRoot();
     const listeners = [];
     root.addEventListener = (_, handler) => { root.listeners += 1; listeners.push(handler); };
     const click = (target) => listeners.forEach((handler) => handler({ target: { closest: () => target }, preventDefault() {} }));
-    const contains = root.contains;
     root.contains = () => true;
+    const sets = [];
     const state = { ...BASE, ctx: 21 };
-    const handle = await mount(root, { api, store: { set() {} }, state, signal: new AbortController().signal });
-    assert.match(root.textContent, /◇ Mapa \(no aplica\)/);
+    const handle = await mount(root, { api, store: { set: (patch) => sets.push(patch) }, state, signal: new AbortController().signal });
+    // No aplica: la pestaña Mapa queda deshabilitada con el motivo y hay un botón aparte.
+    const mapTab = findAll(root, (node) => node.dataset?.as === "map")[0];
+    assert.equal(mapTab.attributes.disabled, "");
+    assert.match(mapTab.attributes.title, /Un solo carril/);
+    click({ dataset: { forceMap: "1" } });
+    assert.deepEqual(sets.at(-1), { as: "map", sel: null });
     eligible = true;
     handle.update({ ...state, as: "map" });
     await new Promise((r) => setImmediate(r));
-    handle.update({ ...state, as: "map", sel: `commit:${sha}` });
+    // Tope de 2 commits: SHA_C queda resumido; el control filtra la lista a sus citantes.
+    assert.match(root.textContent, /\+1 commits compartidos/);
+    handle.update({ ...state, as: "map", sel: `commit:${shas[0]}` });
     assert.equal((root.textContent.match(/cita el commit seleccionado/g) ?? []).length, 2);
+    // La selección sobrevive al redibujo: el commit queda marcado en el mapa.
+    const selected = findAll(root, (node) => node.attributes?.["data-node"] === `commit:${shas[0]}`)[0];
+    assert.equal(selected.attributes["aria-pressed"], "true");
+    assert.ok(selected.classes.has("is-selected"));
     click({ dataset: { stepFilter: "more-commits" } });
     assert.match(root.textContent, /Mostrando solo los pasos que citan commits compartidos sin dibujar/);
-    assert.doesNotMatch(root.textContent, /P1|P3/);
+    assert.doesNotMatch(root.textContent, /P1/);
     assert.match(root.textContent, /P2/);
     click({ dataset: { stepFilter: "" } });
     assert.match(root.textContent, /P1/);
-    root.contains = contains;
+  } finally {
+    delete h.document;
+  }
+});
+
+test("si el mapa falla, la página del contexto muestra igual la lista", async () => {
+  const doc = fakeRoot().ownerDocument;
+  h.document = doc;
+  try {
+    const context = { id: 21, title: "C", description: "", status: "active", parent: null };
+    const api = { get: async (path) => {
+      if (path.endsWith("/map")) throw Object.assign(new Error("falló"), { status: 500 });
+      return { context, steps: [] };
+    } };
+    const root = fakeRoot();
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      await mount(root, { api, store: { set() {} }, state: { ...BASE, ctx: 21 }, signal: new AbortController().signal });
+    } finally {
+      console.warn = warn;
+    }
+    assert.match(root.textContent, /El contexto no tiene pasos/);
+    assert.match(root.textContent, /◇ Mapa \(no aplica\)/);
   } finally {
     delete h.document;
   }

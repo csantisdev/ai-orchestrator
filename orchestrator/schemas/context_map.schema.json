@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ai-orchestrator.local/schemas/context_map.schema.json",
   "title": "Mapa del contexto",
-  "description": "GET /api/v1/projects/{p}/contexts/{id}/map (spec §21.3, §21.4): ProjectGraph del contexto más la extensión `map` (carriles, colocación de commits, grupos, elegibilidad y lo resumido por presupuesto). Sin texto libre.",
+  "description": "GET /api/v1/projects/{p}/contexts/{id}/map (spec §21.3, §21.4): ProjectGraph completo del contexto más la extensión `map` (carriles, colocación de commits, compartidos, grupos, elegibilidad y topes). Los topes de commits y aristas los aplica el cliente sobre la ventana visible. Sin texto libre.",
   "type": "object",
   "required": [
     "nodes",
@@ -34,11 +34,8 @@
         "shared",
         "placement",
         "groups",
-        "single_commits",
-        "more_commits",
-        "hidden_edges",
         "max_columns",
-        "more_commit_steps"
+        "limits"
       ],
       "additionalProperties": false,
       "properties": {
@@ -97,7 +94,8 @@
               "count",
               "members",
               "lane",
-              "lanes"
+              "lanes",
+              "single_commits"
             ],
             "properties": {
               "id": {
@@ -133,47 +131,35 @@
                   "type": "integer",
                   "minimum": 1
                 }
+              },
+              "single_commits": {
+                "type": "integer",
+                "minimum": 0
               }
             }
-          }
-        },
-        "single_commits": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "pattern": "^step:[0-9]+$"
-          },
-          "additionalProperties": {
-            "type": "integer",
-            "minimum": 1
-          }
-        },
-        "more_commits": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "hidden_edges": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "pattern": "^commit:([0-9a-f]{40}|[0-9a-f]{64})$"
-          },
-          "additionalProperties": {
-            "type": "integer",
-            "minimum": 1
           }
         },
         "max_columns": {
           "type": "integer",
           "minimum": 1
         },
-        "more_commit_steps": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^step:[0-9]+$"
-          },
-          "uniqueItems": true
+        "limits": {
+          "type": "object",
+          "required": [
+            "commits",
+            "edges"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "commits": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "edges": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         }
       }
     }

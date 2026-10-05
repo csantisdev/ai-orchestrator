@@ -53,10 +53,13 @@ export function layoutMap(dto, { expanded = new Set(), start = 0 } = {}) {
   const x = (column) => L.laneLabel + (column - first) * L.column;
   const inWindow = (column) => column >= first && column < first + size;
 
+  const stepColumn = new Map(dto.nodes.filter((node) => node.kind === "step").map((node) => [node.id, columnOf.get(node.id)]));
+  const budget = windowBudget(dto, stepColumn, inWindow);
+
   const nodes = visible.map((item, offset) => {
     const column = first + offset;
     if (item.kind === "group") {
-      const singleCommits = item.group.members.reduce((sum, member) => sum + (dto.map.single_commits[member] ?? 0), 0);
+      const singleCommits = item.group.members.reduce((sum, member) => sum + (budget.singleCommits.get(member) ?? 0), 0);
       return {
         kind: "group", id: item.id, column, x: x(column), y: laneY.get(item.group.lane) ?? L.top,
         label: `Pasos ${item.group.from_idx}–${item.group.to_idx}`,
@@ -75,7 +78,7 @@ export function layoutMap(dto, { expanded = new Set(), start = 0 } = {}) {
       idx: attrs.idx, state: step.state, symbol: STATE_SYMBOL[step.state] ?? "·",
       lane: attrs.lane, secondary: attrs.secondary, ghosts, badges,
       alignments: attrs.alignments, deviations: attrs.deviations, runs: attrs.runs, cost: attrs.cost_usd,
-      singleCommits: dto.map.single_commits[step.id] ?? 0,
+      singleCommits: budget.singleCommits.get(step.id) ?? 0,
     };
   });
 
@@ -83,51 +86,31 @@ export function layoutMap(dto, { expanded = new Set(), start = 0 } = {}) {
   const channel = lanesBottom + L.channelGap;
   const commitTop = channel + L.channelGap;
   const shared = new Set(dto.map.shared);
-  const stepColumn = new Map(dto.nodes.filter((node) => node.kind === "step").map((node) => [node.id, columnOf.get(node.id)]));
-  // Columna del commit: la del primer paso que lo cita dentro de la ventana (§21.3 lo pone bajo
-  // el primer citante; si ese queda fuera de la ventana, el commit sigue visible bajo el primer
-  // citante que sí se ve). Sin citantes visibles, el commit no se dibuja.
-  const citingColumns = new Map();
-  for (const edge of dto.edges) {
-    if (edge.relation_type !== "cites") continue;
-    const column = stepColumn.get(edge.source);
-    if (column === undefined || !inWindow(column)) continue;
-    citingColumns.set(edge.target, Math.min(citingColumns.get(edge.target) ?? Infinity, column));
-  }
-  const placed = dto.nodes
-    .filter((node) => node.kind === "commit" && dto.map.placement[node.id] && citingColumns.has(node.id))
-    .map((node) => ({ node, column: citingColumns.get(node.id) }))
-    .sort((a, b) => a.column - b.column || (a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 : 0));
+  const labels = new Map(dto.nodes.filter((node) => node.kind === "commit").map((node) => [node.id, node.label]));
   const stacks = new Map();
   const commits = [];
   let maxStack = 0;
-  for (const { node, column } of placed) {
+  for (const id of budget.drawn) {
+    const column = budget.column.get(id);
     const stack = stacks.get(column) ?? 0;
     stacks.set(column, stack + 1);
     maxStack = Math.max(maxStack, stack);
     commits.push({
-      id: node.id, label: node.label, shared: shared.has(node.id), column,
+      id, label: labels.get(id) ?? id.slice(7, 14), shared: shared.has(id), column,
       x: x(column) + L.nodeWidth / 2, y: commitTop + stack * L.commitGap,
-      hidden: dto.map.hidden_edges[node.id] ?? 0,
+      hidden: budget.hiddenEdges.get(id) ?? 0,
     });
   }
   const commitAt = new Map(commits.map((commit) => [commit.id, commit]));
-  const nodeAt = new Map(nodes.map((node) => [node.id, node]));
-  const holder = (stepId) => {
-    const column = stepColumn.get(stepId);
-    return inWindow(column) ? nodes[column - first] : null;
-  };
+  const holder = (stepId) => nodes[stepColumn.get(stepId) - first] ?? null;
   const edges = [];
-  for (const edge of dto.edges) {
-    if (edge.relation_type !== "cites") continue;
+  for (const edge of budget.edges) {
     const commit = commitAt.get(edge.target);
-    const source = nodeAt.get(edge.source) ?? holder(edge.source);
+    const source = holder(edge.source);
     if (!commit || !source) continue;
-    const sx = source.x + L.nodeWidth / 2 + (source.kind === "group" ? 0 : 0);
-    const sy = source.y + L.nodeHeight;
     edges.push({
       source: source.id, step: edge.source, target: commit.id, shared: commit.shared,
-      d: `M ${sx} ${sy} V ${channel} H ${commit.x} V ${commit.y - L.commitSize}`,
+      d: `M ${source.x + L.nodeWidth / 2} ${source.y + L.nodeHeight} V ${channel} H ${commit.x} V ${commit.y - L.commitSize}`,
     });
   }
   const width = L.laneLabel + Math.max(visible.length, 1) * L.column + 16;
@@ -135,8 +118,61 @@ export function layoutMap(dto, { expanded = new Set(), start = 0 } = {}) {
   return {
     width, height, lanes: lanes.map((lane) => ({ lane, label: agentLabel(lane), y: laneY.get(lane) })),
     columns: { first, size, total: items.length }, nodes, commits, edges, channel, lanesBottom,
-    moreCommits: dto.map.more_commits,
+    moreCommits: budget.moreCommits, moreCommitSteps: budget.moreCommitSteps,
   };
+}
+
+const byId = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+// Presupuesto visual de §21.3 decidido sobre la ventana visible: con más de `limits.commits`
+// commits o más de `limits.edges` citas, los citados por un solo paso pasan a ser un contador
+// "◇n" en el paso; si aún sobran compartidos, se dibujan los de más citantes (desempate por
+// columna y SHA) y el resto se resume en "+n commits compartidos"; las aristas se recorren en
+// orden de dibujo hasta el tope y el resto queda como "+k citas" en su commit.
+export function windowBudget(dto, stepColumn, inWindow) {
+  const limits = dto.map.limits;
+  const shared = new Set(dto.map.shared);
+  const cites = dto.edges.filter((edge) => edge.relation_type === "cites" && inWindow(stepColumn.get(edge.source)));
+  const citing = new Map();
+  for (const edge of cites) {
+    if (!citing.has(edge.target)) citing.set(edge.target, []);
+    citing.get(edge.target).push(edge.source);
+  }
+  const column = new Map([...citing].map(([id, steps]) => [id, Math.min(...steps.map((step) => stepColumn.get(step)))]));
+  let drawn = [...citing.keys()];
+  const singleCommits = new Map();
+  if (drawn.length > limits.commits || cites.length > limits.edges) {
+    for (const id of drawn) {
+      if (shared.has(id)) continue;
+      const step = citing.get(id)[0];
+      singleCommits.set(step, (singleCommits.get(step) ?? 0) + 1);
+    }
+    drawn = drawn.filter((id) => shared.has(id));
+  }
+  let moreCommits = 0;
+  let moreCommitSteps = [];
+  if (drawn.length > limits.commits) {
+    const ranked = [...drawn].sort((a, b) => citing.get(b).length - citing.get(a).length
+      || column.get(a) - column.get(b) || byId(a, b));
+    const keep = new Set(ranked.slice(0, limits.commits));
+    const hidden = drawn.filter((id) => !keep.has(id));
+    moreCommits = hidden.length;
+    moreCommitSteps = [...new Set(hidden.flatMap((id) => citing.get(id)))]
+      .sort((a, b) => stepColumn.get(a) - stepColumn.get(b) || byId(a, b));
+    drawn = drawn.filter((id) => keep.has(id));
+  }
+  // Orden de colocación (columna y SHA) y, dentro de cada commit, citantes por columna.
+  drawn.sort((a, b) => column.get(a) - column.get(b) || byId(a, b));
+  const edges = [];
+  const hiddenEdges = new Map();
+  for (const id of drawn) {
+    const steps = [...citing.get(id)].sort((a, b) => stepColumn.get(a) - stepColumn.get(b) || byId(a, b));
+    for (const step of steps) {
+      if (edges.length < limits.edges) edges.push({ source: step, target: id });
+      else hiddenEdges.set(id, (hiddenEdges.get(id) ?? 0) + 1);
+    }
+  }
+  return { drawn, column, edges, hiddenEdges, singleCommits, moreCommits, moreCommitSteps };
 }
 
 // Nodos y commits relacionados con una selección (`step:<id>` o `commit:<sha>`).

@@ -436,6 +436,7 @@
   }
   .segmented button + button { border-left: 1px solid var(--border); }
   .segmented button[aria-pressed="true"] { background: var(--state-live); color: var(--bg-base); font-weight: 600; }
+  .segmented button:disabled { color: var(--text-faint); cursor: not-allowed; }
   .segmented button:focus-visible { outline: 2px solid var(--state-focus); outline-offset: -2px; }
 
   .panel {

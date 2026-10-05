@@ -557,8 +557,11 @@ def context_map(
 ) -> Optional[dict]:
     """ProjectGraph del contexto con la extensión `map` (spec §21.3, §21.4).
 
-    Los nodos y aristas conservan el formato del ProjectGraph; lo propio del mapa (carriles,
-    colocación de commits, grupos, elegibilidad y lo que se resume por presupuesto) va en `map`.
+    Los nodos y aristas conservan el formato del ProjectGraph y van completos (todos los
+    commits verificados y todas las citas). Lo propio del mapa va en `map`: carriles,
+    colocación de commits, commits compartidos, grupos, elegibilidad y los topes. Los topes
+    de commits y aristas se deciden en el cliente sobre la ventana visible de columnas, como
+    pide §21.3 ("ya dentro de la ventana de 30 columnas"); acá solo viajan sus valores.
     Disposición determinista: x = orden del paso, y = carril del agente principal, commits en
     una franja inferior bajo el primer paso que los cita, apilados por SHA.
     """
@@ -567,15 +570,16 @@ def context_map(
         return None
     steps = [node for node in graph["nodes"] if node["kind"] == "step"]
     column = {node["id"]: node["attrs"]["idx"] for node in steps}
-    cites = [edge for edge in graph["edges"] if edge["relation_type"] == "cites"]
     citers: dict[str, list[str]] = {}
-    for edge in cites:
+    for edge in graph["edges"]:
+        if edge["relation_type"] != "cites":
+            continue
         bucket = citers.setdefault(edge["target"], [])
         if edge["source"] not in bucket:
             bucket.append(edge["source"])
     for bucket in citers.values():
         bucket.sort(key=lambda step: column[step])
-    shared = {commit for commit, steps_citing in citers.items() if len(steps_citing) >= 2}
+    shared = {commit for commit, citing in citers.items() if len(citing) >= 2}
     shared_citers = {step for commit in shared for step in citers[commit]}
 
     present = {node["attrs"]["lane"] for node in steps}
@@ -584,73 +588,45 @@ def context_map(
         lanes.append(NO_AGENT)
     eligible = len([lane for lane in lanes if lane != NO_AGENT]) >= 2 or bool(shared)
 
-    def first_column(commit: str) -> int:
-        return column[citers[commit][0]]
-
-    # Presupuesto de commits y aristas (§21.3): primero los citados por un solo paso pasan a ser
-    # un contador en el paso; si aún sobran compartidos o aristas, el caso extremo. Se calcula
-    # sobre el contexto entero y no por ventana de 30 columnas: toda ventana es un subconjunto,
-    # así que ninguna supera los topes; a lo sumo resume algo que en una ventana puntual habría
-    # entrado (hoy el contexto más grande tiene 21 pasos y la ventana no se activa).
-    all_commits = sorted(citers, key=lambda commit: (first_column(commit), commit))
-    drawn = list(all_commits)
-    single_counts: dict[str, int] = {}
-    if len(drawn) > max_commits or len(cites) > max_edges:
-        drawn = [commit for commit in drawn if commit in shared]
-        for commit in all_commits:
-            if commit not in shared:
-                step = citers[commit][0]
-                single_counts[step] = single_counts.get(step, 0) + 1
-    more_commits = 0
-    more_commit_steps: list[str] = []
-    if len(drawn) > max_commits:
-        ranked = sorted(drawn, key=lambda commit: (-len(citers[commit]), first_column(commit), commit))
-        keep = set(ranked[:max_commits])
-        more_commits = len(drawn) - len(keep)
-        # Pasos que citan los compartidos sin dibujar: el nodo "+n commits compartidos" filtra
-        # la lista sincronizada a ellos.
-        hidden_citers = {step for commit in drawn if commit not in keep for step in citers[commit]}
-        more_commit_steps = sorted(hidden_citers, key=lambda step: column[step])
-        drawn = [commit for commit in drawn if commit in keep]
-    drawn_set = set(drawn)
-
-    # Aristas en el orden de dibujo: commits por colocación y, dentro de cada uno, pasos citantes
-    # por orden del plan; las que pasan el tope se resumen como "+k citas" en el commit.
+    # Colocación global: bajo el primer paso que cita el commit, apilados por SHA. El cliente
+    # la recalcula si ese paso queda fuera de la ventana.
+    ordered = sorted(citers, key=lambda commit: (column[citers[commit][0]], commit))
     placement: dict[str, dict] = {}
     stacks: dict[int, int] = {}
-    for commit in drawn:
-        col = first_column(commit)
+    for commit in ordered:
+        col = column[citers[commit][0]]
         placement[commit] = {"column": col, "stack": stacks.get(col, 0)}
         stacks[col] = stacks.get(col, 0) + 1
-    ordered_edges = []
-    hidden_edges: dict[str, int] = {}
-    budget = max_edges
-    for commit in drawn:
-        for step in citers[commit]:
-            if budget > 0:
-                ordered_edges.append({"source": step, "target": commit, "relation_type": "cites",
-                                      "origin": "verified_reference", "confidence": 1.0,
-                                      "evidence_ref": "steps.notes"})
-                budget -= 1
-            else:
-                hidden_edges[commit] = hidden_edges.get(commit, 0) + 1
+
+    # Aristas en el orden de dibujo de §21.3: commits por colocación y, dentro de cada uno,
+    # pasos citantes por orden del plan.
+    cites = [
+        {"source": step, "target": commit, "relation_type": "cites", "origin": "verified_reference",
+         "confidence": 1.0, "evidence_ref": "steps.notes"}
+        for commit in ordered for step in citers[commit]
+    ]
+    single_by_step: dict[str, int] = {}
+    for commit, citing in citers.items():
+        if commit not in shared:
+            single_by_step[citing[0]] = single_by_step.get(citing[0], 0) + 1
+    groups = _map_groups(steps, shared_citers, max_steps)
+    for group in groups:
+        group["single_commits"] = sum(single_by_step.get(member, 0) for member in group["members"])
 
     contains = [edge for edge in graph["edges"] if edge["relation_type"] == "contains"]
-    nodes = [node for node in graph["nodes"] if node["kind"] != "commit" or node["id"] in drawn_set]
+    commit_nodes = {node["id"]: node for node in graph["nodes"] if node["kind"] == "commit"}
+    nodes = [node for node in graph["nodes"] if node["kind"] != "commit"] + [commit_nodes[commit] for commit in ordered]
     return {
         "nodes": nodes,
-        "edges": contains + ordered_edges,
+        "edges": contains + cites,
         "metadata": graph["metadata"],
         "map": {
             "lanes": lanes,
             "eligible": eligible,
-            "shared": [commit for commit in drawn if commit in shared],
+            "shared": [commit for commit in ordered if commit in shared],
             "placement": placement,
-            "groups": _map_groups(steps, shared_citers, max_steps),
-            "single_commits": single_counts,
-            "more_commits": more_commits,
-            "more_commit_steps": more_commit_steps,
-            "hidden_edges": hidden_edges,
+            "groups": groups,
             "max_columns": max_steps,
+            "limits": {"commits": max_commits, "edges": max_edges},
         },
     }

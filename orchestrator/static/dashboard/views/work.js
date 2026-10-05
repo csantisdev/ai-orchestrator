@@ -136,15 +136,14 @@ function contextsPage(state, data, filter) {
 }
 
 export const REPRESENTATIONS = Object.freeze([["list", "Pasos"], ["map", "◇ Mapa"]]);
+const MAP_NOT_APPLICABLE = "Un solo carril de agente y ningún commit compartido: el mapa no agrega relaciones a la lista.";
 
 // Mapa del contexto (§21.3): disposición, controles de ventana y aviso si no es elegible.
 function mapSection(state, map, view) {
   if (!map) return null;
   if (!map.map.eligible && !view.force) {
     return panel("Mapa",
-      h("p", { class: "empty-note" },
-        "Este contexto no tiene relaciones que el mapa agregue: un solo carril de agente y ningún commit compartido. "
-        + "La lista de pasos lo muestra igual."),
+      h("p", { class: "empty-note" }, `${MAP_NOT_APPLICABLE} La lista de pasos lo muestra igual.`),
       h("button", { type: "button", class: "ui-button", data: { forceMap: "1" } }, "Ver el mapa igual"));
   }
   const layout = layoutMap(map, { expanded: view.expanded, start: view.start });
@@ -169,21 +168,24 @@ function mapSection(state, map, view) {
       h("li", {}, "Na = alineamientos · Nr = runs · ◇n = commits citados por un solo paso")),
     windowControls,
     h("div", { class: "map-wrap" }, graphic),
-    map.map.more_commits
+    layout.moreCommits
       ? h("button", { type: "button", class: "ui-button", data: { stepFilter: "more-commits" }, "aria-pressed": String(view.stepFilter === "more-commits") },
-        `+${map.map.more_commits} commits compartidos: ver los pasos que los citan`)
+        `+${layout.moreCommits} commits compartidos: ver los pasos que los citan`)
       : null);
 }
 
 function contextPage(state, data, map = null, view = null) {
   const { context, steps } = data;
+  const mapBlock = state.as === "map" ? mapSection(state, map, view) : null;
   const parent = context.parent
     ? h("p", { class: "work-subtle" }, "Creado desde ",
       navLink(state, { ctx: context.parent.context_id, step: context.parent.step_id }, `el paso #${context.parent.step_id} del contexto #${context.parent.context_id}`))
     : null;
   const citing = map ? citingSteps(map) : new Map();
   const relatedSteps = new Set(state.sel?.startsWith("commit:") ? (citing.get(state.sel) ?? []) : []);
-  const filterSteps = view?.stepFilter === "more-commits" ? new Set(map?.map.more_commit_steps ?? []) : null;
+  const filterSteps = view?.stepFilter === "more-commits" && view.layout
+    ? new Set(view.layout.moreCommitSteps)
+    : null;
   const visibleSteps = filterSteps ? steps.filter((step) => filterSteps.has(`step:${step.id}`)) : steps;
   const list = objectList(visibleSteps, (step) => [
     relatedSteps.has(`step:${step.id}`) ? h("span", { class: "work-related" }, "cita el commit seleccionado") : null,
@@ -218,19 +220,26 @@ function contextPage(state, data, map = null, view = null) {
     ? h("p", { class: "empty-note" }, "Mostrando solo los pasos que citan commits compartidos sin dibujar. ",
       h("button", { type: "button", class: "ui-button", data: { stepFilter: "" } }, "Ver todos los pasos"))
     : null;
-  // §23.2: si el mapa no aplica, la pestaña lo dice (con el motivo) y sigue permitiendo verlo.
-  const options = map && !map.map.eligible
-    ? [["list", "Pasos"], ["map", "◇ Mapa (no aplica)"]]
-    : REPRESENTATIONS;
-  const representation = segmented({
-    label: "Representación", options, current: state.as === "map" ? "map" : "list", attribute: "as",
-  });
+  // §23.2: si el mapa no aplica, su pestaña se muestra deshabilitada con el motivo y la
+  // opción de verlo igual. Sin el mapa (la petición falló), la pestaña queda deshabilitada.
+  const notApplicable = map ? !map.map.eligible && !view?.force : true;
+  const reason = map ? MAP_NOT_APPLICABLE : "El mapa no está disponible ahora.";
+  const showingMap = state.as === "map" && !notApplicable;
+  const options = [
+    REPRESENTATIONS[0],
+    [REPRESENTATIONS[1][0], notApplicable ? "◇ Mapa (no aplica)" : REPRESENTATIONS[1][1], { disabled: notApplicable, reason: notApplicable ? reason : null }],
+  ];
+  const representation = h("div", { class: "work-representation" },
+    segmented({ label: "Representación", options, current: showingMap ? "map" : "list", attribute: "as" }),
+    map && notApplicable
+      ? h("button", { type: "button", class: "ui-button", data: { forceMap: "1" } }, "Ver el mapa igual")
+      : null);
   return [
     h("nav", { class: "work-back" }, navLink(state, { ctx: null, step: null }, "← Contextos")),
     header(context.status, CONTEXT_STATUS, representation),
     context.description ? h("p", { class: "work-description" }, context.description) : null,
     parent,
-    state.as === "map" ? mapSection(state, map, view) : null,
+    mapBlock,
     listNote,
     list,
   ];
@@ -296,7 +305,12 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
       const wantsMap = page === "context";
       const [data, map] = await Promise.all([
         api.get(path, { params, signal: controller.signal }),
-        wantsMap ? api.get(`${path}/map`, { signal: controller.signal }) : Promise.resolve(null),
+        // Si el mapa falla, la lista se muestra igual y la pestaña queda deshabilitada.
+        wantsMap ? api.get(`${path}/map`, { signal: controller.signal }).catch((error) => {
+          if (controller.signal.aborted) throw error;
+          console.warn("No se pudo cargar el mapa del contexto:", error);
+          return null;
+        }) : Promise.resolve(null),
       ]);
       if (controller.signal.aborted) return;
       lastData = data;
@@ -346,7 +360,8 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     }
     if (target.dataset.forceMap !== undefined) {
       mapView.force = true;
-      redrawContext();
+      if (current.as === "map") redrawContext();
+      else store.set({ as: "map", sel: null });
       return;
     }
     if (target.dataset.stepFilter !== undefined) {

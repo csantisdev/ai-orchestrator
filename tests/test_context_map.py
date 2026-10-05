@@ -95,39 +95,20 @@ def test_shared_commits_are_placed_under_their_first_citing_step_and_stacked_by_
     ]
 
 
-def test_too_many_commits_turn_single_citations_into_step_counters(conn):
-    ctx = _context(conn, "mi-proyecto", "C", "active", "2026-05-01T00:00:00Z", "2026-05-01T00:00:00Z")
-    first = _step(conn, ctx, 1, "a", "completed", provider="claude", notes=f"{sha(1)} {sha(2)} {sha(9)}")
-    _step(conn, ctx, 2, "b", "completed", provider="claude", notes=f"{sha(3)} {sha(9)}")
-    index = _commits(conn, "mi-proyecto", [sha(1), sha(2), sha(3), sha(9)])
-    result = context_map(conn, ctx, index, max_commits=3)
-    _validate(result)
-    mp = result["map"]
-    assert [node["id"] for node in result["nodes"] if node["kind"] == "commit"] == [f"commit:{sha(9)}"]
-    assert mp["single_commits"] == {f"step:{first}": 2, mp["single_commits"] and next(k for k in mp["single_commits"] if k != f"step:{first}"): 1}
-    assert mp["shared"] == [f"commit:{sha(9)}"]
-
-
-def test_extreme_case_keeps_the_most_cited_shared_commits_and_caps_edges(conn):
+def test_the_map_carries_every_commit_and_citation_and_the_limits(conn):
+    """Los topes se deciden en el cliente sobre la ventana visible (tests/js/map.test.mjs)."""
     ctx = _context(conn, "mi-proyecto", "C", "active", "2026-05-01T00:00:00Z", "2026-05-01T00:00:00Z")
     shas = [sha(n) for n in range(1, 5)]
-    # sha(4) lo citan los tres pasos; el resto, dos.
     _step(conn, ctx, 1, "a", "completed", provider="claude", notes=" ".join(shas))
     _step(conn, ctx, 2, "b", "completed", provider="claude", notes=" ".join(shas))
     _step(conn, ctx, 3, "c", "completed", provider="claude", notes=shas[3])
     index = _commits(conn, "mi-proyecto", shas)
     result = context_map(conn, ctx, index, max_commits=2, max_edges=4)
     _validate(result)
-    mp = result["map"]
-    drawn = [node["id"] for node in result["nodes"] if node["kind"] == "commit"]
-    # Ranking: más citantes primero (sha 4), después columna y SHA (sha 1).
-    assert sorted(drawn) == sorted([f"commit:{shas[3]}", f"commit:{shas[0]}"])
-    assert mp["more_commits"] == 2
-    # Los dos compartidos sin dibujar los citan los pasos 1 y 2.
-    assert mp["more_commit_steps"] == [node["id"] for node in result["nodes"] if node["kind"] == "step"][:2]
-    cites = [edge for edge in result["edges"] if edge["relation_type"] == "cites"]
-    assert len(cites) == 4
-    assert sum(mp["hidden_edges"].values()) == 5 - 4
+    assert len([node for node in result["nodes"] if node["kind"] == "commit"]) == 4
+    assert len([edge for edge in result["edges"] if edge["relation_type"] == "cites"]) == 9
+    assert result["map"]["limits"] == {"commits": 2, "edges": 4}
+    assert result["map"]["shared"] == [f"commit:{value}" for value in shas]
 
 
 def test_groups_collapse_long_runs_of_quiet_completed_steps(conn):
@@ -145,6 +126,7 @@ def test_groups_collapse_long_runs_of_quiet_completed_steps(conn):
     assert groups[0]["members"] == [f"step:{i}" for i in ids]
     assert groups[0]["lanes"] == {"claude": 3, "codex": 1}
     assert groups[1]["members"] == [f"step:{i}" for i in tail]
+    assert [g["single_commits"] for g in groups] == [0, 0]
     assert context_map(conn, ctx, CommitIndex([]))["map"]["groups"] == []
 
 
