@@ -690,7 +690,8 @@ def serve(
             runs_list = history_module.read_runs(project=sel_project or None, last=500)
             extra_projects = sorted(known_projects)
             html = build_html(runs_list, selected_project=sel_project, projects_extra=extra_projects,
-                              session_token=_session_token, static_bundle=_static_bundle)
+                              session_token=_session_token, static_bundle=_static_bundle,
+                              registered_projects=_registered)
             body = html.encode("utf-8")
             try:
                 self.send_response(200)

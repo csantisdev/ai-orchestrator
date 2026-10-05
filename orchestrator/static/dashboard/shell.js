@@ -19,6 +19,36 @@ const views = createViewHost({
   load: (path) => import(new URL(path, import.meta.url).href),
   onError: showViewError,
 });
+// Título que fija la vista montada con `page.set` (contrato en README.md): vale solo mientras
+// esa vista siga en pantalla; al cambiar de vista vuelve el título de la sección.
+let currentViewKey = null;
+let pageTitle = null;
+let lastResolved = null;
+
+function viewKey(resolved) {
+  if (!resolved.module) return null;
+  return resolved.tab ? `${resolved.section.id}:${resolved.tab.id}` : resolved.section.id;
+}
+
+function pageFor(key) {
+  return {
+    set({ title = null, subtitle = null } = {}) {
+      if (key !== currentViewKey) return;
+      pageTitle = { key, title, subtitle };
+      if (lastResolved) renderTitle(lastResolved);
+    },
+  };
+}
+
+function renderTitle(resolved) {
+  const own = pageTitle && pageTitle.key === currentViewKey ? pageTitle : null;
+  const fallback = resolved.tab ? `${resolved.section.label} · ${resolved.tab.label}` : resolved.section.label;
+  $("shell-title").textContent = own?.title || fallback;
+  const subtitle = own?.subtitle ?? resolved.section.question ?? "";
+  $("shell-subtitle").textContent = subtitle;
+  $("shell-subtitle").hidden = !subtitle;
+}
+
 // 768–1279 px: Inspector y Activity se superponen al contenido; nunca los dos abiertos.
 const overlayLayout = window.matchMedia("(max-width: 1279px)");
 let inspectorDismissed = false;
@@ -45,7 +75,7 @@ function renderNavigation(resolved) {
     if (index === resolved.crumbs.length - 1) item.setAttribute("aria-current", "location");
     return item;
   }));
-  $("shell-title").textContent = resolved.tab ? `${resolved.section.label} · ${resolved.tab.label}` : resolved.section.label;
+  renderTitle(resolved);
   document.title = `${resolved.crumbs.slice(1).join(" · ")} — Orchestrator`;
 }
 
@@ -105,8 +135,8 @@ function renderContent(resolved, state) {
   if (resolved.legacy && typeof window.switchTab === "function") window.switchTab(resolved.legacy);
   $("view-root").hidden = !resolved.module;
   if (resolved.module) {
-    const key = resolved.tab ? `${resolved.section.id}:${resolved.tab.id}` : resolved.section.id;
-    views.show(key, resolved.module, { store, api, state });
+    const key = viewKey(resolved);
+    views.show(key, resolved.module, { store, api, state, page: pageFor(key) });
   } else {
     views.hide();
   }
@@ -130,6 +160,10 @@ function render(state, previous = {}) {
     if (overlayLayout.matches) closeActivity();
   }
   const resolved = resolveSection(state);
+  const key = viewKey(resolved);
+  if (key !== currentViewKey) pageTitle = null;
+  currentViewKey = key;
+  lastResolved = resolved;
   renderNavigation(resolved);
   renderTabs(resolved);
   renderContent(resolved, state);
@@ -181,11 +215,59 @@ function watchConnection() {
     events.readyState === 2 ? "Sin conexión" : "Reconectando…"));
 }
 
+// Contadores de la navegación y aviso de denegadas del header (§23.4), del proyecto elegido.
+async function loadHeaderCounts() {
+  const project = store.get().project;
+  if (!project) return;
+  try {
+    const { projects } = await api.get("/api/v1/meta/projects");
+    const own = projects.find((item) => item.alias === project);
+    const counts = { trabajo: own?.active_contexts, ejecuciones: own?.runs };
+    for (const [view, value] of Object.entries(counts)) {
+      const slot = document.querySelector(`.shell-nav-count[data-count="${view}"]`);
+      if (slot) slot.textContent = value ? new Intl.NumberFormat("es-CL").format(value) : "";
+    }
+    // La API de proyectos limita la ruta a caracteres seguros; si el alias no cabe, no hay aviso.
+    if (!/^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/.test(project)) return;
+    const summary = await api.get(`/api/v1/projects/${project}/governance/summary`, { params: { period: "7d" } });
+    const problems = summary.mcp.denied + summary.mcp.error;
+    const pill = $("shell-denied");
+    pill.hidden = problems === 0;
+    pill.textContent = `${problems} ${problems === 1 ? "denegada o con error" : "denegadas o con error"} · 7 d`;
+    pill.href = `/?${new URLSearchParams({ project, view: "gobernanza" })}`;
+  } catch (error) {
+    console.warn("No se pudieron cargar los contadores del header:", error);
+  }
+}
+
+// Acciones del dashboard heredado: viven en sus pestañas (Ejecuciones › Actividad y Trabajo ›
+// Flujos), así que primero se navega hasta ellas.
+const ACTIONS = {
+  "clear-selection": () => store.set({ sel: null }),
+  "new-task": () => {
+    store.set({ view: "ejecuciones", tab: "actividad" });
+    const panel = $("senderPanel");
+    panel?.classList.add("open");
+    panel?.scrollIntoView({ block: "start" });
+    $("senderTask")?.focus();
+  },
+  "new-flow": () => {
+    store.set({ view: "trabajo", tab: "flujos" });
+    $("ctxTitle")?.scrollIntoView({ block: "center" });
+    $("ctxTitle")?.focus();
+  },
+};
+
+$("shell-project").addEventListener("change", (event) => event.currentTarget.form.submit());
+$("themeSelect")?.addEventListener("change", (event) => window.setTheme?.(event.currentTarget.value));
+
 document.addEventListener("click", (event) => {
   const target = event.target.closest?.("[data-view], [data-action]");
   if (!target) return;
-  if (target.dataset.action === "clear-selection") {
-    store.set({ sel: null });
+  const action = ACTIONS[target.dataset.action];
+  if (action) {
+    $("shell-menu").open = false;
+    action();
     return;
   }
   if (!target.dataset.view) return;
@@ -217,6 +299,7 @@ store.subscribe(render);
 render(store.get());
 watchActivity();
 watchConnection();
+loadHeaderCounts();
 document.documentElement.dataset.shell = "ready";
 
 export { SECTIONS, store };

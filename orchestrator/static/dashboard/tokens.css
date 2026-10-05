@@ -61,13 +61,15 @@
   :root {
     /* Superficies (--bg-*), texto (--text-*) y bordes (--border*) son los de cada tema,
        arriba. Familias (§4.3) y estados. */
-    --family-knowledge: #38bdf8;
-    --family-work: #a78bfa;
-    --family-decision: #f59e0b;
-    --family-execution: #22c55e;
-    --family-governance: #f472b6;
+    /* §4.3 y maqueta v5: Knowledge verde, Work azul, Decision ámbar, Execution cian,
+       Governance violeta, Error rojo, Neutral gris. */
+    --family-knowledge: #22c55e;
+    --family-work: #60a5fa;
+    --family-decision: #fbbf24;
+    --family-execution: #22d3ee;
+    --family-governance: #a78bfa;
     --family-error: #f87171;
-    --family-neutral: #94a3b8;
+    --family-neutral: #a1a1aa;
     --state-live: #22c55e;
     --state-warning: #f59e0b;
     --state-danger: #f87171;
@@ -84,8 +86,23 @@
     --motion-fast: 120ms; --motion-normal: 200ms;
     --shell-nav-width: 208px;
     --shell-inspector-width: 340px;
-    --shell-header-height: 64px;
+    --shell-header-height: 52px;
     --shell-activity-height: 48px;
+  }
+
+  /* En tema claro, las mismas familias con más contraste sobre fondo blanco. */
+  [data-theme="light"] {
+    --family-knowledge: #15803d;
+    --family-work: #2563eb;
+    --family-decision: #b45309;
+    --family-execution: #0e7490;
+    --family-governance: #7c3aed;
+    --family-error: #dc2626;
+    --family-neutral: #52525b;
+    --state-live: #15803d;
+    --state-warning: #b45309;
+    --state-danger: #dc2626;
+    --state-focus: #2563eb;
   }
 
   [data-theme="a11y"] {

@@ -1,12 +1,13 @@
-// Secciones del shell (spec §23.3): cuatro de trabajo y tres de control.
+// Secciones del shell (spec §23.3): cuatro de trabajo y tres de control. `question` es la
+// pregunta que responde cada sección (tabla de §23.3) y acompaña al título.
 // Mientras cada vista se migra (olas 3 a 6), las secciones muestran la pestaña heredada que
 // mejor las cubre; las que todavía no tienen contenido muestran un estado vacío.
 // Puro: sin DOM, para probarlo con `node --test`.
 
 export const SECTIONS = Object.freeze([
-  { id: "inicio", group: "proyecto", label: "Inicio", module: "./views/home.js" },
+  { id: "inicio", group: "proyecto", label: "Inicio", question: "¿Qué necesita mi atención?", module: "./views/home.js" },
   {
-    id: "trabajo", group: "proyecto", label: "Trabajo",
+    id: "trabajo", group: "proyecto", label: "Trabajo", question: "¿En qué está el plan y qué lo respalda?",
     tabs: [
       // `pages`: la vista navega por `ctx` y `step`, que se suman al breadcrumb.
       { id: "contextos", label: "Contextos", module: "./views/work.js", pages: true },
@@ -16,7 +17,7 @@ export const SECTIONS = Object.freeze([
     ],
   },
   {
-    id: "ejecuciones", group: "proyecto", label: "Ejecuciones",
+    id: "ejecuciones", group: "proyecto", label: "Ejecuciones", question: "¿Qué se ejecutó y cuánto costó?",
     tabs: [
       { id: "runs", label: "Runs", module: "./views/runs.js" },
       { id: "costos", label: "Costos", module: "./views/costs.js" },
@@ -24,7 +25,7 @@ export const SECTIONS = Object.freeze([
     ],
   },
   {
-    id: "gobernanza", group: "proyecto", label: "Gobernanza",
+    id: "gobernanza", group: "proyecto", label: "Gobernanza", question: "¿Qué se denegó o falló, y por qué?",
     tabs: [
       { id: "acceso", label: "Acceso MCP", module: "./views/governance.js" },
       { id: "egress", label: "Egress", module: "./views/governance.js" },

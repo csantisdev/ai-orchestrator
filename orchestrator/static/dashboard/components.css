@@ -15,7 +15,9 @@
   }
 
   .shell-nav-link {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-control);
     font-size: var(--text-13);
@@ -46,13 +48,22 @@
   .shell-crumb + .shell-crumb::before { content: "›"; margin-right: var(--space-2); color: var(--text-faint); }
   .shell-crumb[aria-current="location"] { color: var(--text-secondary); }
 
-  .shell-title {
+  /* Encabezado de la página (maqueta): el objeto y la pregunta que responde. */
+  .shell-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
     margin: var(--space-2) var(--space-4) var(--space-3);
-    font-size: var(--text-22);
+  }
+  .shell-title {
+    font-size: var(--text-16);
     font-weight: 700;
     letter-spacing: -.3px;
     color: var(--text-primary);
+    overflow-wrap: anywhere;
   }
+  .shell-subtitle { font-size: var(--text-12); color: var(--text-muted); }
 
   .shell-note {
     margin: 0 var(--space-4) var(--space-3);
@@ -99,7 +110,17 @@
     color: var(--text-muted);
     margin-bottom: var(--space-3);
   }
-  .inspector-empty p { font-size: var(--text-13); line-height: 1.6; color: var(--text-muted); }
+  .inspector-empty p { font-size: var(--text-12); line-height: 1.6; color: var(--text-muted); }
+  .inspector-title { margin-bottom: var(--space-3); font-size: var(--text-15); font-weight: 700; color: var(--text-primary); }
+  .inspector-legend { list-style: none; display: grid; gap: var(--space-1); margin-top: var(--space-4); font-size: var(--text-11); }
+  .inspector-legend li { display: flex; align-items: center; gap: var(--space-2); color: var(--text-muted); }
+  .inspector-legend li::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .inspector-legend .family-knowledge::before { background: var(--family-knowledge); }
+  .inspector-legend .family-work::before { background: var(--family-work); }
+  .inspector-legend .family-decision::before { background: var(--family-decision); }
+  .inspector-legend .family-execution::before { background: var(--family-execution); }
+  .inspector-legend .family-governance::before { background: var(--family-governance); }
+  .inspector-legend .family-error::before { background: var(--family-error); }
   .inspector-kind { font-size: var(--text-12); color: var(--text-muted); }
   .inspector-id {
     margin: var(--space-1) 0 var(--space-4);
@@ -234,4 +255,107 @@
   .trace-event-title { font-weight: 600; color: var(--text-primary); }
   .trace-event-meta { color: var(--text-muted); }
   .trace-event-body { margin-top: var(--space-1); color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  /* Header (maqueta, §23.4): marca, proyecto, estado y las acciones heredadas en un menú. */
+  .shell-header {
+    position: relative;
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-4);
+    min-height: var(--shell-header-height);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+  .shell-brand { font-size: var(--text-15); font-weight: 700; letter-spacing: -.4px; color: var(--text-primary); text-decoration: none; }
+  .shell-project { display: flex; align-items: center; gap: var(--space-2); }
+  .shell-project-label { font-size: var(--text-11); color: var(--text-muted); }
+  .shell-project select {
+    max-width: 260px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--bg-input);
+    font-family: var(--font-data);
+    font-size: var(--text-12);
+    color: var(--text-primary);
+  }
+  .shell-header-status { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+  .shell-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-3);
+    border: 1px solid var(--family-governance);
+    border-radius: var(--radius-control);
+    font-size: var(--text-11);
+    font-weight: 600;
+    color: var(--family-governance);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .shell-pill:hover { background: var(--bg-input); }
+  .shell-menu { position: relative; }
+  .shell-menu summary {
+    list-style: none;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font-size: var(--text-12);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .shell-menu summary::-webkit-details-marker { display: none; }
+  .shell-menu summary::after { content: " ▾"; color: var(--text-faint); }
+  .shell-menu[open] summary { color: var(--text-primary); border-color: var(--text-muted); }
+  .shell-menu-list {
+    position: absolute;
+    right: 0;
+    top: calc(100% + var(--space-1));
+    display: grid;
+    gap: 2px;
+    min-width: 200px;
+    padding: var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow-panel);
+  }
+  .shell-menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    font: inherit;
+    font-size: var(--text-12);
+    color: var(--text-secondary);
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .shell-menu-item:hover { background: var(--bg-input); color: var(--text-primary); }
+  .shell-menu-theme select {
+    padding: 2px var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--bg-input);
+    font: inherit;
+    color: var(--text-primary);
+  }
+  .shell-menu-meta { padding: var(--space-1) var(--space-3); font-size: var(--text-10); color: var(--text-faint); }
+  .shell-brand:focus-visible, .shell-pill:focus-visible, .shell-menu summary:focus-visible,
+  .shell-menu-item:focus-visible { outline: 2px solid var(--state-focus); outline-offset: 2px; }
+
+  .shell-nav-count { margin-left: auto; font-family: var(--font-data); font-size: var(--text-10); color: var(--text-faint); }
+
+  @media (max-width: 767px) {
+    .shell-header-status { margin-left: 0; }
+    .shell-project select { max-width: 180px; }
+  }
 }

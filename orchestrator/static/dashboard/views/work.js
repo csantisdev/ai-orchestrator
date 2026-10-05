@@ -84,10 +84,37 @@ function navLink(state, patch, children, className = "work-link") {
   }, children);
 }
 
-function header(title, status, labels, extra) {
+// El título de la página lo pone el shell (`page.set`); acá queda la fila de estado y acciones.
+function header(status, labels, extra) {
   return h("header", { class: "work-header" },
-    h("div", { class: "work-header-title" }, h("h2", {}, title), status === undefined ? null : statusPill(status, labels)),
+    status === undefined ? null : h("div", { class: "work-header-title" }, statusPill(status, labels)),
     extra);
+}
+
+function count(value, singular, plural) {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
+// Título y subtítulo de cada página para el encabezado del shell (§23.3: el título es el objeto).
+export function pageTitle(page, data) {
+  if (page === "step") {
+    return {
+      title: `Paso ${data.step.idx} de ${data.navigation.total} · ${data.step.title || "Sin título"}`,
+      subtitle: `Contexto #${data.context.id} · ${data.context.title || "Sin título"}`,
+    };
+  }
+  if (page === "context") {
+    const done = data.steps.filter((step) => step.status === "completed").length;
+    return {
+      title: `Contexto #${data.context.id} · ${data.context.title || "Sin título"}`,
+      subtitle: `${done} de ${count(data.steps.length, "paso completado", "pasos completados")}`,
+    };
+  }
+  const active = data.contexts.filter((item) => item.status === "active").length;
+  return {
+    title: "Trabajo",
+    subtitle: `${count(data.contexts.length, "contexto", "contextos")} · ${count(active, "activo", "activos")}`,
+  };
 }
 
 function contextsPage(state, data, filter) {
@@ -106,7 +133,7 @@ function contextsPage(state, data, filter) {
         navLink(state, { ctx: item.id, step: item.current_step.id }, item.current_step.title || `Paso #${item.current_step.id}`)) : null,
       h("time", { datetime: item.updated_at ?? undefined }, `Actualizado ${formatInstant(item.updated_at)}`)),
   ], { label: "Contextos", empty: filter ? "No hay contextos con ese estado." : "El proyecto no tiene contextos." });
-  return [header("Contextos", undefined, null, filters), list];
+  return [header(undefined, null, filters), list];
 }
 
 function contextPage(state, data) {
@@ -136,7 +163,7 @@ function contextPage(state, data) {
   ], { label: "Pasos", empty: "El contexto no tiene pasos." });
   return [
     h("nav", { class: "work-back" }, navLink(state, { ctx: null, step: null }, "← Contextos")),
-    header(`#${context.id} ${context.title || "Sin título"}`, context.status, CONTEXT_STATUS),
+    header(context.status, CONTEXT_STATUS),
     context.description ? h("p", { class: "work-description" }, context.description) : null,
     parent,
     list,
@@ -149,7 +176,7 @@ function stepPage(state, data) {
   return [
     h("nav", { class: "work-back" },
       navLink(state, { ctx: context.id, step: null }, `← #${context.id} ${context.title || "Contexto"}`)),
-    header(`Paso ${step.idx} de ${navigation.total} · ${step.title || "Sin título"}`, step.status, STEP_STATUS,
+    header(step.status, STEP_STATUS,
       h("div", { class: "work-siblings" }, sibling(navigation.previous, "← Anterior"), sibling(navigation.next, "Siguiente →"))),
     h("p", { class: "work-subtle" },
       [step.provider ? `Proveedor: ${step.provider}` : "Sin proveedor asignado",
@@ -163,7 +190,7 @@ function message(title, body) {
   return h("section", { class: "shell-empty" }, h("h2", {}, title), body ? h("p", {}, body) : null);
 }
 
-export async function mount(root, { api, state, signal, store }) {
+export async function mount(root, { api, state, signal, store, page: shellPage }) {
   ensureStylesheet(root.ownerDocument);
   root.classList.add("work-view");
   let current = state;
@@ -175,6 +202,7 @@ export async function mount(root, { api, state, signal, store }) {
     pending?.abort();
     pending = null;
     const page = pageFor(current);
+    shellPage?.set({});
     if (page === "no-project") {
       root.replaceChildren(message("Elegí un proyecto", "Trabajo muestra los contextos de un proyecto: elegilo en el selector de arriba."));
       return;
@@ -198,6 +226,7 @@ export async function mount(root, { api, state, signal, store }) {
         : page === "context" ? contextPage(current, data)
           : contextsPage(current, data, filter);
       root.replaceChildren(...content.filter(Boolean));
+      shellPage?.set(pageTitle(page, data));
     } catch (error) {
       if (controller.signal.aborted) return;
       if (error?.status === 404) {
