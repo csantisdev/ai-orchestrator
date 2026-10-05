@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/project_constellation.schema.json",
+  "title": "Constelación del proyecto",
+  "description": "GET /api/v1/projects/{p}/constellation (spec §22.4): contextos, pasos, commits de los puentes y portales como nodos, `contains` y `cites` como aristas, más la extensión `constellation` (puentes por commits compartidos, posiciones deterministas, aislados). Sin texto libre; de otros proyectos solo el alias.",
+  "type": "object",
+  "required": [
+    "nodes",
+    "edges",
+    "metadata",
+    "constellation"
+  ],
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "label",
+              "state",
+              "attrs"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^context:[0-9]+$"
+              },
+              "kind": {
+                "const": "context"
+              },
+              "label": {
+                "type": "string",
+                "pattern": "^Contexto [0-9]+$"
+              },
+              "state": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}$"
+              },
+              "attrs": {
+                "type": "object",
+                "required": [
+                  "steps",
+                  "in_progress",
+                  "deviations",
+                  "agent",
+                  "connected"
+                ],
+                "properties": {
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "in_progress": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "deviations": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "agent": {
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "copilot",
+                      "otros",
+                      "sin agente"
+                    ]
+                  },
+                  "connected": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "label",
+              "state",
+              "attrs"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^step:[0-9]+$"
+              },
+              "kind": {
+                "const": "step"
+              },
+              "label": {
+                "type": "string",
+                "pattern": "^Paso [0-9]+$"
+              },
+              "state": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}$"
+              },
+              "attrs": {
+                "type": "object",
+                "required": [
+                  "context",
+                  "lane"
+                ],
+                "properties": {
+                  "context": {
+                    "type": "string",
+                    "pattern": "^context:[0-9]+$"
+                  },
+                  "lane": {
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "copilot",
+                      "otros",
+                      "sin agente"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^commit:([0-9a-f]{40}|[0-9a-f]{64})$"
+              },
+              "kind": {
+                "const": "commit"
+              },
+              "label": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{7}$"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "label",
+              "attrs"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^portal:.+$"
+              },
+              "kind": {
+                "const": "portal"
+              },
+              "label": {
+                "type": "string"
+              },
+              "attrs": {
+                "type": "object",
+                "required": [
+                  "commits"
+                ],
+                "properties": {
+                  "commits": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "source",
+              "target",
+              "relation_type",
+              "origin",
+              "confidence",
+              "evidence_ref"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^context:[0-9]+$"
+              },
+              "target": {
+                "type": "string",
+                "pattern": "^step:[0-9]+$"
+              },
+              "relation_type": {
+                "const": "contains"
+              },
+              "origin": {
+                "const": "system"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidence_ref": {
+                "const": "steps.context_id"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "source",
+              "target",
+              "relation_type",
+              "origin",
+              "confidence",
+              "evidence_ref"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^step:[0-9]+$"
+              },
+              "target": {
+                "type": "string",
+                "pattern": "^commit:([0-9a-f]{40}|[0-9a-f]{64})$"
+              },
+              "relation_type": {
+                "const": "cites"
+              },
+              "origin": {
+                "const": "verified_reference"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidence_ref": {
+                "const": "steps.notes"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "project",
+        "generated_at"
+      ],
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "constellation": {
+      "type": "object",
+      "required": [
+        "bridges",
+        "positions",
+        "isolated",
+        "size",
+        "layout_version",
+        "iterations"
+      ],
+      "properties": {
+        "bridges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "source",
+              "target",
+              "weight",
+              "commits",
+              "portal"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^context:[0-9]+$"
+              },
+              "target": {
+                "type": "string",
+                "pattern": "^(context:[0-9]+|step:[0-9]+|portal:.+)$"
+              },
+              "weight": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "commits": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^commit:([0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "minItems": 1
+              },
+              "portal": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "positions": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^(context:[0-9]+|step:[0-9]+|portal:.+)$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "x",
+              "y"
+            ],
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "isolated": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^context:[0-9]+$"
+          }
+        },
+        "size": {
+          "type": "object",
+          "required": [
+            "width",
+            "height"
+          ],
+          "properties": {
+            "width": {
+              "type": "number",
+              "minimum": 1
+            },
+            "height": {
+              "type": "number",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "layout_version": {
+          "type": "string"
+        },
+        "iterations": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

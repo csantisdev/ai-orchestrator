@@ -15,7 +15,7 @@ function empty(text) {
   return h("p", { class: "trace-empty" }, text);
 }
 
-function selectable(sel, label, extra, selected) {
+export function selectable(sel, label, extra, selected) {
   return h("button", {
     type: "button",
     class: ["ref-chip", selected === sel && "is-selected"],

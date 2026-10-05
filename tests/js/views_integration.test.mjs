@@ -80,7 +80,12 @@ test("Inicio: tarjetas con navegación por data-view, Salud del tracking como pa
   const root = setup();
   try {
     const calls = [];
-    const api = { get: async (path, { params }) => { calls.push(params?.period); return OVERVIEW; } };
+    // La vista previa de la constelación es opcional: si falla, Inicio se dibuja igual.
+    const api = { get: async (path, { params }) => {
+      if (path.endsWith("/constellation")) throw Object.assign(new Error("falló"), { status: 500 });
+      calls.push(params?.period);
+      return OVERVIEW;
+    } };
     await mountHome(root, { api, state: { project: "mi-proyecto" }, signal: new AbortController().signal, store: { set() {} } });
     const cards = find(root, (node) => typeof node.className === "string" && node.className.startsWith("metric-card"));
     assert.equal(cards.length, 3);

@@ -5,9 +5,12 @@
 import { h } from "../core/dom.js";
 import { toSearch } from "../core/router.js";
 import { facts, objectList, statusPill } from "../renderers/list.js";
-import { renderTrace } from "../renderers/trace.js";
+import { renderTrace, selectable } from "../renderers/trace.js";
 import { panel, progress, segmented } from "../core/ui.js";
 import { citingSteps, layoutMap, renderMap, select as selectOnMap } from "../renderers/map.js";
+import {
+  agentLabel as consAgentLabel, layoutConstellation, renderConstellation, selectConstellation,
+} from "../renderers/constellation.js";
 
 export const CONTEXT_STATUS = Object.freeze({
   active: "Activo", programado: "Programado", completed: "Completado", abandoned: "Abandonado",
@@ -119,7 +122,99 @@ export function pageTitle(page, data) {
   };
 }
 
-function contextsPage(state, data, filter) {
+export const CONTEXT_REPRESENTATIONS = Object.freeze([["list", "Lista"], ["constellation", "◇ Grafo · Labs"]]);
+const CONS_MODES = [["global", "Global"], ["local", "Local"]];
+const CONS_LENSES = [["agent", "Agente dominante"], ["project", "Proyecto"]];
+const CONS_SCOPES = [["active", "Activos y conectados"], ["all", "Todos"]];
+const CONS_DEPTHS = [["1", "1 salto"], ["2", "2 saltos"]];
+
+// Constelación de los contextos (§22.4): controles, leyenda, SVG y lista equivalente.
+function constellationSection(state, data, cons, view) {
+  if (!cons) {
+    return [panel("Grafo · Labs", h("p", { class: "empty-note" },
+      "La constelación no está disponible ahora; la pestaña Lista sigue funcionando."))];
+  }
+  // El foco del modo local es el último contexto seleccionado; elegir o soltar un commit no lo
+  // cambia (deseleccionar el contexto lo limpia en `update`).
+  if (state.sel?.startsWith("context:")) view.focus = state.sel;
+  const focus = view.focus;
+  const layout = layoutConstellation(cons, { scope: view.scope, mode: view.mode, focus, depth: view.depth, lens: view.lens });
+  const graphic = renderConstellation(layout);
+  view.layout = layout;
+  view.svg = graphic;
+  if (state.sel) selectConstellation(graphic, layout, state.sel);
+  const titles = new Map(data.contexts.map((item) => [`context:${item.id}`, item.title || "Sin título"]));
+  const links = new Map();
+  for (const bridge of layout.bridges) {
+    for (const [from, to] of [[bridge.source, bridge.target], [bridge.target, bridge.source]]) {
+      if (!links.has(from)) links.set(from, []);
+      links.get(from).push({ to, weight: bridge.weight });
+    }
+  }
+  const controls = h("div", { class: "cons-controls" },
+    h("span", { class: "control-label" }, "Modo"),
+    segmented({ label: "Modo", options: CONS_MODES, current: view.mode, attribute: "consMode" }),
+    view.mode === "local" ? segmented({ label: "Profundidad", options: CONS_DEPTHS, current: String(view.depth), attribute: "consDepth" }) : null,
+    h("span", { class: "control-label" }, "Color por"),
+    segmented({ label: "Color por", options: CONS_LENSES, current: view.lens, attribute: "consLens" }),
+    view.mode === "global"
+      ? [h("span", { class: "control-label" }, "Alcance"),
+        segmented({ label: "Alcance", options: CONS_SCOPES, current: view.scope, attribute: "consScope" })]
+      : null);
+  const legend = h("ul", { class: "cons-legend", "aria-label": "Leyenda de la constelación" },
+    view.lens === "agent"
+      ? ["claude", "codex", "copilot", "otros", "sin agente"].map((agent) =>
+        h("li", { class: `tone-${agent.replace(/\s+/g, "-")}` }, h("span", { class: "swatch" }), consAgentLabel(agent)))
+      : h("li", {}, "Todos los contextos del proyecto con el mismo color; los portales llevan a otros proyectos"),
+    h("li", {}, "línea = commits compartidos (grosor = cantidad) · ↗ portal = otro proyecto"),
+    h("li", {}, "halo = paso en curso · borde punteado = con desvíos · puntos = pasos"));
+  const hint = view.mode === "local" && !focus
+    ? h("p", { class: "empty-note" }, "Modo local: seleccioná un contexto (en el grafo o en la lista) para ver su vecindario.")
+    : null;
+  const hidden = layout.hiddenContexts && view.mode === "global" && view.scope === "active"
+    ? h("p", { class: "empty-note" }, `${layout.hiddenContexts} contextos sin actividad ni conexiones con los activos quedan fuera; "Todos" los muestra.`)
+    : null;
+  const listed = [...layout.suns].sort((a, b) => Number(b.connected) - Number(a.connected) || a.id.localeCompare(b.id));
+  const list = objectList(listed, (sun) => [
+    h("div", { class: "object-main" },
+      h("button", { type: "button", class: "cell-button", data: { sel: sun.id }, "aria-pressed": String(state.sel === sun.id) },
+        `#${sun.id.split(":")[1]}`),
+      navLink(state, { ctx: Number(sun.id.split(":")[1]), step: null }, titles.get(sun.id) ?? sun.label),
+      statusPill(sun.state, CONTEXT_STATUS)),
+    h("div", { class: "object-meta" },
+      h("span", {}, `${sun.steps} pasos · ${consAgentLabel(sun.agent)}`),
+      (links.get(sun.id) ?? []).length
+        ? h("span", {}, "Comparte commits con ", (links.get(sun.id) ?? []).map((link, index) => [
+          index ? ", " : "",
+          link.to.startsWith("portal:") ? `${link.to.slice(7)} (otro proyecto)` : `#${link.to.split(":")[1]}`,
+          ` (${link.weight})`,
+        ]))
+        : h("span", {}, "Sin commits compartidos")),
+  ], { label: "Contextos del grafo", empty: "No hay contextos para mostrar con este alcance." });
+  // Puentes (§22.4): extremos y commits compartidos, todos seleccionables con teclado.
+  const end = (id) => (id.startsWith("portal:")
+    ? h("span", { class: "cons-portal-name" }, `↗ ${id.slice(7)} (otro proyecto)`)
+    : selectable(id, `#${id.split(":")[1]}`, titles.get(id), state.sel));
+  const bridgeList = objectList(layout.bridges, (bridge) => [
+    h("div", { class: "object-main" }, end(bridge.source), h("span", { "aria-hidden": "true" }, "↔"), end(bridge.target),
+      h("span", { class: "object-meta" }, `${bridge.weight} ${bridge.weight === 1 ? "commit compartido" : "commits compartidos"}`)),
+    h("div", { class: "trace-chips" }, bridge.commits.map((commit) => selectable(commit, commit.slice(7, 14), null, state.sel))),
+  ], { label: "Puentes del grafo", empty: "Ningún contexto visible comparte commits." });
+  return [
+    panel("Grafo · Labs", controls, legend, hint, hidden, h("div", { class: "constellation-wrap" }, graphic)),
+    panel("Lista equivalente", list),
+    panel("Puentes", bridgeList),
+  ];
+}
+
+function contextsPage(state, data, filter, cons = null, view = null) {
+  const representation = segmented({
+    label: "Representación", options: CONTEXT_REPRESENTATIONS,
+    current: state.as === "constellation" ? "constellation" : "list", attribute: "as",
+  });
+  if (state.as === "constellation") {
+    return [header(undefined, null, representation), ...constellationSection(state, data, cons, view)];
+  }
   const filters = segmented({ label: "Filtrar por estado", options: FILTERS, current: filter, attribute: "filter" });
   const list = objectList(data.contexts, (item) => [
     h("div", { class: "object-main" },
@@ -132,7 +227,7 @@ function contextsPage(state, data, filter) {
         navLink(state, { ctx: item.id, step: item.current_step.id }, item.current_step.title || `Paso #${item.current_step.id}`)) : null,
       h("time", { datetime: item.updated_at ?? undefined }, `Actualizado ${formatInstant(item.updated_at)}`)),
   ], { label: "Contextos", empty: filter ? "No hay contextos con ese estado." : "El proyecto no tiene contextos." });
-  return [header(undefined, null, filters), list];
+  return [header(undefined, null, h("div", { class: "work-representation" }, representation, filters)), list];
 }
 
 export const REPRESENTATIONS = Object.freeze([["list", "Pasos"], ["map", "◇ Mapa"]]);
@@ -277,6 +372,9 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
   // Los grupos se expanden (no se seleccionan); `stepFilter` filtra la lista sincronizada.
   const freshMapView = () => ({ expanded: new Set(), start: 0, force: false, stepFilter: null, layout: null, svg: null });
   let mapView = freshMapView();
+  // Estado local de la constelación: modo, lente, alcance y profundidad del modo local.
+  const consView = { mode: "global", lens: "agent", scope: "active", depth: 1, focus: null, layout: null, svg: null };
+  let lastConstellation = null;
 
   async function load() {
     // Cualquier carga anterior queda superada, también por una página sin petición.
@@ -303,7 +401,8 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
       const params = page === "contexts" && filter ? { status: filter } : {};
       // El mapa se pide siempre en la página del contexto: la pestaña dice si aplica (§23.2).
       const wantsMap = page === "context";
-      const [data, map] = await Promise.all([
+      const wantsConstellation = page === "contexts" && current.as === "constellation";
+      const [data, map, constellation] = await Promise.all([
         api.get(path, { params, signal: controller.signal }),
         // Si el mapa falla, la lista se muestra igual y la pestaña queda deshabilitada.
         wantsMap ? api.get(`${path}/map`, { signal: controller.signal }).catch((error) => {
@@ -311,13 +410,20 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
           console.warn("No se pudo cargar el mapa del contexto:", error);
           return null;
         }) : Promise.resolve(null),
+        // La constelación no impide mostrar la lista si falla.
+        wantsConstellation ? api.get(`/api/v1/projects/${current.project}/constellation`, { signal: controller.signal }).catch((error) => {
+          if (controller.signal.aborted) throw error;
+          console.warn("No se pudo cargar la constelación:", error);
+          return null;
+        }) : Promise.resolve(null),
       ]);
       if (controller.signal.aborted) return;
       lastData = data;
       lastMap = map;
+      lastConstellation = constellation;
       const content = page === "step" ? stepPage(current, data)
         : page === "context" ? contextPage(current, data, map, mapView)
-          : contextsPage(current, data, filter);
+          : contextsPage(current, data, filter, constellation, consView);
       root.replaceChildren(...content.filter(Boolean));
       shellPage?.set(pageTitle(page, data));
     } catch (error) {
@@ -336,20 +442,37 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     }
   }
 
+  // Vuelve a dibujar la lista de contextos con la constelación (modo, lente, alcance, foco).
+  function redrawContexts() {
+    if (!lastData || pageFor(current) !== "contexts") return;
+    root.replaceChildren(...contextsPage(current, lastData, filter, lastConstellation, consView).filter(Boolean));
+  }
+
   // Vuelve a dibujar la página del contexto con los mismos datos (grupos, ventana, forzar).
   function redrawContext() {
     if (!lastData || pageFor(current) !== "context") return;
     root.replaceChildren(...contextPage(current, lastData, lastMap, mapView).filter(Boolean));
   }
 
-  const TARGETS = "[data-nav], [data-sel], [data-filter], [data-as], [data-group], [data-force-map], [data-map-window], [data-step-filter]";
+  const TARGETS = "[data-nav], [data-sel], [data-filter], [data-as], [data-group], [data-force-map], [data-map-window], "
+    + "[data-step-filter], [data-cons-mode], [data-cons-lens], [data-cons-scope], [data-cons-depth]";
 
   function onClick(event) {
     const target = event.target.closest?.(TARGETS);
     if (!target || !root.contains(target)) return;
     if (target.dataset.as !== undefined) {
-      store.set({ as: target.dataset.as === "map" ? "map" : null, sel: null });
+      const value = target.dataset.as;
+      // Entre Lista y Grafo de contextos la selección se conserva (§23.2); el mapa la limpia.
+      const keep = pageFor(current) === "contexts" && Boolean(current.sel);
+      store.set({ as: value === "map" || value === "constellation" ? value : null, sel: keep ? current.sel : null });
       return;
+    }
+    for (const [key, field] of [["consMode", "mode"], ["consLens", "lens"], ["consScope", "scope"], ["consDepth", "depth"]]) {
+      if (target.dataset[key] !== undefined) {
+        consView[field] = field === "depth" ? Number(target.dataset[key]) || 1 : target.dataset[key];
+        redrawContexts();
+        return;
+      }
     }
     if (target.dataset.group) {
       const id = target.dataset.group;
@@ -389,8 +512,8 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     store.set({ ctx: id(target.dataset.ctx), step: id(target.dataset.step), sel: null });
   }
 
-  // Teclado en el mapa (§21.6): Enter o Espacio activan el nodo; las flechas recorren los
-  // pasos y grupos en orden de columna.
+  // Teclado en el mapa (§21.6) y la constelación (§22.4): Enter o Espacio activan el nodo; las
+  // flechas recorren los pasos y grupos en orden de columna, o los soles en orden de dibujo.
   function onKeyDown(event) {
     const node = event.target.closest?.("[data-node]");
     if (!node || !root.contains(node)) return;
@@ -399,12 +522,15 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
       onClick({ target: node, preventDefault() {} });
       return;
     }
-    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-    const order = [...root.querySelectorAll(".map-step, .map-group")];
+    const inConstellation = Boolean(node.matches?.(".cons-sun"));
+    const forward = event.key === "ArrowRight" || (inConstellation && event.key === "ArrowDown");
+    const back = event.key === "ArrowLeft" || (inConstellation && event.key === "ArrowUp");
+    if (!forward && !back) return;
+    const order = [...root.querySelectorAll(inConstellation ? ".cons-sun" : ".map-step, .map-group")];
     const index = order.indexOf(node);
     if (index < 0) return;
     event.preventDefault();
-    order[(index + (event.key === "ArrowRight" ? 1 : -1) + order.length) % order.length]?.focus();
+    order[(index + (forward ? 1 : -1) + order.length) % order.length]?.focus();
   }
 
   root.addEventListener("click", onClick);
@@ -416,6 +542,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
       current = next;
       if (next.project !== previous.project || next.ctx !== previous.ctx || next.step !== previous.step) {
         mapView = freshMapView();
+        if (next.project !== previous.project) consView.focus = null;
         load();
         return;
       }
@@ -423,6 +550,15 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
         if (lastData && pageFor(next) === "context") redrawContext();
         else load();
         return;
+      }
+      if (next.sel !== previous.sel && pageFor(next) === "contexts" && next.as === "constellation" && lastConstellation) {
+        if (!next.sel && previous.sel === consView.focus) consView.focus = null;
+        // En modo local la selección es el foco: cambia lo visible y se redibuja.
+        if (consView.mode === "local") {
+          redrawContexts();
+          return;
+        }
+        if (consView.svg && consView.layout) selectConstellation(consView.svg, consView.layout, next.sel);
       }
       if (next.sel !== previous.sel && pageFor(next) === "context" && lastMap) {
         // La lista resalta los pasos del commit seleccionado; el mapa solo cambia clases.

@@ -570,4 +570,46 @@
   @media (prefers-reduced-motion: reduce) {
     .map-node, .map-edge { transition: none; }
   }
+
+  /* Constelación (renderers/constellation.js, maqueta v6 y §22.4). Brillo estático, sin bucles. */
+  .constellation-wrap { overflow: auto; max-height: 720px; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-surface); }
+  .constellation { display: block; width: 100%; height: auto; min-width: 640px; font-family: var(--font-data); }
+  .constellation.is-preview { min-width: 0; max-height: 280px; margin-inline: auto; }
+  .is-preview-link { display: block; margin-bottom: var(--space-2); }
+  .is-preview-link:hover, .is-preview-link:focus-visible { border-color: var(--state-focus); }
+  .cons-open { color: var(--family-knowledge); font-weight: 600; }
+  .cons-sun { cursor: pointer; outline: none; transition: opacity var(--motion-normal); }
+  .cons-sun { --tone: var(--family-neutral); }
+  .cons-sun.tone-claude, .cons-satellite.tone-claude { --tone: var(--agent-claude); }
+  .cons-sun.tone-codex, .cons-satellite.tone-codex { --tone: var(--agent-codex); }
+  .cons-sun.tone-copilot, .cons-satellite.tone-copilot { --tone: var(--agent-copilot); }
+  .cons-sun.tone-otros, .cons-satellite.tone-otros { --tone: var(--agent-otros); }
+  .cons-sun.tone-project { --tone: var(--family-knowledge); }
+  .cons-core { fill: color-mix(in srgb, var(--tone) 22%, var(--bg-surface)); stroke: var(--tone); stroke-width: 2; }
+  .cons-halo { fill: none; stroke: color-mix(in srgb, var(--tone) 35%, transparent); stroke-width: 6; }
+  .cons-sun.has-deviation .cons-core { stroke-dasharray: 5 3; }
+  .cons-satellite { --tone: var(--family-neutral); fill: var(--tone); opacity: .8; }
+  .cons-satellite.is-live { stroke: var(--family-execution); stroke-width: 1.5; }
+  .cons-id { fill: var(--text-primary); font-size: 11px; font-weight: 700; }
+  .cons-agent { fill: var(--text-primary); font-size: 9px; }
+  .cons-bridge { stroke: var(--family-execution); stroke-linecap: round; opacity: .8; transition: opacity var(--motion-normal); }
+  .cons-bridge.is-portal { stroke: var(--text-muted); stroke-dasharray: 4 4; }
+  .cons-portal { cursor: default; outline: none; }
+  .cons-portal rect { fill: var(--bg-elevated); stroke: var(--text-muted); stroke-dasharray: 4 3; }
+  .cons-portal text { fill: var(--text-secondary); font-size: 11px; }
+  .cons-sun.is-selected .cons-core, .cons-sun:focus-visible .cons-core { stroke: var(--state-focus); stroke-width: 3.5; }
+  .cons-portal:focus-visible rect { stroke: var(--state-focus); stroke-width: 2; }
+  .cons-sun.is-dim, .cons-bridge.is-dim, .cons-portal.is-dim { opacity: .18; }
+  .cons-legend { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin-bottom: var(--space-3); font-size: var(--text-11); color: var(--text-muted); }
+  .cons-legend .swatch { display: inline-block; width: 9px; height: 9px; margin-right: var(--space-1); border-radius: 50%; background: var(--tone); }
+  .cons-legend .tone-claude { --tone: var(--agent-claude); }
+  .cons-legend .tone-codex { --tone: var(--agent-codex); }
+  .cons-legend .tone-copilot { --tone: var(--agent-copilot); }
+  .cons-legend .tone-otros { --tone: var(--agent-otros); }
+  .cons-legend .tone-sin-agente { --tone: var(--family-neutral); }
+  .cons-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+  .cons-controls .control-label { font-size: var(--text-10); font-weight: 600; letter-spacing: .7px; text-transform: uppercase; color: var(--text-muted); }
+  @media (prefers-reduced-motion: reduce) {
+    .cons-sun, .cons-bridge { transition: none; }
+  }
 }
