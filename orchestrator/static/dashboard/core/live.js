@@ -8,7 +8,7 @@
 // - con la pestaña oculta no se pide nada: queda pendiente hasta que vuelva a verse.
 
 export function watchChanges({
-  events, onChange, doc, delay = 800, minInterval = 2500, timers = globalThis, clock = () => Date.now(),
+  events, onChange, doc, delay = 500, minInterval = 2500, timers = globalThis, clock = () => Date.now(),
 }) {
   if (!events) return { stop() {} };
   let timer = null;

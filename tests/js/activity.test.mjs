@@ -208,7 +208,11 @@ test("mergeFirstPage conserva las páginas extra salvo que haya un hueco", () =>
   const ids = (list) => list.map((entry) => entry.id);
   const page = (list, next) => ({ items: list.map((id) => ({ id })), next_cursor: next });
   const loaded = [{ id: "run:3" }, { id: "run:2" }, { id: "run:1" }];
-  assert.deepEqual(mergeFirstPage(loaded, "c-old", page(["run:4", "run:3"], "c1"), 1), { items: [{ id: "run:4" }, { id: "run:3" }], cursor: "c1" });
+  assert.deepEqual(mergeFirstPage(loaded, "c-old", page(["run:4", "run:3"], "c1"), 1),
+    { items: [{ id: "run:4" }, { id: "run:3" }], cursor: "c1", reset: true });
+  // Si ahora todo cabe en una página, lo cargado de más ya no vale.
+  const single = mergeFirstPage(loaded, "c-old", page(["run:4", "run:3"], null), 2);
+  assert.deepEqual([ids(single.items), single.cursor, single.reset], [["run:4", "run:3"], null, true]);
   const kept = mergeFirstPage(loaded, "c-old", page(["run:4", "run:3"], "c1"), 2);
   assert.deepEqual([ids(kept.items), kept.cursor], [["run:4", "run:3", "run:2", "run:1"], "c-old"]);
   const gap = mergeFirstPage(loaded, "c-old", page(["run:9", "run:8"], "c9"), 2);
@@ -250,12 +254,46 @@ test("mountActivity: un refresco no pisa un Cargar más en curso y se juntan los
   assert.match(summary.textContent, /^Run #4/);
 }));
 
-test("mountActivity: el resumen no queda con un evento viejo", () => withDocument(async (doc) => {
+test("mountActivity: el resumen no queda con un evento viejo y otro proyecto no se mezcla", () => withDocument(async (doc) => {
   const root = new FakeNode(doc, "section");
   const summary = new FakeNode(doc, "span");
   await mountActivity({ root, summary, api: { get: async () => ({ items: [], next_cursor: null }) },
     store: fakeStore({ project: "mi-proyecto" }) }).refresh();
   assert.equal(summary.textContent, "sin eventos");
+
+  let fail = false;
+  const byProject = {
+    "mi-proyecto": { items: [item("run", 3)], next_cursor: "c1" },
+    "otro-proyecto": { items: [item("run", 9)], next_cursor: null },
+  };
+  const api = { get: async (path, { params }) => {
+    if (fail) throw new Error("falló");
+    if (params.cursor) return { items: [item("run", 2)], next_cursor: null };
+    return byProject[path.split("/")[4]];
+  } };
+  const store = fakeStore({ project: "mi-proyecto" });
+  const activity = mountActivity({ root, summary, api, store });
+  await activity.refresh();
+  root.listeners.forEach((handler) => handler({ target: { closest: () => ({ dataset: { actMore: "1" } }) } }));
+  await activity.refresh();
+  assert.equal(findAll(root, (node) => node.tagName === "li").length, 2);
+  // Un fallo conserva la lista, pero el resumen avisa que no está al día.
+  fail = true;
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    await activity.refresh();
+  } finally {
+    console.warn = warn;
+  }
+  assert.equal(summary.textContent, "actividad no disponible");
+  assert.equal(findAll(root, (node) => node.tagName === "li").length, 2);
+  fail = false;
+  store.set({ project: "otro-proyecto" });
+  await activity.refresh();
+  const texts = findAll(root, (node) => node.tagName === "li").map((node) => node.textContent);
+  assert.equal(texts.length, 1);
+  assert.match(texts[0], /Run #9/);
 }));
 
 test("createViewHost.refresh usa refresh de la vista o la vuelve a montar con el último estado", async () => {

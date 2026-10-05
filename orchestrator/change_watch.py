@@ -30,7 +30,23 @@ def activity_fingerprint(conn: sqlite3.Connection) -> tuple:
             (SELECT MAX(started_at) FROM steps),
             (SELECT MAX(completed_at) FROM steps),
             (SELECT COUNT(*) FROM steps),
-            (SELECT COUNT(*) FROM contexts)
+            (SELECT COUNT(*) FROM contexts),
+            (SELECT group_concat(id || ':' || coalesce(status, ''), ',')
+             FROM (SELECT id, status FROM runs ORDER BY id DESC LIMIT 20)),
+            (SELECT group_concat(id || ':' || coalesce(status, ''), ',')
+             FROM (SELECT id, status FROM tool_calls ORDER BY id DESC LIMIT 20)),
+            (SELECT group_concat(id || ':' || coalesce(decision, '') || ':' ||
+                                  coalesce(reason_code, ''), ',')
+             FROM (SELECT id, decision, reason_code FROM egress_decisions
+                   ORDER BY id DESC LIMIT 20)),
+            (SELECT group_concat(id || ':' || coalesce(status, '') || ':' ||
+                                  coalesce(is_error, '') || ':' || coalesce(reason_code, ''), ',')
+             FROM (SELECT id, status, is_error, reason_code FROM mcp_invocations
+                   WHERE tool_category != 'read' ORDER BY id DESC LIMIT 20)),
+            -- La cola conserva el estado exacto de los pasos tocados más recientemente.
+            (SELECT group_concat(id || ':' || coalesce(status, ''), ',')
+             FROM (SELECT id, status FROM steps
+                   ORDER BY coalesce(completed_at, started_at, '') DESC, id DESC LIMIT 20))
     """).fetchone())
 
 

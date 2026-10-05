@@ -1,14 +1,16 @@
 """ChangeWatcher detecta escrituras de conexiones y procesos externos."""
 
 import json
+import http.client
 import sqlite3
+import socket
 import subprocess
 import sys
 import threading
 import time
 
 from orchestrator.change_watch import ChangeWatcher, activity_fingerprint
-from orchestrator.server import _watch_changes_enabled
+from orchestrator.server import _watch_changes_enabled, serve
 
 
 def _wait(events, count=1, timeout=3):
@@ -100,13 +102,13 @@ def test_serve_can_disable_the_watcher_explicitly():
 def _activity_database(path):
     conn = sqlite3.connect(path)
     for table, columns in {
-        "runs": "id INTEGER PRIMARY KEY",
-        "tool_calls": "id INTEGER PRIMARY KEY",
+        "runs": "id INTEGER PRIMARY KEY, status TEXT",
+        "tool_calls": "id INTEGER PRIMARY KEY, status TEXT",
         "alignments": "id INTEGER PRIMARY KEY",
-        "egress_decisions": "id INTEGER PRIMARY KEY",
+        "egress_decisions": "id INTEGER PRIMARY KEY, decision TEXT, reason_code TEXT",
         "contexts": "id INTEGER PRIMARY KEY, updated_at TEXT",
-        "steps": "id INTEGER PRIMARY KEY, started_at TEXT, completed_at TEXT",
-        "mcp_invocations": "id INTEGER PRIMARY KEY, tool_category TEXT",
+        "steps": "id INTEGER PRIMARY KEY, started_at TEXT, completed_at TEXT, status TEXT",
+        "mcp_invocations": "id INTEGER PRIMARY KEY, tool_category TEXT, status TEXT, is_error INTEGER, reason_code TEXT",
     }.items():
         conn.execute(f"CREATE TABLE {table} ({columns})")
     conn.commit()
@@ -163,3 +165,144 @@ def test_activity_fingerprint_publishes_mutations_and_context_updates(tmp_path):
     assert _wait(events, count=3, timeout=3)
     watcher.stop()
     assert [event[1]["generation"] for event in events] == [1, 2, 3]
+
+
+def test_activity_fingerprint_publishes_run_status_update(tmp_path):
+    path = tmp_path / "watch.db"
+    _activity_database(path)
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO runs (status) VALUES ('running')")
+    conn.commit(); conn.close()
+    events, connected = [], threading.Event()
+    watcher = ChangeWatcher(path, lambda kind, data: events.append((kind, json.loads(data))),
+                            fingerprint=activity_fingerprint)
+    original_connect = watcher._connect
+
+    def record_connection():
+        connection = original_connect()
+        connected.set()
+        return connection
+
+    watcher._connect = record_connection
+    watcher.start()
+    assert connected.wait(3)
+    subprocess.run([sys.executable, "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"UPDATE runs SET status='done' WHERE id=1\"); c.commit()", str(path)], check=True)
+    assert _wait(events, timeout=3)
+    watcher.stop()
+    assert events[0][0] == "db_changed"
+
+
+def test_activity_fingerprint_publishes_completed_mcp_mutation(tmp_path):
+    path = tmp_path / "watch.db"
+    _activity_database(path)
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO mcp_invocations (tool_category, status, is_error) VALUES ('workflow_mutation', 'in_progress', 0)")
+    conn.commit(); conn.close()
+    events, connected = [], threading.Event()
+    watcher = ChangeWatcher(path, lambda kind, data: events.append((kind, json.loads(data))),
+                            fingerprint=activity_fingerprint)
+    original_connect = watcher._connect
+
+    def record_connection():
+        connection = original_connect()
+        connected.set()
+        return connection
+
+    watcher._connect = record_connection
+    watcher.start()
+    assert connected.wait(3)
+    subprocess.run([sys.executable, "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"UPDATE mcp_invocations SET status='success', is_error=1, reason_code='finished' WHERE id=1\"); c.commit()", str(path)], check=True)
+    assert _wait(events, timeout=3)
+    watcher.stop()
+    assert events[0][0] == "db_changed"
+
+
+def _free_port():
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def _sse_connection(port):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=4)
+    conn.request("GET", "/events", headers={"Host": f"localhost:{port}"})
+    response = conn.getresponse()
+    assert response.status == 200
+    return conn, response
+
+
+def _read_sse_event(response, timeout):
+    response.fp.raw._sock.settimeout(timeout)
+    lines = []
+    try:
+        while True:
+            line = response.fp.readline()
+            if not line:
+                return ""
+            lines.append(line.decode("utf-8"))
+            if line == b"\n":
+                return "".join(lines)
+    except (TimeoutError, OSError):
+        return ""
+
+
+def test_live_server_refreshes_external_mutations_but_not_mcp_reads(tmp_path, monkeypatch):
+    """El SSE del servidor usa la huella también para escrituras de otro proceso."""
+    import orchestrator.db as db
+    import orchestrator.paths as paths
+    import orchestrator.server as server_module
+
+    db_path = tmp_path / "runs.db"
+    monkeypatch.setattr(paths, "HOME_DIR", tmp_path)
+    monkeypatch.setattr(paths, "DB_PATH", db_path)
+    monkeypatch.setattr(server_module, "HOME_DIR", tmp_path)
+    monkeypatch.setattr(db, "_local", threading.local())
+    db.init_db()
+    db._conn().execute("INSERT INTO runs (ts, project, status, task) VALUES ('t', 'p', 'running', 'x')")
+    db._conn().commit()
+    port, servers, ready = _free_port(), [], threading.Event()
+
+    def on_ready(server):
+        servers.append(server)
+        ready.set()
+
+    thread = threading.Thread(
+        target=serve, args=(port, None, False, {}),
+        kwargs={"on_server_ready": on_ready, "start_background": False, "watch_changes": True},
+        daemon=True,
+    )
+    thread.start()
+    assert ready.wait(3)
+    # El watcher conserva el intervalo por defecto; esperamos su línea base antes de escribir.
+    time.sleep(1.1)
+    conn, response = _sse_connection(port)
+    try:
+        time.sleep(.05)
+        subprocess.run([
+            sys.executable, "-c",
+            "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); "
+            "c.execute(\"UPDATE runs SET status='done' WHERE id=1\"); "
+            "c.commit()",
+            str(db_path),
+        ], check=True)
+        assert "event: db_changed" in _read_sse_event(response, 3)
+    finally:
+        conn.close()
+
+    conn, response = _sse_connection(port)
+    try:
+        time.sleep(.05)
+        subprocess.run([
+            sys.executable, "-c",
+            "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); "
+            "c.execute(\"INSERT INTO mcp_invocations "
+            "(ts,request_id,server_instance_id,client_surface,transport,capability_profile,tool_name,tool_category,input_hash,output_hash,status,created_at) "
+            "VALUES ('t','read-1','s','c','t','p','read','read','i','o','success','t')\"); c.commit()",
+            str(db_path),
+        ], check=True)
+        assert "event: db_changed" not in _read_sse_event(response, 2.5)
+    finally:
+        conn.close()
+        servers[0].shutdown()
+        thread.join(timeout=3)
+        assert not thread.is_alive()

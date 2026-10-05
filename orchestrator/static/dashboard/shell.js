@@ -152,6 +152,7 @@ function renderInspector(state) {
 
 function render(state, previous = {}) {
   if (state.sel !== previous.sel) activity?.select();
+  if ("project" in previous && state.project !== previous.project) activity?.refresh();
   if (state.sel && state.sel !== previous.sel) {
     inspectorDismissed = false;
     if (overlayLayout.matches) closeActivity();

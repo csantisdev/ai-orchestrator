@@ -120,19 +120,20 @@ function controlKey(element) {
 const CSS_ESCAPE = (value) => String(value).replace(/["\\]/g, "\\$&");
 
 // Une la primera página recién pedida con lo ya cargado: lo nuevo arriba y, si el usuario ya
-// pidió más páginas y no hay hueco entre ambas, se conservan (y su cursor).
+// pidió más páginas y la página nueva empalma con ellas, se conservan (y su cursor). Si ahora
+// todo cabe en una página, o hay un hueco entre ambas, manda la página nueva.
 export function mergeFirstPage(items, cursor, page, pages) {
-  if (pages <= 1) return { items: page.items, cursor: page.next_cursor };
+  if (pages <= 1 || !page.next_cursor) return { items: page.items, cursor: page.next_cursor, reset: true };
   const fresh = new Set(page.items.map((item) => item.id));
-  const overlaps = items.some((item) => fresh.has(item.id));
-  if (!overlaps && page.next_cursor) return { items: page.items, cursor: page.next_cursor, reset: true };
-  return { items: [...page.items, ...items.filter((item) => !fresh.has(item.id))], cursor };
+  if (!items.some((item) => fresh.has(item.id))) return { items: page.items, cursor: page.next_cursor, reset: true };
+  return { items: [...page.items, ...items.filter((item) => !fresh.has(item.id))], cursor, reset: false };
 }
 
 // Monta la Activity del proyecto. `refresh()` vuelve a pedir la primera página (lo llama el
-// shell ante `db_changed`); `select()` marca lo seleccionado. Las peticiones van en cola: un
-// refresco nunca cancela un "Cargar más" ni pisa su resultado, y dos refrescos seguidos se
-// juntan en uno.
+// shell ante `db_changed` o al cambiar de proyecto); `select()` marca lo seleccionado. Las
+// peticiones van en cola: un refresco nunca cancela un "Cargar más" ni pisa su resultado, y los
+// refrescos que esperan en la cola se juntan en uno. Uno pedido mientras otro ya está en vuelo
+// corre después: los datos pueden haber cambiado cuando el primero ya había salido.
 export function mountActivity({ root, summary, api, store }) {
   let project = null;
   let items = [];
@@ -140,6 +141,8 @@ export function mountActivity({ root, summary, api, store }) {
   let pages = 0;
   let filter = "";
   let failed = false;
+  let stale = false;
+  let loaded = null;
   let queue = Promise.resolve();
   let refreshQueued = null;
 
@@ -150,7 +153,7 @@ export function mountActivity({ root, summary, api, store }) {
 
   function writeSummary() {
     if (!summary) return;
-    summary.textContent = failed ? "actividad no disponible" : activitySummary(items[0] ?? null) ?? "sin eventos";
+    summary.textContent = stale ? "actividad no disponible" : activitySummary(items[0] ?? null) ?? "sin eventos";
   }
 
   function draw() {
@@ -184,16 +187,25 @@ export function mountActivity({ root, summary, api, store }) {
       root.replaceChildren(h("p", { class: "act-empty" }, "Elegí un proyecto para ver su actividad."));
       return;
     }
+    // Lo cargado de otro proyecto no se mezcla con este.
+    if (loaded !== project) {
+      items = [];
+      cursor = null;
+      pages = 0;
+      loaded = project;
+    }
     try {
       const page = await load(null);
       const merged = mergeFirstPage(items, cursor, page, pages);
       items = merged.items;
       cursor = merged.cursor;
-      pages = merged.reset || pages === 0 ? 1 : pages;
+      pages = merged.reset ? 1 : pages;
       failed = false;
+      stale = false;
     } catch (error) {
       console.warn("No se pudo cargar la actividad:", error);
       failed = !items.length;
+      stale = true;
     }
     writeSummary();
     draw();
