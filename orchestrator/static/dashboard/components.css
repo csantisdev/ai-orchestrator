@@ -591,7 +591,7 @@
   .cons-satellite { --tone: var(--family-neutral); fill: var(--tone); opacity: .8; }
   .cons-satellite.is-live { stroke: var(--family-execution); stroke-width: 1.5; }
   .cons-id { fill: var(--text-primary); font-size: 11px; font-weight: 700; }
-  .cons-agent { fill: var(--tone); font-size: 9px; }
+  .cons-agent { fill: var(--text-primary); font-size: 9px; }
   .cons-bridge { stroke: var(--family-execution); stroke-linecap: round; opacity: .8; transition: opacity var(--motion-normal); }
   .cons-bridge.is-portal { stroke: var(--text-muted); stroke-dasharray: 4 4; }
   .cons-portal { cursor: default; outline: none; }

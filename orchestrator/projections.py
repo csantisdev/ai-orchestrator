@@ -8,6 +8,7 @@ Los DTO no llevan texto libre: solo identificadores, conteos y tokens validados.
 from __future__ import annotations
 
 import bisect
+import functools
 import math
 import re
 import sqlite3
@@ -632,11 +633,35 @@ def context_map(
     }
 
 
-
 CONSTELLATION_LAYOUT_VERSION = "fr-1"
 _CONSTELLATION_WIDTH = 1000.0
 _CONSTELLATION_HEIGHT = 620.0
 _CONSTELLATION_COLUMNS = 10
+# Presupuesto del layout (O(n²) por iteración): con hasta 80 nodos conectados se simula
+# completo (≈0,6 s la primera vez); por encima se reducen las iteraciones para que el costo
+# quede acotado, y desde 300 nodos se usa el arranque en círculo sin simular.
+_FORCE_FULL_NODES = 80
+_FORCE_MAX_NODES = 300
+_FORCE_ITERATIONS = 240
+_FORCE_MIN_ITERATIONS = 30
+
+
+def _layout_iterations(count: int) -> int:
+    if count <= _FORCE_FULL_NODES:
+        return _FORCE_ITERATIONS
+    if count > _FORCE_MAX_NODES:
+        return 0
+    return max(_FORCE_MIN_ITERATIONS, round(_FORCE_ITERATIONS * (_FORCE_FULL_NODES / count) ** 2))
+
+
+@functools.lru_cache(maxsize=32)
+def _cached_layout(ids: tuple[str, ...], weights: tuple[tuple[tuple[str, str], int], ...],
+                   iterations: int) -> tuple[tuple[str, float, float], ...]:
+    """Caché por contenido (§22.4): la clave son los nodos, los puentes con su peso, las
+    iteraciones y, por el módulo, la versión del algoritmo. Cualquier cambio en los datos, venga
+    de este proceso o de otro, cambia la clave y fuerza el recálculo; sin cambios, se reutiliza."""
+    layout = _force_layout(list(ids), dict(weights), iterations)
+    return tuple((node, x, y) for node, (x, y) in layout.items())
 
 
 def _force_layout(ids: list[str], weights: dict[tuple[str, str], int], iterations: int = 240) -> dict[str, tuple[float, float]]:
@@ -742,13 +767,17 @@ def project_constellation(conn: sqlite3.Connection, project: str, commits: Optio
         ).fetchall():
             deviations[context_id] = count or 0
 
-    # Citas verificadas de todos los contextos (de cualquier proyecto) para encontrar puentes.
+    # Citas verificadas de todos los contextos (de cualquier proyecto) para encontrar puentes;
+    # de los pasos propios se guarda además quién cita qué, para las aristas `cites`.
     cited_by: dict[str, set[tuple[int, str]]] = {}
-    for context_id, context_project, notes in conn.execute(
-        "SELECT s.context_id, c.project, s.notes FROM steps s JOIN contexts c ON c.id = s.context_id"
+    local_cites: dict[str, set[int]] = {}
+    for step_id, context_id, context_project, notes in conn.execute(
+        "SELECT s.id, s.context_id, c.project, s.notes FROM steps s JOIN contexts c ON c.id = s.context_id"
     ).fetchall():
         for sha in step_references(notes, commits)["verified_commits"]:
             cited_by.setdefault(sha, set()).add((context_id, context_project or ""))
+            if context_project == project:
+                local_cites.setdefault(sha, set()).add(step_id)
 
     pair_commits: dict[tuple[str, str], list[str]] = {}
     for sha in sorted(cited_by):
@@ -793,14 +822,23 @@ def project_constellation(conn: sqlite3.Connection, project: str, commits: Optio
                           "attrs": {"context": node_id, "lane": normalize_agent(provider)}})
             edges.append({"source": node_id, "target": f"step:{step_id}", "relation_type": "contains",
                           "origin": "system", "confidence": 1.0, "evidence_ref": "steps.context_id"})
+    # Commits de los puentes como nodos y quién los cita (pasos propios) como `cites` (§22.4);
+    # del otro proyecto no viaja quién lo cita, solo el alias del portal y la cantidad.
+    shared = sorted({sha for shas in pair_commits.values() for sha in shas})
+    for sha in shared:
+        nodes.append({"id": f"commit:{sha}", "kind": "commit", "label": sha[:7]})
+        for step_id in sorted(local_cites.get(sha, ())):
+            edges.append({"source": f"step:{step_id}", "target": f"commit:{sha}", "relation_type": "cites",
+                          "origin": "verified_reference", "confidence": 1.0, "evidence_ref": "steps.notes"})
     for portal in portals:
         nodes.append({"id": portal, "kind": "portal", "label": portal.split(":", 1)[1],
                       "attrs": {"commits": len({sha for b in bridges if b["target"] == portal for sha in b["commits"]})}})
 
     # Disposición: los conectados por fuerzas; los aislados, en una grilla debajo (§22.4).
     force_ids = sorted(connected | set(portals), key=lambda item: (item.startswith("portal:"), item))
-    weights = {(b["source"], b["target"]): b["weight"] for b in bridges}
-    positions = {node: {"x": x, "y": y} for node, (x, y) in _force_layout(force_ids, weights).items()}
+    weights = tuple(((b["source"], b["target"]), b["weight"]) for b in bridges)
+    iterations = _layout_iterations(len(force_ids))
+    positions = {node: {"x": x, "y": y} for node, x, y in _cached_layout(tuple(force_ids), weights, iterations)}
     isolated = [node["id"] for node in nodes if node["kind"] == "context" and not node["attrs"]["connected"]]
     top = _CONSTELLATION_HEIGHT + 40 if force_ids else 60
     gap = (_CONSTELLATION_WIDTH - 120) / (_CONSTELLATION_COLUMNS - 1)
@@ -819,5 +857,6 @@ def project_constellation(conn: sqlite3.Connection, project: str, commits: Optio
             "isolated": isolated,
             "size": {"width": _CONSTELLATION_WIDTH, "height": round(height, 2)},
             "layout_version": CONSTELLATION_LAYOUT_VERSION,
+            "iterations": iterations,
         },
     }

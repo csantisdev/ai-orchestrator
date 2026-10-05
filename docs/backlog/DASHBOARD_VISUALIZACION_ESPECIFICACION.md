@@ -1156,6 +1156,25 @@ Para conservar su impacto:
 
 Todo respeta `prefers-reduced-motion`.
 
+**Nota de implementación (D7, 2026-10-05).** Tres ajustes respecto del texto anterior, con su motivo:
+
+- **SVG en vez de Canvas 2D.** Con los volúmenes reales (decenas de contextos, pocos puentes) el
+  SVG cumple el presupuesto y da foco, `aria-label` y selección por elemento sin una capa paralela.
+  La capa accesible existe igual: lista equivalente de contextos y lista de puentes con sus commits,
+  sincronizadas con la selección. Si el volumen crece y el SVG no alcanza, se pasa a Canvas sin
+  cambiar el DTO.
+- **Caché por contenido en vez de contador de generación.** El hilo de O4 (§19.4) todavía no
+  existe. La caché de posiciones usa como clave los nodos conectados, los puentes con su peso, las
+  iteraciones y la versión del algoritmo: un cambio hecho desde otro proceso cambia esa clave y
+  fuerza el recálculo, que es la garantía que pedía la generación. El escaneo de citas se hace en
+  cada pedido (decenas de ms con los datos actuales). El layout tiene presupuesto: simulación
+  completa hasta 80 nodos conectados, menos iteraciones hasta 300 y círculo sin simular por encima;
+  el DTO informa `iterations`.
+- **Portales.** El portal muestra el alias y la cantidad de commits. Los SHA que viajan en sus
+  puentes son commits que citan pasos de *este* proyecto, así que ya son evidencia local. Del otro
+  proyecto no viaja qué contexto ni qué paso los cita. El portal no es seleccionable: sus commits
+  se recorren desde la lista de puentes, que los abre en el Inspector.
+
 ### 22.5 Lugar en el plan
 
 Fase **D7 (experimental)**, después de D6: reutiliza la proyección de commits verificados y la

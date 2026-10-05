@@ -5,7 +5,7 @@
 import { h } from "../core/dom.js";
 import { toSearch } from "../core/router.js";
 import { facts, objectList, statusPill } from "../renderers/list.js";
-import { renderTrace } from "../renderers/trace.js";
+import { renderTrace, selectable } from "../renderers/trace.js";
 import { panel, progress, segmented } from "../core/ui.js";
 import { citingSteps, layoutMap, renderMap, select as selectOnMap } from "../renderers/map.js";
 import {
@@ -134,7 +134,9 @@ function constellationSection(state, data, cons, view) {
     return [panel("Grafo · Labs", h("p", { class: "empty-note" },
       "La constelación no está disponible ahora; la pestaña Lista sigue funcionando."))];
   }
-  const focus = state.sel?.startsWith("context:") ? state.sel : null;
+  // El foco del modo local es el último contexto seleccionado; elegir un commit no lo cambia.
+  if (!state.sel || state.sel.startsWith("context:")) view.focus = state.sel ?? null;
+  const focus = view.focus;
   const layout = layoutConstellation(cons, { scope: view.scope, mode: view.mode, focus, depth: view.depth, lens: view.lens });
   const graphic = renderConstellation(layout);
   view.layout = layout;
@@ -188,9 +190,19 @@ function constellationSection(state, data, cons, view) {
         ]))
         : h("span", {}, "Sin commits compartidos")),
   ], { label: "Contextos del grafo", empty: "No hay contextos para mostrar con este alcance." });
+  // Puentes (§22.4): extremos y commits compartidos, todos seleccionables con teclado.
+  const end = (id) => (id.startsWith("portal:")
+    ? h("span", { class: "cons-portal-name" }, `↗ ${id.slice(7)} (otro proyecto)`)
+    : selectable(id, `#${id.split(":")[1]}`, titles.get(id), state.sel));
+  const bridgeList = objectList(layout.bridges, (bridge) => [
+    h("div", { class: "object-main" }, end(bridge.source), h("span", { "aria-hidden": "true" }, "↔"), end(bridge.target),
+      h("span", { class: "object-meta" }, `${bridge.weight} ${bridge.weight === 1 ? "commit compartido" : "commits compartidos"}`)),
+    h("div", { class: "trace-chips" }, bridge.commits.map((commit) => selectable(commit, commit.slice(7, 14), null, state.sel))),
+  ], { label: "Puentes del grafo", empty: "Ningún contexto visible comparte commits." });
   return [
     panel("Grafo · Labs", controls, legend, hint, hidden, h("div", { class: "constellation-wrap" }, graphic)),
     panel("Lista equivalente", list),
+    panel("Puentes", bridgeList),
   ];
 }
 
@@ -360,7 +372,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
   const freshMapView = () => ({ expanded: new Set(), start: 0, force: false, stepFilter: null, layout: null, svg: null });
   let mapView = freshMapView();
   // Estado local de la constelación: modo, lente, alcance y profundidad del modo local.
-  const consView = { mode: "global", lens: "agent", scope: "active", depth: 1, layout: null, svg: null };
+  const consView = { mode: "global", lens: "agent", scope: "active", depth: 1, focus: null, layout: null, svg: null };
   let lastConstellation = null;
 
   async function load() {
@@ -449,7 +461,9 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     if (!target || !root.contains(target)) return;
     if (target.dataset.as !== undefined) {
       const value = target.dataset.as;
-      store.set({ as: value === "map" || value === "constellation" ? value : null, sel: null });
+      // Entre Lista y Grafo de contextos la selección se conserva (§23.2); el mapa la limpia.
+      const keep = pageFor(current) === "contexts" && current.sel?.startsWith("context:");
+      store.set({ as: value === "map" || value === "constellation" ? value : null, sel: keep ? current.sel : null });
       return;
     }
     for (const [key, field] of [["consMode", "mode"], ["consLens", "lens"], ["consScope", "scope"], ["consDepth", "depth"]]) {

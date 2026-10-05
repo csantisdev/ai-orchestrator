@@ -118,11 +118,16 @@ export function layoutConstellation(dto, { scope = "active", mode = "global", fo
   };
 }
 
-// Contextos y portales relacionados con la selección: ella misma y sus vecinos por puentes.
+// Lo relacionado con la selección: un contexto o portal y sus vecinos por puentes; un commit,
+// los extremos de los puentes que lo comparten.
 export function constellationRelated(layout, sel) {
   if (!sel) return null;
   const related = new Set([sel]);
   for (const bridge of layout.bridges) {
+    if (bridge.commits.includes(sel)) {
+      related.add(bridge.source);
+      related.add(bridge.target);
+    }
     if (bridge.source === sel) related.add(bridge.target);
     if (bridge.target === sel) related.add(bridge.source);
   }
@@ -155,10 +160,11 @@ export function renderConstellation(layout, { interactive = true } = {}) {
   svg("circle", { class: "cons-core", cx: sun.x, cy: sun.y, r: sun.radius }),
   svg("text", { class: "cons-id", x: sun.x, y: sun.y - 2, "text-anchor": "middle" }, `#${sun.id.split(":")[1]}`),
   svg("text", { class: "cons-agent", x: sun.x, y: sun.y + 11, "text-anchor": "middle" }, agentLabel(sun.agent))));
-  const portals = layout.portals.map((portal) => svg("g", focusable({
-    class: "cons-portal", data: { node: portal.id, portal: portal.label },
+  // El portal es informativo: sus commits se recorren desde la lista de puentes.
+  const portals = layout.portals.map((portal) => svg("g", {
+    class: "cons-portal", data: { node: portal.id, portal: portal.label }, role: "img",
     "aria-label": `Portal a ${portal.label}: ${portal.commits} commits compartidos con este proyecto`,
-  }),
+  },
   svg("rect", { x: portal.x - 56, y: portal.y - 12, width: 112, height: 24, rx: 12 }),
   svg("text", { x: portal.x, y: portal.y + 4, "text-anchor": "middle" }, `↗ ${portal.label} · ${portal.commits}`)));
   return svg("svg", {

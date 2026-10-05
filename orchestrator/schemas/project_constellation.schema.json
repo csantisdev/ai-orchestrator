@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ai-orchestrator.local/schemas/project_constellation.schema.json",
   "title": "Constelación del proyecto",
-  "description": "GET /api/v1/projects/{p}/constellation (spec §22.4): contextos, pasos y portales como nodos, `contains` como aristas, más la extensión `constellation` (puentes por commits compartidos, posiciones deterministas, aislados). Sin texto libre; de otros proyectos solo el alias.",
+  "description": "GET /api/v1/projects/{p}/constellation (spec §22.4): contextos, pasos, commits de los puentes y portales como nodos, `contains` y `cites` como aristas, más la extensión `constellation` (puentes por commits compartidos, posiciones deterministas, aislados). Sin texto libre; de otros proyectos solo el alias.",
   "type": "object",
   "required": [
     "nodes",
@@ -136,6 +136,28 @@
             "required": [
               "id",
               "kind",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^commit:([0-9a-f]{40}|[0-9a-f]{64})$"
+              },
+              "kind": {
+                "const": "commit"
+              },
+              "label": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{7}$"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
               "label",
               "attrs"
             ],
@@ -172,40 +194,80 @@
     "edges": {
       "type": "array",
       "items": {
-        "type": "object",
-        "required": [
-          "source",
-          "target",
-          "relation_type",
-          "origin",
-          "confidence",
-          "evidence_ref"
-        ],
-        "properties": {
-          "source": {
-            "type": "string",
-            "pattern": "^context:[0-9]+$"
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "source",
+              "target",
+              "relation_type",
+              "origin",
+              "confidence",
+              "evidence_ref"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^context:[0-9]+$"
+              },
+              "target": {
+                "type": "string",
+                "pattern": "^step:[0-9]+$"
+              },
+              "relation_type": {
+                "const": "contains"
+              },
+              "origin": {
+                "const": "system"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidence_ref": {
+                "const": "steps.context_id"
+              }
+            },
+            "additionalProperties": false
           },
-          "target": {
-            "type": "string",
-            "pattern": "^step:[0-9]+$"
-          },
-          "relation_type": {
-            "const": "contains"
-          },
-          "origin": {
-            "const": "system"
-          },
-          "confidence": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "evidence_ref": {
-            "const": "steps.context_id"
+          {
+            "type": "object",
+            "required": [
+              "source",
+              "target",
+              "relation_type",
+              "origin",
+              "confidence",
+              "evidence_ref"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^step:[0-9]+$"
+              },
+              "target": {
+                "type": "string",
+                "pattern": "^commit:([0-9a-f]{40}|[0-9a-f]{64})$"
+              },
+              "relation_type": {
+                "const": "cites"
+              },
+              "origin": {
+                "const": "verified_reference"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidence_ref": {
+                "const": "steps.notes"
+              }
+            },
+            "additionalProperties": false
           }
-        },
-        "additionalProperties": false
+        ]
       }
     },
     "metadata": {
@@ -232,7 +294,8 @@
         "positions",
         "isolated",
         "size",
-        "layout_version"
+        "layout_version",
+        "iterations"
       ],
       "properties": {
         "bridges": {
@@ -324,6 +387,10 @@
         },
         "layout_version": {
           "type": "string"
+        },
+        "iterations": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "additionalProperties": false

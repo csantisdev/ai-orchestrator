@@ -174,8 +174,34 @@ test("Trabajo · Grafo: carga la constelación, controles locales, selección y 
   assert.match(root.textContent, /Uno/);
   const pressed = findAll(root, (node) => node.attributes?.["data-node"] === C(3))[0];
   assert.equal(pressed.attributes["aria-pressed"], "true");
+  // Al volver a la Lista, el contexto seleccionado se conserva (§23.2).
   click({ dataset: { as: "list" } });
-  assert.deepEqual(sets.at(-1), { as: null, sel: null });
+  assert.deepEqual(sets.at(-1), { as: null, sel: C(3) });
+}));
+
+test("Trabajo · Grafo: puentes con commits seleccionables y portal informativo", () => withDocument(async (doc) => {
+  const contexts = { contexts: [1, 2, 3, 4].map((id) => ({ id, title: `T${id}`, status: "active", steps: { total: 0, completed: 0 } })) };
+  const api = { get: async (path) => (path.endsWith("/constellation") ? dto() : contexts) };
+  const root = new FakeNode(doc, "div");
+  root.addEventListener = () => {};
+  root.replaceChildren = (...children) => { root.childNodes = children; };
+  const state = { project: "mi-proyecto", view: "trabajo", tab: "contextos", ctx: null, step: null, as: "constellation", sel: null };
+  const handle = await mount(root, { api, store: { set() {} }, state, signal: new AbortController().signal });
+  assert.match(root.textContent, /Puentes/);
+  assert.match(root.textContent, /↗ otro-proyecto \(otro proyecto\)/);
+  const commit = `commit:${"0".repeat(40)}`;
+  const chips = findAll(root, (node) => node.dataset?.sel === commit);
+  assert.equal(chips.length, 2);
+  assert.ok(chips.every((chip) => chip.tagName === "button"));
+  const portal = findAll(root, (node) => node.attributes?.["data-node"] === "portal:otro-proyecto")[0];
+  assert.equal(portal.attributes.tabindex, undefined);
+  assert.equal(portal.attributes.role, "img");
+  // Un commit compartido resalta los extremos de sus puentes y atenúa el resto.
+  handle.update({ ...state, sel: `commit:${"1".repeat(40)}` });
+  const node = (id) => findAll(root, (item) => item.attributes?.["data-node"] === id)[0];
+  assert.ok(!node(C(1)).classes.has("is-dim"));
+  assert.ok(!node(C(2)).classes.has("is-dim"));
+  assert.ok(node("portal:otro-proyecto").classes.has("is-dim"));
 }));
 
 test("Trabajo · Grafo: si la constelación falla, se avisa y la lista de contextos sigue disponible", () => withDocument(async (doc) => {

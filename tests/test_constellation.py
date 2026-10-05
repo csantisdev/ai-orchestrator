@@ -113,3 +113,45 @@ def test_the_endpoint_answers_for_known_projects_only(data, monkeypatch):
     _validate(payload)
     status, _ = api_v1.dispatch(Request("GET", "/api/v1/projects/desconocido/constellation"))
     assert status == 404
+
+
+def test_shared_commits_travel_as_nodes_cited_only_by_own_steps(data):
+    conn, ctx = data
+    result = project_constellation(conn, "mi-proyecto")
+    commits = sorted(node["id"] for node in result["nodes"] if node["kind"] == "commit")
+    assert commits == [f"commit:{sha(n)}" for n in (1, 2, 3)]
+    cites = {(edge["source"], edge["target"]) for edge in result["edges"] if edge["relation_type"] == "cites"}
+    own_steps = {node["id"] for node in result["nodes"] if node["kind"] == "step"}
+    assert {source for source, _ in cites} <= own_steps
+    # El commit compartido con otro proyecto lo cita solo el paso propio; el ajeno no aparece.
+    assert [source for source, target in cites if target == f"commit:{sha(3)}"] == [
+        next(node["id"] for node in result["nodes"] if node["kind"] == "step" and node["attrs"]["context"] == f"context:{ctx['a']}"
+             and node["label"] == "Paso 1")]
+
+
+def test_layout_budget_and_content_cache(monkeypatch):
+    assert projections._layout_iterations(80) == 240
+    assert 30 <= projections._layout_iterations(150) < 240
+    assert projections._layout_iterations(301) == 0
+    projections._cached_layout.cache_clear()
+    calls = []
+    real = projections._force_layout
+    monkeypatch.setattr(projections, "_force_layout", lambda *args: calls.append(args) or real(*args))
+    conn = _empty_db()
+    a = _context(conn, "solo", "a", "active", "2026-05-01T00:00:00Z", "2026-05-01T00:00:00Z")
+    b = _context(conn, "solo", "b", "active", "2026-05-01T00:00:00Z", "2026-05-01T00:00:00Z")
+    _step(conn, a, 1, "a1", "completed", provider="claude", notes=sha(1))
+    _step(conn, b, 1, "b1", "completed", provider="claude", notes=sha(1))
+    _run(conn, "solo", "2026-05-02T00:00:00Z", provider=GIT_PROVIDER, session_id=f"git::solo::{sha(1)}")
+    conn.commit()
+    first = project_constellation(conn, "solo")
+    assert project_constellation(conn, "solo")["constellation"]["positions"] == first["constellation"]["positions"]
+    assert len(calls) == 1
+    # Un cambio (de cualquier proceso) en los puentes cambia la clave y fuerza el recálculo.
+    _step(conn, b, 2, "b2", "completed", provider="claude", notes=sha(2))
+    _step(conn, a, 2, "a2", "completed", provider="claude", notes=sha(2))
+    _run(conn, "solo", "2026-05-02T00:00:00Z", provider=GIT_PROVIDER, session_id=f"git::solo::{sha(2)}")
+    conn.commit()
+    assert project_constellation(conn, "solo")["constellation"]["bridges"][0]["weight"] == 2
+    assert len(calls) == 2
+    conn.close()
