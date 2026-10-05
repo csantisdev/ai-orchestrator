@@ -494,3 +494,154 @@ def activity(
             "skipped_invalid_ts": skipped,
         },
     }
+
+
+MAP_MAX_STEPS = 30
+MAP_MAX_COMMITS = 20
+MAP_MAX_EDGES = 60
+
+
+def _map_groups(steps: list[dict], shared_citers: set[str], max_steps: int) -> list[dict]:
+    """Rangos maximales de pasos consecutivos completados, sin desvíos ni commits compartidos.
+
+    Solo cuando el contexto supera `max_steps` pasos (§21.3, presupuesto visual); un rango de un
+    solo paso no se agrupa.
+    """
+    if len(steps) <= max_steps:
+        return []
+
+    def groupable(node: dict) -> bool:
+        attrs = node["attrs"]
+        return node["state"] == "completed" and attrs["deviations"] == 0 and node["id"] not in shared_citers
+
+    groups: list[dict] = []
+    run: list[dict] = []
+
+    def close() -> None:
+        if len(run) >= 2:
+            lanes: dict[str, int] = {}
+            for node in run:
+                lanes[node["attrs"]["lane"]] = lanes.get(node["attrs"]["lane"], 0) + 1
+            order = {agent: position for position, agent in enumerate((*AGENT_CATALOG, NO_AGENT))}
+            lane = min(lanes, key=lambda agent: (-lanes[agent], order.get(agent, len(order))))
+            first, last = run[0]["attrs"]["idx"], run[-1]["attrs"]["idx"]
+            groups.append({
+                "id": f"group:{first}-{last}",
+                "from_idx": first,
+                "to_idx": last,
+                "count": len(run),
+                "members": [node["id"] for node in run],
+                "lane": lane,
+                "lanes": dict(sorted(lanes.items(), key=lambda item: order.get(item[0], len(order)))),
+            })
+        run.clear()
+
+    for node in steps:
+        if groupable(node):
+            run.append(node)
+        else:
+            close()
+    close()
+    return groups
+
+
+def context_map(
+    conn: sqlite3.Connection,
+    context_id: int,
+    commits: Optional[CommitIndex] = None,
+    now: Optional[datetime] = None,
+    *,
+    max_steps: int = MAP_MAX_STEPS,
+    max_commits: int = MAP_MAX_COMMITS,
+    max_edges: int = MAP_MAX_EDGES,
+) -> Optional[dict]:
+    """ProjectGraph del contexto con la extensión `map` (spec §21.3, §21.4).
+
+    Los nodos y aristas conservan el formato del ProjectGraph; lo propio del mapa (carriles,
+    colocación de commits, grupos, elegibilidad y lo que se resume por presupuesto) va en `map`.
+    Disposición determinista: x = orden del paso, y = carril del agente principal, commits en
+    una franja inferior bajo el primer paso que los cita, apilados por SHA.
+    """
+    graph = context_graph(conn, context_id, commits, now)
+    if graph is None:
+        return None
+    steps = [node for node in graph["nodes"] if node["kind"] == "step"]
+    column = {node["id"]: node["attrs"]["idx"] for node in steps}
+    cites = [edge for edge in graph["edges"] if edge["relation_type"] == "cites"]
+    citers: dict[str, list[str]] = {}
+    for edge in cites:
+        bucket = citers.setdefault(edge["target"], [])
+        if edge["source"] not in bucket:
+            bucket.append(edge["source"])
+    for bucket in citers.values():
+        bucket.sort(key=lambda step: column[step])
+    shared = {commit for commit, steps_citing in citers.items() if len(steps_citing) >= 2}
+    shared_citers = {step for commit in shared for step in citers[commit]}
+
+    present = {node["attrs"]["lane"] for node in steps}
+    lanes = [agent for agent in AGENT_CATALOG if agent in present]
+    if NO_AGENT in present:
+        lanes.append(NO_AGENT)
+    eligible = len([lane for lane in lanes if lane != NO_AGENT]) >= 2 or bool(shared)
+
+    def first_column(commit: str) -> int:
+        return column[citers[commit][0]]
+
+    # Presupuesto de commits y aristas (§21.3): primero los citados por un solo paso pasan a ser
+    # un contador en el paso; si aún sobran compartidos o aristas, el caso extremo.
+    all_commits = sorted(citers, key=lambda commit: (first_column(commit), commit))
+    drawn = list(all_commits)
+    single_counts: dict[str, int] = {}
+    if len(drawn) > max_commits or len(cites) > max_edges:
+        drawn = [commit for commit in drawn if commit in shared]
+        for commit in all_commits:
+            if commit not in shared:
+                step = citers[commit][0]
+                single_counts[step] = single_counts.get(step, 0) + 1
+    more_commits = 0
+    if len(drawn) > max_commits:
+        ranked = sorted(drawn, key=lambda commit: (-len(citers[commit]), first_column(commit), commit))
+        keep = set(ranked[:max_commits])
+        more_commits = len(drawn) - len(keep)
+        drawn = [commit for commit in drawn if commit in keep]
+    drawn_set = set(drawn)
+
+    # Aristas en el orden de dibujo: commits por colocación y, dentro de cada uno, pasos citantes
+    # por orden del plan; las que pasan el tope se resumen como "+k citas" en el commit.
+    placement: dict[str, dict] = {}
+    stacks: dict[int, int] = {}
+    for commit in drawn:
+        col = first_column(commit)
+        placement[commit] = {"column": col, "stack": stacks.get(col, 0)}
+        stacks[col] = stacks.get(col, 0) + 1
+    ordered_edges = []
+    hidden_edges: dict[str, int] = {}
+    budget = max_edges
+    for commit in drawn:
+        for step in citers[commit]:
+            if budget > 0:
+                ordered_edges.append({"source": step, "target": commit, "relation_type": "cites",
+                                      "origin": "verified_reference", "confidence": 1.0,
+                                      "evidence_ref": "steps.notes"})
+                budget -= 1
+            else:
+                hidden_edges[commit] = hidden_edges.get(commit, 0) + 1
+
+    contains = [edge for edge in graph["edges"] if edge["relation_type"] == "contains"]
+    nodes = [node for node in graph["nodes"] if node["kind"] != "commit" or node["id"] in drawn_set]
+    return {
+        "nodes": nodes,
+        "edges": contains + ordered_edges,
+        "metadata": graph["metadata"],
+        "map": {
+            "lanes": lanes,
+            "eligible": eligible,
+            "shared": [commit for commit in drawn if commit in shared],
+            "placement": placement,
+            "groups": _map_groups(steps, shared_citers, max_steps),
+            "single_commits": single_counts,
+            "more_commits": more_commits,
+            "hidden_edges": hidden_edges,
+            "max_columns": max_steps,
+        },
+    }

@@ -6,7 +6,8 @@ import { h } from "../core/dom.js";
 import { toSearch } from "../core/router.js";
 import { facts, objectList, statusPill } from "../renderers/list.js";
 import { renderTrace } from "../renderers/trace.js";
-import { progress, segmented } from "../core/ui.js";
+import { panel, progress, segmented } from "../core/ui.js";
+import { layoutMap, renderMap, select as selectOnMap } from "../renderers/map.js";
 
 export const CONTEXT_STATUS = Object.freeze({
   active: "Activo", programado: "Programado", completed: "Completado", abandoned: "Abandonado",
@@ -134,7 +135,46 @@ function contextsPage(state, data, filter) {
   return [header(undefined, null, filters), list];
 }
 
-function contextPage(state, data) {
+export const REPRESENTATIONS = Object.freeze([["list", "Pasos"], ["map", "◇ Mapa"]]);
+
+// Mapa del contexto (§21.3): disposición, controles de ventana y aviso si no es elegible.
+function mapSection(state, map, view) {
+  if (!map) return null;
+  if (!map.map.eligible && !view.force) {
+    return panel("Mapa",
+      h("p", { class: "empty-note" },
+        "Este contexto no tiene relaciones que el mapa agregue: un solo carril de agente y ningún commit compartido. "
+        + "La lista de pasos lo muestra igual."),
+      h("button", { type: "button", class: "ui-button", data: { forceMap: "1" } }, "Ver el mapa igual"));
+  }
+  const layout = layoutMap(map, { expanded: view.expanded, start: view.start });
+  const graphic = renderMap(layout);
+  view.layout = layout;
+  view.svg = graphic;
+  const { first, size, total } = layout.columns;
+  const windowControls = total > size
+    ? h("div", { class: "map-window" },
+      h("button", { type: "button", class: "ui-button", data: { mapWindow: String(Math.max(0, first - size)) }, disabled: first === 0 },
+        "← Pasos anteriores"),
+      h("span", { class: "empty-note" }, `Columnas ${first + 1}–${Math.min(first + size, total)} de ${total}`),
+      h("button", { type: "button", class: "ui-button", data: { mapWindow: String(first + size) }, disabled: first + size >= total },
+        "Pasos siguientes →"))
+    : null;
+  if (state.sel) selectOnMap(graphic, layout, state.sel);
+  return panel("Mapa",
+    h("ul", { class: "map-legend", "aria-label": "Leyenda del mapa" },
+      h("li", {}, "✓ completado · ● en curso · ○ pendiente · ⤼ omitido"),
+      h("li", {}, "◇ commit citado; trazo grueso = compartido por varios pasos"),
+      h("li", {}, "recuadro punteado = segundo agente en ese carril"),
+      h("li", {}, "Na = alineamientos · Nr = runs · ◇n = commits citados por un solo paso")),
+    windowControls,
+    h("div", { class: "map-wrap" }, graphic),
+    map.map.more_commits
+      ? h("p", { class: "empty-note" }, `+${map.map.more_commits} commits compartidos sin dibujar (ver la lista de pasos).`)
+      : null);
+}
+
+function contextPage(state, data, map = null, view = null) {
   const { context, steps } = data;
   const parent = context.parent
     ? h("p", { class: "work-subtle" }, "Creado desde ",
@@ -142,7 +182,16 @@ function contextPage(state, data) {
     : null;
   const list = objectList(steps, (step) => [
     h("div", { class: "object-main" },
-      navLink(state, { ctx: context.id, step: step.id }, [h("span", { class: "object-id" }, `Paso ${step.idx}`), step.title || "Sin título"]),
+      // Con el mapa, la lista es su equivalente sincronizado: el número del paso lo selecciona.
+      state.as === "map"
+        ? h("button", {
+          type: "button", class: "cell-button", data: { sel: `step:${step.id}` },
+          "aria-pressed": String(state.sel === `step:${step.id}`),
+        }, `Paso ${step.idx}`)
+        : null,
+      navLink(state, { ctx: context.id, step: step.id }, state.as === "map"
+        ? (step.title || "Sin título")
+        : [h("span", { class: "object-id" }, `Paso ${step.idx}`), step.title || "Sin título"]),
       statusPill(step.status, STEP_STATUS)),
     h("div", { class: "object-meta" },
       h("span", {}, agentLabel(step.lane), step.secondary.length ? ` + ${step.secondary.map(agentLabel).join(", ")}` : ""),
@@ -159,11 +208,15 @@ function contextPage(state, data) {
       step.children.length ? h("span", {}, "Contextos derivados: ",
         step.children.map((child) => navLink(state, { ctx: child, step: null }, `#${child}`))) : null),
   ], { label: "Pasos", empty: "El contexto no tiene pasos." });
+  const representation = segmented({
+    label: "Representación", options: REPRESENTATIONS, current: state.as === "map" ? "map" : "list", attribute: "as",
+  });
   return [
     h("nav", { class: "work-back" }, navLink(state, { ctx: null, step: null }, "← Contextos")),
-    header(context.status, CONTEXT_STATUS),
+    header(context.status, CONTEXT_STATUS, representation),
     context.description ? h("p", { class: "work-description" }, context.description) : null,
     parent,
+    state.as === "map" ? mapSection(state, map, view) : null,
     list,
   ];
 }
@@ -194,6 +247,11 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
   let current = state;
   let filter = "";
   let pending = null;
+  let lastData = null;
+  let lastMap = null;
+  // Estado local del mapa: grupos abiertos, ventana de columnas y "ver el mapa igual".
+  const freshMapView = () => ({ expanded: new Set(), start: 0, force: false, layout: null, svg: null });
+  let mapView = freshMapView();
 
   async function load() {
     // Cualquier carga anterior queda superada, también por una página sin petición.
@@ -218,10 +276,16 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     root.replaceChildren(h("p", { class: "work-loading", role: "status" }, "Cargando…"));
     try {
       const params = page === "contexts" && filter ? { status: filter } : {};
-      const data = await api.get(path, { params, signal: controller.signal });
+      const wantsMap = page === "context" && current.as === "map";
+      const [data, map] = await Promise.all([
+        api.get(path, { params, signal: controller.signal }),
+        wantsMap ? api.get(`${path}/map`, { signal: controller.signal }) : Promise.resolve(null),
+      ]);
       if (controller.signal.aborted) return;
+      lastData = data;
+      lastMap = map;
       const content = page === "step" ? stepPage(current, data)
-        : page === "context" ? contextPage(current, data)
+        : page === "context" ? contextPage(current, data, map, mapView)
           : contextsPage(current, data, filter);
       root.replaceChildren(...content.filter(Boolean));
       shellPage?.set(pageTitle(page, data));
@@ -241,9 +305,38 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     }
   }
 
+  // Vuelve a dibujar la página del contexto con los mismos datos (grupos, ventana, forzar).
+  function redrawContext() {
+    if (!lastData || pageFor(current) !== "context") return;
+    root.replaceChildren(...contextPage(current, lastData, lastMap, mapView).filter(Boolean));
+  }
+
+  const TARGETS = "[data-nav], [data-sel], [data-filter], [data-as], [data-group], [data-force-map], [data-map-window]";
+
   function onClick(event) {
-    const target = event.target.closest?.("[data-nav], [data-sel], [data-filter]");
+    const target = event.target.closest?.(TARGETS);
     if (!target || !root.contains(target)) return;
+    if (target.dataset.as !== undefined) {
+      store.set({ as: target.dataset.as === "map" ? "map" : null, sel: null });
+      return;
+    }
+    if (target.dataset.group) {
+      const id = target.dataset.group;
+      if (mapView.expanded.has(id)) mapView.expanded.delete(id);
+      else mapView.expanded.add(id);
+      redrawContext();
+      return;
+    }
+    if (target.dataset.forceMap !== undefined) {
+      mapView.force = true;
+      redrawContext();
+      return;
+    }
+    if (target.dataset.mapWindow !== undefined) {
+      mapView.start = Number(target.dataset.mapWindow) || 0;
+      redrawContext();
+      return;
+    }
     if (target.dataset.filter !== undefined) {
       filter = target.dataset.filter;
       load();
@@ -259,16 +352,41 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     store.set({ ctx: id(target.dataset.ctx), step: id(target.dataset.step), sel: null });
   }
 
+  // Teclado en el mapa (§21.6): Enter o Espacio activan el nodo; las flechas recorren los
+  // pasos y grupos en orden de columna.
+  function onKeyDown(event) {
+    const node = event.target.closest?.("[data-node]");
+    if (!node || !root.contains(node)) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onClick({ target: node, preventDefault() {} });
+      return;
+    }
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    const order = [...root.querySelectorAll(".map-step, .map-group")];
+    const index = order.indexOf(node);
+    if (index < 0) return;
+    event.preventDefault();
+    order[(index + (event.key === "ArrowRight" ? 1 : -1) + order.length) % order.length]?.focus();
+  }
+
   root.addEventListener("click", onClick);
+  root.addEventListener("keydown", onKeyDown);
   await load();
   return {
     update(next) {
       const previous = current;
       current = next;
       if (next.project !== previous.project || next.ctx !== previous.ctx || next.step !== previous.step) {
+        mapView = freshMapView();
         load();
         return;
       }
+      if (next.as !== previous.as) {
+        load();
+        return;
+      }
+      if (next.sel !== previous.sel && mapView.svg && mapView.layout) selectOnMap(mapView.svg, mapView.layout, next.sel);
       if (next.sel !== previous.sel) {
         for (const chip of root.querySelectorAll("[data-sel]")) {
           const selected = chip.dataset.sel === next.sel;
@@ -279,6 +397,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     },
     unmount() {
       root.removeEventListener("click", onClick);
+      root.removeEventListener("keydown", onKeyDown);
       pending?.abort();
     },
   };

@@ -24,6 +24,7 @@ from orchestrator.git_scanner import PROVIDER_NAME as GIT_PROVIDER
 from orchestrator.projections import (
     CommitIndex,
     context_graph,
+    context_map,
     normalize_agent,
     parse_instant,
     step_references,
@@ -424,3 +425,18 @@ def trace(request: Request):
         return missing
     found = step_trace(conn, project, step_id)
     return found if found is not None else (404, {"error": "unknown step"})
+
+
+@route("GET", "/api/v1/projects/{project}/contexts/{context_id}/map")
+def context_map_endpoint(request: Request):
+    """Mapa del contexto (spec §21.4): ProjectGraph más la extensión `map`."""
+    context_id = _positive_id(request.params["context_id"], "context_id")
+    project = request.params["project"]
+    conn = _connection()
+    missing = _require_project(conn, project)
+    if missing:
+        return missing
+    owner = conn.execute("SELECT 1 FROM contexts WHERE id = ? AND project = ?", (context_id, project)).fetchone()
+    if owner is None:
+        return 404, {"error": "unknown context"}
+    return context_map(conn, context_id, project_commits(conn, project))

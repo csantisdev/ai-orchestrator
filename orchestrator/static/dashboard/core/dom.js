@@ -63,3 +63,35 @@ export function h(tag, props = {}, ...children) {
   append(element, children);
   return element;
 }
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const DATA_KEY = /^[a-z][a-zA-Z0-9]*$/;
+
+function dataAttribute(key) {
+  if (!DATA_KEY.test(key)) throw new TypeError(`data-* inválido: ${key}`);
+  return `data-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+}
+
+// Elementos SVG (mapa y grafos) con las mismas reglas que `h()`: sin handlers en línea ni
+// `style`, URLs seguras y texto como nodo de texto. `class` y `data-*` van como atributos
+// (en SVG `className` no es un string).
+// svg("rect", { x: 10, y: 4, width: 90, height: 36, class: "map-step" })
+export function svg(tag, props = {}, ...children) {
+  const doc = h.document ?? globalThis.document;
+  const element = doc.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(props ?? {})) {
+    if (name === "data") {
+      for (const [key, item] of Object.entries(value ?? {})) {
+        const attribute = dataAttribute(key);
+        if (item !== null && item !== undefined) element.setAttribute(attribute, String(item));
+      }
+    } else if (name === "class") {
+      const text = Array.isArray(value) ? value.filter(Boolean).join(" ") : value;
+      if (text) element.setAttribute("class", String(text));
+    } else {
+      setAttribute(element, name, value);
+    }
+  }
+  append(element, children);
+  return element;
+}
