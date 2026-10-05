@@ -1,9 +1,12 @@
 import { h } from "../core/dom.js";
 import { toSearch } from "../core/router.js";
+import { dataTable, segmented } from "../core/ui.js";
+import { statusPill } from "../renderers/list.js";
 
 const STYLE_KEY = "executions";
 const PATH_SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/;
 const SOURCES = ["all", "router", "session", "commit"];
+const RUN_STATUS = { done: "Hecho", error: "Error", running: "En curso", pending: "Pendiente" };
 
 export function sourceLabel(source) {
   return { all: "Todas", router: "Router", session: "Sesión", commit: "Commit" }[source] ?? source;
@@ -48,36 +51,40 @@ function message(title, body) {
   return h("section", { class: "shell-empty" }, h("h2", {}, title), h("p", {}, body));
 }
 
+const COLUMNS = [
+  { label: "Run" }, { label: "Fecha" }, { label: "Tarea" }, { label: "Fuente" }, { label: "Estado" },
+  { label: "Proveedor" }, { label: "Modelo" }, { label: "Costo", numeric: true }, { label: "Paso" },
+];
+
 function table(state, runs) {
-  const body = runs.length
-    ? runs.map((run) => h("tr", {},
-      h("td", {}, h("button", {
-        type: "button",
-        class: ["execution-row", state.sel === `run:${run.id}` && "is-selected"],
-        data: { sel: `run:${run.id}` },
-        "aria-pressed": String(state.sel === `run:${run.id}`),
-      }, `#${run.id}`)),
-      h("td", { class: "execution-data" }, run.ts
-        ? h("time", { datetime: run.ts }, formatRunTime(run.ts))
-        : "—"),
-      h("td", {}, run.task_preview || "Sin descripción"),
-      h("td", {}, sourceLabel(run.source)),
-      h("td", {}, run.status || "—"),
-      h("td", {}, run.provider),
-      h("td", {}, run.model || "—"),
-      h("td", { class: "execution-data" }, formatUsd(run.cost_usd)),
-      h("td", {}, run.context_id
-        ? h("a", { class: "execution-link",
-          href: stepHref(state, run.context_id, run.step_id),
-          data: { nav: "1", ctx: run.context_id, step: run.step_id },
-        }, `Paso #${run.step_id}`)
-        : "—"),
-    ))
-    : h("tr", {}, h("td", { colspan: 9 }, "No hay runs para este filtro."));
-  return h("div", { class: "execution-table-scroll" }, h("table", { class: "execution-table" },
-    h("thead", {}, h("tr", {}, ["ID", "Fecha", "Tarea", "Fuente", "Estado", "Proveedor", "Modelo", "Costo", "Paso"]
-      .map((label) => h("th", {}, label)))),
-    h("tbody", {}, body)));
+  return dataTable({
+    label: "Runs",
+    columns: COLUMNS,
+    empty: "No hay runs para este filtro.",
+    rows: runs.map((run) => {
+      const sel = `run:${run.id}`;
+      return {
+        selected: state.sel === sel,
+        cells: [
+          h("button", { type: "button", class: "cell-button", data: { sel }, "aria-pressed": String(state.sel === sel) }, `#${run.id}`),
+          run.ts ? h("time", { class: "cell-data", datetime: run.ts }, formatRunTime(run.ts)) : "—",
+          h("span", { class: "cell-text", title: run.task_preview || undefined }, run.task_preview || "Sin descripción"),
+          sourceLabel(run.source),
+          statusPill(run.status, RUN_STATUS),
+          run.provider || "—",
+          run.model || "—",
+          formatUsd(run.cost_usd),
+          run.context_id
+            ? h("a", {
+              class: "cell-link",
+              href: stepHref(state, run.context_id, run.step_id),
+              data: { nav: "1", ctx: run.context_id, step: run.step_id },
+            }, `Paso #${run.step_id}`)
+            : "—",
+        ],
+      };
+    }),
+  });
 }
 
 export async function mount(root, { api, state, signal, store }) {
@@ -90,21 +97,16 @@ export async function mount(root, { api, state, signal, store }) {
   let pending = null;
 
   function render() {
-    const filters = h("div", {
-      class: "execution-filters",
-      role: "group",
-      "aria-label": "Filtrar por fuente",
-    }, SOURCES.map((value) => h("button", {
-      type: "button",
-      class: ["execution-filter", source === value && "is-active"],
-      data: { source: value },
-      "aria-pressed": String(source === value),
-    }, sourceLabel(value))));
+    const filters = segmented({
+      label: "Filtrar por fuente",
+      options: SOURCES.map((value) => [value, sourceLabel(value)]),
+      current: source,
+      attribute: "source",
+    });
     root.replaceChildren(...[
-      h("header", { class: "executions-header" },
-        h("p", { class: "execution-muted" }, "Ejecuciones registradas para el proyecto seleccionado."), filters),
+      h("header", { class: "executions-header" }, filters),
       table(current, rows),
-      cursor ? h("button", { type: "button", data: { more: "1" } }, "Cargar más") : null,
+      cursor ? h("button", { type: "button", class: "ui-button", data: { more: "1" } }, "Cargar más") : null,
     ].filter(Boolean));
   }
 

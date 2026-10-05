@@ -5,6 +5,7 @@
 
 import { h } from "../core/dom.js";
 import { objectList, statusPill } from "../renderers/list.js";
+import { metricCard, metricGrid, panel, segmented } from "../core/ui.js";
 
 export const PERIODS = Object.freeze([["7d", "7 días"], ["30d", "30 días"], ["90d", "90 días"]]);
 export const MCP_FILTERS = Object.freeze([
@@ -81,41 +82,36 @@ function ensureStylesheet(doc) {
   }));
 }
 
-function toggleGroup(label, options, current, attribute) {
-  return h("div", { class: "gov-toggles", role: "group", "aria-label": label },
-    options.map(([value, text]) => h("button", {
-      type: "button", class: ["gov-toggle", value === current && "is-active"],
-      data: { [attribute]: value }, "aria-pressed": String(value === current),
-    }, text)));
-}
-
 function ranking(title, items, label = (key) => key) {
-  return h("section", { class: "gov-ranking" },
-    h("h3", {}, title),
-    items.length
-      ? h("ol", {}, items.map((item) => h("li", {}, h("span", {}, label(item.key)), h("span", { class: "gov-count" }, String(item.count)))))
-      : h("p", { class: "gov-muted" }, "Nada en el período."));
+  return panel(title, items.length
+    ? h("ol", { class: "gov-ranking" }, items.map((item) => h("li", {},
+      h("span", {}, label(item.key)), h("span", { class: "gov-count" }, String(item.count)))))
+    : h("p", { class: "empty-note" }, "Nada en el período."));
 }
 
 function summaryBlock(summary, tab) {
   if (tab === "egress") {
     const egress = summary.egress;
     return h("div", { class: "gov-summary" },
-      h("div", { class: "gov-totals" },
-        h("p", {}, h("strong", {}, String(egress.total)), " decisiones"),
-        h("p", {}, h("strong", {}, String(egress.blocked)), " bloqueadas")),
+      metricGrid([
+        metricCard({ family: "governance", label: "Decisiones", value: String(egress.total) }),
+        metricCard({ family: "error", label: "Bloqueadas", value: String(egress.blocked), tone: egress.blocked ? "warn" : null }),
+      ]),
       ranking("Motivos de bloqueo", egress.by_reason));
   }
   const mcp = summary.mcp;
   return h("div", { class: "gov-summary" },
-    h("div", { class: "gov-totals" },
-      h("p", {}, h("strong", {}, String(mcp.denied)), " denegadas"),
-      h("p", {}, h("strong", {}, String(mcp.error)), " con error (sin contar denegadas)"),
-      h("p", {}, h("strong", {}, String(mcp.in_progress)), " en curso"),
-      h("p", { class: "gov-muted" }, `de ${mcp.invocations} invocaciones`)),
-    ranking("Por motivo", mcp.by_reason),
-    ranking("Por herramienta", mcp.by_tool),
-    ranking("Por agente", mcp.by_agent, agentLabel));
+    metricGrid([
+      metricCard({ family: "governance", label: "Denegadas", value: String(mcp.denied), tone: mcp.denied ? "gov" : null,
+        sub: `de ${mcp.invocations} invocaciones` }),
+      metricCard({ family: "error", label: "Con error", value: String(mcp.error), sub: "sin contar denegadas" }),
+      metricCard({ family: "decision", label: "En curso", value: String(mcp.in_progress), tone: mcp.in_progress ? "warn" : null,
+        sub: "mutaciones sin cerrar" }),
+    ]),
+    h("div", { class: "gov-rankings" },
+      ranking("Por motivo", mcp.by_reason),
+      ranking("Por herramienta", mcp.by_tool),
+      ranking("Por agente", mcp.by_agent, agentLabel)));
 }
 
 function detail(entries) {
@@ -206,13 +202,13 @@ export async function mount(root, { api, state, signal, store }) {
     // `replaceChildren` escribe `null` como texto: solo nodos.
     listSlot.replaceChildren(...[
       failure ? message("No se pudo cargar la lista", failure) : rows,
-      nextCursor ? h("button", { type: "button", class: "gov-more", data: { more: "1" } }, "Cargar más") : null,
+      nextCursor ? h("button", { type: "button", class: "ui-button", data: { more: "1" } }, "Cargar más") : null,
     ].filter(Boolean));
   }
 
   function render() {
-    const controls = [toggleGroup("Período", PERIODS, period, "period")];
-    if (tab === "acceso") controls.push(toggleGroup("Estado", MCP_FILTERS, filter, "filter"));
+    const controls = [segmented({ label: "Período", options: PERIODS, current: period, attribute: "period" })];
+    if (tab === "acceso") controls.push(segmented({ label: "Estado", options: MCP_FILTERS, current: filter, attribute: "filter" }));
     root.replaceChildren(
       h("header", { class: "gov-header" },
         h("p", { class: "gov-muted" }, tab === "egress"

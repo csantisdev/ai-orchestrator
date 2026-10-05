@@ -90,19 +90,20 @@
     --shell-activity-height: 48px;
   }
 
-  /* En tema claro, las mismas familias con más contraste sobre fondo blanco. */
+  /* En tema claro, las mismas familias más oscuras: AA (4,5:1) también como texto de una
+     píldora sobre su fondo teñido al 12 % (tests/test_dashboard_contrast.py). */
   [data-theme="light"] {
-    --family-knowledge: #15803d;
-    --family-work: #2563eb;
-    --family-decision: #b45309;
-    --family-execution: #0e7490;
-    --family-governance: #7c3aed;
-    --family-error: #dc2626;
+    --family-knowledge: #166534;
+    --family-work: #1d4ed8;
+    --family-decision: #92400e;
+    --family-execution: #155e75;
+    --family-governance: #6d28d9;
+    --family-error: #b91c1c;
     --family-neutral: #52525b;
-    --state-live: #15803d;
-    --state-warning: #b45309;
-    --state-danger: #dc2626;
-    --state-focus: #2563eb;
+    --state-live: #166534;
+    --state-warning: #92400e;
+    --state-danger: #b91c1c;
+    --state-focus: #1d4ed8;
   }
 
   [data-theme="a11y"] {

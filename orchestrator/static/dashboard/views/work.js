@@ -6,6 +6,7 @@ import { h } from "../core/dom.js";
 import { toSearch } from "../core/router.js";
 import { facts, objectList, statusPill } from "../renderers/list.js";
 import { renderTrace } from "../renderers/trace.js";
+import { progress, segmented } from "../core/ui.js";
 
 export const CONTEXT_STATUS = Object.freeze({
   active: "Activo", programado: "Programado", completed: "Completado", abandoned: "Abandonado",
@@ -118,15 +119,12 @@ export function pageTitle(page, data) {
 }
 
 function contextsPage(state, data, filter) {
-  const filters = h("div", { class: "work-filters", role: "group", "aria-label": "Filtrar por estado" },
-    FILTERS.map(([value, label]) => h("button", {
-      type: "button", class: ["work-filter", filter === value && "is-active"],
-      data: { filter: value }, "aria-pressed": String(filter === value),
-    }, label)));
+  const filters = segmented({ label: "Filtrar por estado", options: FILTERS, current: filter, attribute: "filter" });
   const list = objectList(data.contexts, (item) => [
     h("div", { class: "object-main" },
       navLink(state, { ctx: item.id, step: null }, [h("span", { class: "object-id" }, `#${item.id}`), item.title || "Sin título"]),
       statusPill(item.status, CONTEXT_STATUS)),
+    item.steps.total ? progress({ value: item.steps.completed, max: item.steps.total, label: progressText(item.steps) }) : null,
     h("div", { class: "object-meta" },
       h("span", {}, progressText(item.steps)),
       item.current_step ? h("span", {}, "En curso: ",
