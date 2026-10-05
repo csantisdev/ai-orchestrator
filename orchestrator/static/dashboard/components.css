@@ -612,4 +612,32 @@
   @media (prefers-reduced-motion: reduce) {
     .cons-sun, .cons-bridge { transition: none; }
   }
+
+  /* Activity del proyecto (components/activity.js, §6.4) dentro de la barra inferior. */
+  #activity-log { max-height: min(45vh, 420px); }
+  .act-feed { padding: var(--space-2) var(--space-3); }
+  .act-feed-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .act-feed-title, .act-live-title { font-size: var(--text-10); font-weight: 600; letter-spacing: .7px; text-transform: uppercase; color: var(--text-secondary); }
+  .act-live-wrap { padding: var(--space-2) var(--space-3); border-top: 1px solid var(--border); }
+  .act-events { list-style: none; margin: 0; padding: 0; }
+  .act-event { --tone: var(--family-neutral); display: grid; grid-template-columns: 6.5rem 10px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-1) 0; font-size: var(--text-12); border-bottom: 1px solid var(--border); }
+  .act-event.family-execution { --tone: var(--family-execution); }
+  .act-event.family-work { --tone: var(--family-work); }
+  .act-event.family-governance { --tone: var(--family-governance); }
+  .act-event.family-decision { --tone: var(--family-decision); }
+  .act-event.is-selected { background: color-mix(in srgb, var(--tone) 10%, transparent); }
+  .act-event-time { font-family: var(--font-data); color: var(--text-secondary); white-space: nowrap; }
+  .act-event-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tone); }
+  .act-event-text { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act-event-actions { display: flex; gap: var(--space-1); }
+  .act-link, .act-more { border: 1px solid var(--border); border-radius: var(--radius-control); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-11); padding: 1px var(--space-2); cursor: pointer; }
+  .act-link:hover, .act-link:focus-visible, .act-more:hover, .act-more:focus-visible { color: var(--text-primary); border-color: var(--state-focus); }
+  .act-link[aria-pressed="true"] { color: var(--text-primary); border-color: var(--tone); }
+  .act-more { margin-top: var(--space-2); }
+  .act-empty { margin: 0; font-size: var(--text-12); color: var(--text-secondary); }
+  @media (max-width: 767px) {
+    .act-event { grid-template-columns: 4.5rem 10px minmax(0, 1fr); }
+    .act-event-actions { grid-column: 3; }
+    .act-event-text { white-space: normal; }
+  }
 }

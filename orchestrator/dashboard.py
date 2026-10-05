@@ -375,7 +375,13 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     </div>
     <span class="act-toggle" id="act-toggle" onclick="toggleActivity()">▼</span>
   </div>
-  <div id="activity-log" style="display:none"></div>
+  <div id="activity-log" style="display:none">
+    <section id="activity-feed" class="act-feed" aria-label="Actividad del proyecto"></section>
+    <section class="act-live-wrap" aria-label="Operaciones locales">
+      <h3 class="act-live-title">Operaciones locales</h3>
+      <div id="activity-live"></div>
+    </section>
+  </div>
 </div>
 
 <meta name="orchestrator-session" content="{_escape(session_token)}">

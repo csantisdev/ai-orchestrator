@@ -376,12 +376,12 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
   const consView = { mode: "global", lens: "agent", scope: "active", depth: 1, focus: null, layout: null, svg: null };
   let lastConstellation = null;
 
-  async function load() {
+  async function load({ quiet = false } = {}) {
     // Cualquier carga anterior queda superada, también por una página sin petición.
     pending?.abort();
     pending = null;
     const page = pageFor(current);
-    shellPage?.set({});
+    if (!quiet) shellPage?.set({});
     if (page === "no-project") {
       root.replaceChildren(message("Elegí un proyecto", "Trabajo muestra los contextos de un proyecto: elegilo en el selector de arriba."));
       return;
@@ -396,7 +396,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     pending = controller;
     const abort = () => controller.abort();
     signal.addEventListener("abort", abort, { once: true });
-    root.replaceChildren(h("p", { class: "work-loading", role: "status" }, "Cargando…"));
+    if (!quiet) root.replaceChildren(h("p", { class: "work-loading", role: "status" }, "Cargando…"));
     try {
       const params = page === "contexts" && filter ? { status: filter } : {};
       // El mapa se pide siempre en la página del contexto: la pestaña dice si aplica (§23.2).
@@ -428,6 +428,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
       shellPage?.set(pageTitle(page, data));
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (quiet && error?.status !== 404) return console.warn("No se pudo refrescar Trabajo:", error);
       if (error?.status === 404) {
         root.replaceChildren(message(page === "step" ? "No existe ese paso en este proyecto" : "No existe ese contexto en este proyecto",
           "Puede ser de otro proyecto o haberse borrado."),
@@ -537,6 +538,8 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
   root.addEventListener("keydown", onKeyDown);
   await load();
   return {
+    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla.
+    refresh: () => load({ quiet: true }),
     update(next) {
       const previous = current;
       current = next;

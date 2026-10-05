@@ -96,7 +96,7 @@ export async function mount(root, { api, state, signal, store }) {
   let period = "30d";
   let pending = null;
 
-  async function load() {
+  async function load({ quiet = false } = {}) {
     pending?.abort();
     pending = null;
     if (!current.project) {
@@ -114,7 +114,7 @@ export async function mount(root, { api, state, signal, store }) {
     const abort = () => controller.abort();
     pending = controller;
     signal.addEventListener("abort", abort, { once: true });
-    root.replaceChildren(h("p", { role: "status" }, "Cargando…"));
+    if (!quiet) root.replaceChildren(h("p", { role: "status" }, "Cargando…"));
     try {
       const data = await api.get(`/api/v1/projects/${current.project}/costs`, {
         params: { period }, signal: controller.signal,
@@ -122,6 +122,7 @@ export async function mount(root, { api, state, signal, store }) {
       if (!controller.signal.aborted && pending === controller) render(root, current, period, data);
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (quiet) return console.warn("No se pudieron refrescar los costos:", error);
       const suffix = error?.reason === "session_expired" ? " El servidor se reinició: recargá la página." : "";
       root.replaceChildren(message("No se pudieron cargar los costos", `${error?.message ?? error}.${suffix}`));
     } finally {
@@ -146,6 +147,8 @@ export async function mount(root, { api, state, signal, store }) {
   root.addEventListener("click", onClick);
   await load();
   return {
+    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla.
+    refresh: () => load({ quiet: true }),
     update(next) {
       const changedProject = next.project !== current.project;
       current = next;

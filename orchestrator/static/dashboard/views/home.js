@@ -201,7 +201,7 @@ export async function mount(root, { api, state, signal }) {
   let controller;
   let currentProject = state.project;
   let period = "7d";
-  const load = async () => {
+  const load = async ({ quiet = false } = {}) => {
     controller?.abort();
     controller = new AbortController();
     const current = controller;
@@ -214,7 +214,7 @@ export async function mount(root, { api, state, signal }) {
           "Este alias requiere codificación y no puede consultarse desde esta versión del dashboard."));
         return;
       }
-      root.replaceChildren(h("p", { class: "home-muted" }, "Cargando inicio…"));
+      if (!quiet) root.replaceChildren(h("p", { class: "home-muted" }, "Cargando inicio…"));
       const [data, constellation] = await Promise.all([
         api.get(`/api/v1/projects/${currentProject}/overview`, { params: { period }, signal: current.signal }),
         // La vista previa es opcional: si falla, Inicio se muestra igual.
@@ -228,6 +228,7 @@ export async function mount(root, { api, state, signal }) {
       }
     } catch (error) {
       if (!current.signal.aborted && error.name !== "AbortError" && current === controller) {
+        if (quiet) return console.warn("No se pudo refrescar Inicio:", error);
         root.replaceChildren(h("p", { class: "home-error" }, errorMessage(error)));
       }
     } finally {
@@ -243,6 +244,8 @@ export async function mount(root, { api, state, signal }) {
   root.addEventListener("click", click);
   await load();
   return {
+    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla.
+    refresh: () => load({ quiet: true }),
     update(next) {
       if (next.project !== currentProject) {
         currentProject = next.project;
