@@ -1,6 +1,7 @@
 import { h } from "../core/dom.js";
 import { metricCard, metricGrid, noticeList, panel, segmented } from "../core/ui.js";
 import { ApiError } from "../core/api.js";
+import { layoutConstellation, renderConstellation } from "../renderers/constellation.js";
 
 const SAFE_ALIAS = /^[A-Za-z0-9._~-]+$/;
 const AGENT_LABELS = {
@@ -79,7 +80,21 @@ function sources(metrics) {
     h("dl", {}, metrics.map((metric) => [h("dt", {}, metric.label), h("dd", {}, metric.source)])));
 }
 
-function renderOverview(root, data, project, period) {
+// Vista previa de la constelación (§22.4): solo activos y lo conectado a ellos, sin foco.
+export function constellationPreview(project, constellation) {
+  if (!constellation) return null;
+  const layout = layoutConstellation(constellation, { scope: "active" });
+  const href = `?project=${encodeURIComponent(project)}&view=trabajo&tab=contextos&as=constellation`;
+  return panel("Constelación · Labs",
+    layout.suns.length
+      ? h("a", { class: "constellation-wrap is-preview-link", href, "aria-label": "Abrir el grafo de contextos" },
+        renderConstellation(layout, { interactive: false }))
+      : h("p", { class: "home-muted" }, "Sin contextos activos ni conectados para dibujar."),
+    h("p", { class: "home-muted" }, `${layout.suns.length} contextos visibles · ${layout.bridges.length} puentes · `,
+      h("a", { class: "cons-open", href }, "Abrir el grafo →")));
+}
+
+function renderOverview(root, data, project, period, constellation = null) {
   const cards = data.metrics.filter((metric) => metric.id !== "tracking_health");
   const health = data.metrics.find((metric) => metric.id === "tracking_health");
   const stale = data.tracking_health.warnings.filter((warning) => warning.code === "stale_in_progress_step");
@@ -94,6 +109,7 @@ function renderOverview(root, data, project, period) {
       h("p", { class: "home-muted" }, `${project} · ${periodText(period)}`),
       segmented({ label: "Período", options: [["7d", "7 días"], ["30d", "30 días"]], current: period, attribute: "period" })),
     metricGrid(cards.map((metric) => metricTile(project, metric))),
+    constellationPreview(project, constellation),
     h("div", { class: "home-panels" },
       panel(`Salud del tracking · ${formatNumber(health?.value ?? notices.length)}`,
         noticeList(notices, "Sin advertencias: el tracking está al día.")),
@@ -199,12 +215,16 @@ export async function mount(root, { api, state, signal }) {
         return;
       }
       root.replaceChildren(h("p", { class: "home-muted" }, "Cargando inicio…"));
-      const data = await api.get(`/api/v1/projects/${currentProject}/overview`, {
-        params: { period },
-        signal: current.signal,
-      });
+      const [data, constellation] = await Promise.all([
+        api.get(`/api/v1/projects/${currentProject}/overview`, { params: { period }, signal: current.signal }),
+        // La vista previa es opcional: si falla, Inicio se muestra igual.
+        api.get(`/api/v1/projects/${currentProject}/constellation`, { signal: current.signal }).catch((error) => {
+          if (current.signal.aborted) throw error;
+          return null;
+        }),
+      ]);
       if (!current.signal.aborted && current === controller) {
-        renderOverview(root, data, currentProject, period);
+        renderOverview(root, data, currentProject, period, constellation);
       }
     } catch (error) {
       if (!current.signal.aborted && error.name !== "AbortError" && current === controller) {

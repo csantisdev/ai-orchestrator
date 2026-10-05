@@ -630,3 +630,194 @@ def context_map(
             "limits": {"commits": max_commits, "edges": max_edges},
         },
     }
+
+
+
+CONSTELLATION_LAYOUT_VERSION = "fr-1"
+_CONSTELLATION_WIDTH = 1000.0
+_CONSTELLATION_HEIGHT = 620.0
+_CONSTELLATION_COLUMNS = 10
+
+
+def _force_layout(ids: list[str], weights: dict[tuple[str, str], int], iterations: int = 240) -> dict[str, tuple[float, float]]:
+    """Fruchterman-Reingold determinista: arranque en círculo por orden de id, sin azar.
+
+    Los puentes con más commits acercan más a sus contextos; una gravedad suave al centro
+    mantiene juntos los componentes. Misma entrada, mismas posiciones (§22.5).
+    """
+    if not ids:
+        return {}
+    width, height = _CONSTELLATION_WIDTH, _CONSTELLATION_HEIGHT
+    count = len(ids)
+    if count == 1:
+        return {ids[0]: (width / 2, height / 2)}
+    k = math.sqrt(width * height / count) * 0.6
+    pos = {
+        node: [width / 2 + math.cos(2 * math.pi * i / count) * width / 3,
+               height / 2 + math.sin(2 * math.pi * i / count) * height / 3]
+        for i, node in enumerate(ids)
+    }
+    temperature = width / 8
+    cooling = temperature / (iterations + 1)
+    for _ in range(iterations):
+        disp = {node: [0.0, 0.0] for node in ids}
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                dx = pos[a][0] - pos[b][0]
+                dy = pos[a][1] - pos[b][1]
+                distance = math.hypot(dx, dy) or 0.01
+                force = k * k / distance
+                fx, fy = dx / distance * force, dy / distance * force
+                disp[a][0] += fx
+                disp[a][1] += fy
+                disp[b][0] -= fx
+                disp[b][1] -= fy
+        for (a, b), weight in weights.items():
+            dx = pos[a][0] - pos[b][0]
+            dy = pos[a][1] - pos[b][1]
+            distance = math.hypot(dx, dy) or 0.01
+            force = distance * distance / k * (1 + math.log1p(weight))
+            fx, fy = dx / distance * force, dy / distance * force
+            disp[a][0] -= fx
+            disp[a][1] -= fy
+            disp[b][0] += fx
+            disp[b][1] += fy
+        for node in ids:
+            disp[node][0] += (width / 2 - pos[node][0]) * 0.02
+            disp[node][1] += (height / 2 - pos[node][1]) * 0.02
+            length = math.hypot(*disp[node]) or 0.01
+            step = min(length, temperature)
+            pos[node][0] += disp[node][0] / length * step
+            pos[node][1] += disp[node][1] / length * step
+        temperature = max(temperature - cooling, 1.0)
+    # Normalizar a la caja de dibujo, con margen para el radio de los soles.
+    xs = [p[0] for p in pos.values()]
+    ys = [p[1] for p in pos.values()]
+    margin = 70.0
+    span_x = (max(xs) - min(xs)) or 1.0
+    span_y = (max(ys) - min(ys)) or 1.0
+    return {
+        node: (round(margin + (p[0] - min(xs)) / span_x * (width - 2 * margin), 2),
+               round(margin + (p[1] - min(ys)) / span_y * (height - 2 * margin), 2))
+        for node, p in pos.items()
+    }
+
+
+def _dominant_agent(steps: list[tuple]) -> str:
+    """Agente con más pasos del contexto (desempate por catálogo); `sin agente` solo si no hay otro."""
+    counts: dict[str, int] = {}
+    for _, _, provider in steps:
+        agent = normalize_agent(provider)
+        if agent != NO_AGENT:
+            counts[agent] = counts.get(agent, 0) + 1
+    if not counts:
+        return NO_AGENT
+    return min(counts, key=lambda agent: (-counts[agent], AGENT_CATALOG.index(agent)))
+
+
+def project_constellation(conn: sqlite3.Connection, project: str, commits: Optional[CommitIndex] = None,
+                          now: Optional[datetime] = None) -> dict:
+    """Constelación del proyecto (spec §22.4): contextos como soles, pasos como satélites,
+    puentes por commits compartidos y portales hacia otros proyectos.
+
+    Las citas se verifican contra todos los commits importados porque los puentes cruzan
+    proyectos (§22.1); de otro proyecto solo viajan su alias y la cantidad de commits. Sin
+    texto libre: títulos y notas se piden aparte. Posiciones deterministas (`_force_layout`).
+    """
+    commits = commits if commits is not None else CommitIndex.from_db(conn)
+    contexts = conn.execute("SELECT id, status FROM contexts WHERE project = ? ORDER BY id", (project,)).fetchall()
+    own_ids = [row[0] for row in contexts]
+    steps_by_context: dict[int, list[tuple]] = {context_id: [] for context_id in own_ids}
+    deviations: dict[int, int] = {}
+    if own_ids:
+        marks = ",".join("?" * len(own_ids))
+        for step_id, context_id, status, provider in conn.execute(
+            f"SELECT id, context_id, status, provider FROM steps WHERE context_id IN ({marks}) ORDER BY order_idx, id",
+            own_ids,
+        ).fetchall():
+            steps_by_context[context_id].append((step_id, status, provider))
+        for context_id, count in conn.execute(
+            f"SELECT context_id, SUM(confirmed = 0) FROM alignments WHERE context_id IN ({marks}) GROUP BY context_id",
+            own_ids,
+        ).fetchall():
+            deviations[context_id] = count or 0
+
+    # Citas verificadas de todos los contextos (de cualquier proyecto) para encontrar puentes.
+    cited_by: dict[str, set[tuple[int, str]]] = {}
+    for context_id, context_project, notes in conn.execute(
+        "SELECT s.context_id, c.project, s.notes FROM steps s JOIN contexts c ON c.id = s.context_id"
+    ).fetchall():
+        for sha in step_references(notes, commits)["verified_commits"]:
+            cited_by.setdefault(sha, set()).add((context_id, context_project or ""))
+
+    pair_commits: dict[tuple[str, str], list[str]] = {}
+    for sha in sorted(cited_by):
+        citing = cited_by[sha]
+        local = sorted(context_id for context_id, owner in citing if owner == project)
+        if not local or len(citing) < 2:
+            continue
+        others = sorted({owner for _, owner in citing if owner != project})
+        for i, a in enumerate(local):
+            for b in local[i + 1:]:
+                pair_commits.setdefault((f"context:{a}", f"context:{b}"), []).append(sha)
+            for alias in others:
+                pair_commits.setdefault((f"context:{a}", f"portal:{alias}"), []).append(sha)
+
+    bridges = [
+        {"source": a, "target": b, "weight": len(shas), "commits": [f"commit:{sha}" for sha in shas],
+         "portal": b.startswith("portal:")}
+        for (a, b), shas in sorted(pair_commits.items())
+    ]
+    connected = {bridge["source"] for bridge in bridges} | {
+        bridge["target"] for bridge in bridges if not bridge["portal"]}
+    portals = sorted({bridge["target"] for bridge in bridges if bridge["portal"]})
+
+    nodes = []
+    edges = []
+    for context_id, status in contexts:
+        node_id = f"context:{context_id}"
+        steps = steps_by_context[context_id]
+        nodes.append({
+            "id": node_id, "kind": "context", "label": f"Contexto {context_id}", "state": _token(status) or OTHER,
+            "attrs": {
+                "steps": len(steps),
+                "in_progress": sum(1 for _, step_status, _ in steps if step_status == "in_progress"),
+                "deviations": deviations.get(context_id, 0),
+                "agent": _dominant_agent(steps),
+                "connected": node_id in connected,
+            },
+        })
+        for position, (step_id, step_status, provider) in enumerate(steps, start=1):
+            nodes.append({"id": f"step:{step_id}", "kind": "step", "label": f"Paso {position}",
+                          "state": _token(step_status) or OTHER,
+                          "attrs": {"context": node_id, "lane": normalize_agent(provider)}})
+            edges.append({"source": node_id, "target": f"step:{step_id}", "relation_type": "contains",
+                          "origin": "system", "confidence": 1.0, "evidence_ref": "steps.context_id"})
+    for portal in portals:
+        nodes.append({"id": portal, "kind": "portal", "label": portal.split(":", 1)[1],
+                      "attrs": {"commits": len({sha for b in bridges if b["target"] == portal for sha in b["commits"]})}})
+
+    # Disposición: los conectados por fuerzas; los aislados, en una grilla debajo (§22.4).
+    force_ids = sorted(connected | set(portals), key=lambda item: (item.startswith("portal:"), item))
+    weights = {(b["source"], b["target"]): b["weight"] for b in bridges}
+    positions = {node: {"x": x, "y": y} for node, (x, y) in _force_layout(force_ids, weights).items()}
+    isolated = [node["id"] for node in nodes if node["kind"] == "context" and not node["attrs"]["connected"]]
+    top = _CONSTELLATION_HEIGHT + 40 if force_ids else 60
+    gap = (_CONSTELLATION_WIDTH - 120) / (_CONSTELLATION_COLUMNS - 1)
+    for index, node_id in enumerate(isolated):
+        positions[node_id] = {"x": round(60 + (index % _CONSTELLATION_COLUMNS) * gap, 2),
+                              "y": round(top + (index // _CONSTELLATION_COLUMNS) * 90, 2)}
+    rows = (len(isolated) - 1) // _CONSTELLATION_COLUMNS + 1 if isolated else 0
+    height = top + rows * 90 if isolated else _CONSTELLATION_HEIGHT
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "metadata": {"project": project, "generated_at": _now_utc(now)},
+        "constellation": {
+            "bridges": bridges,
+            "positions": positions,
+            "isolated": isolated,
+            "size": {"width": _CONSTELLATION_WIDTH, "height": round(height, 2)},
+            "layout_version": CONSTELLATION_LAYOUT_VERSION,
+        },
+    }

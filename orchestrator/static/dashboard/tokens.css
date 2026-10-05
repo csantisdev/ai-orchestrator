@@ -70,6 +70,11 @@
     --family-governance: #a78bfa;
     --family-error: #f87171;
     --family-neutral: #a1a1aa;
+    /* Lente de color por agente de la constelación (maqueta v6): siempre con texto al lado. */
+    --agent-claude: #fb923c;
+    --agent-codex: #2dd4bf;
+    --agent-copilot: #f0abfc;
+    --agent-otros: #a3e635;
     --state-live: #22c55e;
     --state-warning: #f59e0b;
     --state-danger: #f87171;
@@ -100,6 +105,10 @@
     --family-governance: #6d28d9;
     --family-error: #b91c1c;
     --family-neutral: #52525b;
+    --agent-claude: #9a3412;
+    --agent-codex: #0f766e;
+    --agent-copilot: #a21caf;
+    --agent-otros: #3f6212;
     --state-live: #166534;
     --state-warning: #92400e;
     --state-danger: #b91c1c;

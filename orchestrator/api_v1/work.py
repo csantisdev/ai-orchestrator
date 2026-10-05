@@ -25,6 +25,7 @@ from orchestrator.projections import (
     CommitIndex,
     context_graph,
     context_map,
+    project_constellation,
     normalize_agent,
     parse_instant,
     step_references,
@@ -440,3 +441,14 @@ def context_map_endpoint(request: Request):
     if owner is None:
         return 404, {"error": "unknown context"}
     return context_map(conn, context_id, project_commits(conn, project))
+
+
+@route("GET", "/api/v1/projects/{project}/constellation")
+def constellation_endpoint(request: Request):
+    """Constelación del proyecto (spec §22.4): contextos, puentes por commits compartidos y portales."""
+    project = request.params["project"]
+    conn = _connection()
+    missing = _require_project(conn, project)
+    if missing:
+        return missing
+    return project_constellation(conn, project)
