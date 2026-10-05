@@ -120,13 +120,16 @@ function controlKey(element) {
 const CSS_ESCAPE = (value) => String(value).replace(/["\\]/g, "\\$&");
 
 // Une la primera página recién pedida con lo ya cargado: lo nuevo arriba y, si el usuario ya
-// pidió más páginas y la página nueva empalma con ellas, se conservan (y su cursor). Si ahora
-// todo cabe en una página, o hay un hueco entre ambas, manda la página nueva.
+// pidió más páginas y la página nueva empalma con ellas (su último evento está en lo cargado),
+// se conserva solo lo que sigue a ese punto, con su cursor. Si ahora todo cabe en una página,
+// o no empalman, manda la página nueva.
 export function mergeFirstPage(items, cursor, page, pages) {
-  if (pages <= 1 || !page.next_cursor) return { items: page.items, cursor: page.next_cursor, reset: true };
+  const reset = { items: page.items, cursor: page.next_cursor, reset: true };
+  if (pages <= 1 || !page.next_cursor || !page.items.length) return reset;
+  const joint = items.findIndex((item) => item.id === page.items.at(-1).id);
+  if (joint < 0) return reset;
   const fresh = new Set(page.items.map((item) => item.id));
-  if (!items.some((item) => fresh.has(item.id))) return { items: page.items, cursor: page.next_cursor, reset: true };
-  return { items: [...page.items, ...items.filter((item) => !fresh.has(item.id))], cursor, reset: false };
+  return { items: [...page.items, ...items.slice(joint + 1).filter((item) => !fresh.has(item.id))], cursor, reset: false };
 }
 
 // Monta la Activity del proyecto. `refresh()` vuelve a pedir la primera página (lo llama el

@@ -215,6 +215,13 @@ test("mergeFirstPage conserva las páginas extra salvo que haya un hueco", () =>
   assert.deepEqual([ids(single.items), single.cursor, single.reset], [["run:4", "run:3"], null, true]);
   const kept = mergeFirstPage(loaded, "c-old", page(["run:4", "run:3"], "c1"), 2);
   assert.deepEqual([ids(kept.items), kept.cursor], [["run:4", "run:3", "run:2", "run:1"], "c-old"]);
+  // Solapan en run:3, pero la página nueva termina en run:1 sin pasar por run:2 (se borró):
+  // empalma en run:1 y run:2 no vuelve.
+  const deleted = mergeFirstPage(loaded, "c-old", page(["run:4", "run:3", "run:1"], "c1"), 2);
+  assert.deepEqual([ids(deleted.items), deleted.cursor], [["run:4", "run:3", "run:1"], "c-old"]);
+  // Solapan al principio pero el final de la página nueva no está en lo cargado: hay hueco.
+  const partial = mergeFirstPage(loaded, "c-old", page(["run:3", "run:0"], "c0"), 2);
+  assert.deepEqual([ids(partial.items), partial.cursor, partial.reset], [["run:3", "run:0"], "c0", true]);
   const gap = mergeFirstPage(loaded, "c-old", page(["run:9", "run:8"], "c9"), 2);
   assert.deepEqual([ids(gap.items), gap.cursor, gap.reset], [["run:9", "run:8"], "c9", true]);
 });

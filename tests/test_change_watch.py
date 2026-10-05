@@ -300,7 +300,7 @@ def test_live_server_refreshes_external_mutations_but_not_mcp_reads(tmp_path, mo
             "VALUES ('t','read-1','s','c','t','p','read','read','i','o','success','t')\"); c.commit()",
             str(db_path),
         ], check=True)
-        assert "event: db_changed" not in _read_sse_event(response, 2.5)
+        assert "event: db_changed" not in _read_sse_event(response, 3.5)
     finally:
         conn.close()
         servers[0].shutdown()
