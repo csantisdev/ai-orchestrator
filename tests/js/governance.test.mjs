@@ -125,7 +125,7 @@ test("mount pide resumen y lista, filtra, pagina y muestra el detalle de la sele
     ]);
     assert.deepEqual(calls[0].params, { cursor: null, status: "problems" });
     assert.deepEqual(calls[1].params, { period: "30d" });
-    assert.match(root.textContent, /2 denegadas/);
+    assert.match(root.textContent, /Denegadas2de 9 invocaciones/);
     assert.match(root.textContent, /project_out_of_scope/);
 
     click(root, { dataset: { more: "1" } });

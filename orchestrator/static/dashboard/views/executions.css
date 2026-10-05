@@ -1,105 +1,22 @@
+/* Vistas de Ejecuciones (views/runs.js y views/costs.js). Tablas, tarjetas, segmentados y
+   paneles son los componentes compartidos de components.css; acá queda la disposición. */
 @layer views {
   .executions-view {
+    display: grid;
+    gap: var(--space-4);
     margin: 0 var(--space-4) var(--space-6);
-    max-width: 960px;
+    max-width: 1100px;
   }
+  .executions-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .executions-panels { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--space-3); }
+  .executions-panels .cell-text { max-width: 200px; }
 
-  .executions-header {
-    display: grid;
-    gap: var(--space-2);
-    margin-block: var(--space-4);
-  }
+  .cost-days { list-style: none; display: grid; gap: var(--space-1); }
+  .cost-days li { display: grid; grid-template-columns: 64px minmax(0, 1fr) 96px; align-items: center; gap: var(--space-3); font-size: var(--text-12); }
+  .cost-day { font-family: var(--font-data); color: var(--text-muted); }
+  .cost-amount { font-family: var(--font-data); text-align: right; color: var(--text-detail); }
 
-  .execution-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .execution-filter {
-    font: inherit;
-    padding: var(--space-1) var(--space-3);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: var(--text-12);
-    cursor: pointer;
-  }
-
-  .execution-filter.is-active {
-    border-color: var(--state-live);
-    color: var(--state-live);
-  }
-
-  .execution-row {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--text-primary);
-    font-family: var(--font-data);
-    cursor: pointer;
-  }
-
-  .execution-row:hover,
-  .execution-row.is-selected { text-decoration: underline; }
-
-  .execution-row.is-selected { color: var(--state-live); }
-
-  .execution-row:focus-visible,
-  .execution-link:focus-visible {
-    outline: 2px solid var(--state-focus);
-    outline-offset: 2px;
-  }
-
-  .execution-link {
-    color: var(--text-primary);
-    text-decoration: none;
-    overflow-wrap: anywhere;
-  }
-
-  .execution-link:hover { text-decoration: underline; }
-
-  .execution-muted {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: var(--text-12);
-  }
-
-  .execution-summary { margin: 0; }
-
-  .execution-table-scroll { overflow-x: auto; }
-
-  .execution-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  .execution-table th,
-  .execution-table td {
-    padding: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
-    text-align: left;
-  }
-
-  .execution-table th {
-    font-size: var(--text-11);
-    font-weight: 600;
-  }
-
-  .execution-table td { font-size: var(--text-13); }
-
-  .execution-data,
-  .execution-table time { font-family: var(--font-data); }
-
-  .execution-series {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .execution-series label {
-    display: grid;
-    font-size: var(--text-10);
+  @media (max-width: 900px) {
+    .executions-panels { grid-template-columns: 1fr; }
   }
 }

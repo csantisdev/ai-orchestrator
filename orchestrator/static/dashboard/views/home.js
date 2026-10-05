@@ -1,4 +1,5 @@
 import { h } from "../core/dom.js";
+import { metricCard, metricGrid, noticeList, panel, segmented } from "../core/ui.js";
 import { ApiError } from "../core/api.js";
 
 const SAFE_ALIAS = /^[A-Za-z0-9._~-]+$/;
@@ -36,80 +37,76 @@ function stylesheet(root) {
   }
 }
 
-function warningList(title, warnings) {
-  const content = warnings.length
-    ? h(
-      "ul",
-      { class: "home-warnings" },
-      warnings.map((warning) => h(
-        "li",
-        {},
-        h("strong", {}, warning.message),
-        h("span", {}, warning.hint),
-      )),
-    )
-    : h("p", { class: "home-muted" }, "Sin advertencias.");
-  return h("section", { class: "home-panel" }, h("h2", {}, title), content);
+// Familia (§4.3) y tono de cada métrica en su tarjeta (maqueta v5).
+const METRIC_STYLE = {
+  active_contexts: { family: "knowledge" },
+  steps_in_progress: { family: "work" },
+  stale_steps: { family: "decision", warnWhenPositive: true },
+  agent_activity_24h: { family: "execution" },
+  mcp_denied_or_error: { family: "governance", tone: "gov" },
+  cost_period: { family: "execution" },
+};
+
+// Dato corto bajo el valor: el detalle de la métrica, o nada si no tiene.
+export function metricSub(metric) {
+  if (metric.id === "cost_period") {
+    const runs = metric.detail.find((item) => item.label === "runs")?.value ?? 0;
+    const attributed = metric.detail.find((item) => item.label !== "runs")?.value ?? 0;
+    return `${formatNumber(runs)} runs · ${formatNumber(attributed)} atribuidos a pasos`;
+  }
+  if (!metric.detail.length) return null;
+  return metric.detail.map((item) => `${detailLabel(item.label)} ${formatNumber(item.value)}`).join(" · ");
 }
 
-function metricCard(project, metric) {
-  const value = metric.unit === "usd" ? formatUsd(metric.value) : formatNumber(metric.value);
-  const details = metric.detail.length
-    ? h(
-      "ul",
-      { class: "home-detail" },
-      metric.detail.map((detail) => h(
-        "li",
-        {},
-        `${detailLabel(detail.label)}: ${formatNumber(detail.value)}`,
-      )),
-    )
-    : null;
-  return h("a", {
-    class: "home-metric",
+function metricTile(project, metric) {
+  const style = METRIC_STYLE[metric.id] ?? { family: "neutral" };
+  const tone = style.warnWhenPositive && metric.value > 0 ? "warn" : (style.tone ?? null);
+  return metricCard({
+    family: style.family,
+    label: metric.label,
+    value: metric.unit === "usd" ? formatUsd(metric.value) : formatNumber(metric.value),
+    sub: metricSub(metric),
+    title: metric.source,
     href: viewHref(project, metric.link),
     data: { view: metric.link.view, tab: metric.link.tab },
-  },
-  h("span", { class: "home-metric-label" }, metric.label),
-  h("strong", { class: "home-metric-value" }, value),
-  h("span", { class: "home-source" }, metric.source),
-  details);
+    tone: metric.value > 0 ? tone : null,
+  });
+}
+
+function sources(metrics) {
+  return h("details", { class: "home-sources" },
+    h("summary", {}, "¿De dónde salen estos números?"),
+    h("dl", {}, metrics.map((metric) => [h("dt", {}, metric.label), h("dd", {}, metric.source)])));
 }
 
 function renderOverview(root, data, project, period) {
-  const stale = data.tracking_health.warnings.filter(
-    (warning) => warning.code === "stale_in_progress_step",
-  );
+  const cards = data.metrics.filter((metric) => metric.id !== "tracking_health");
+  const health = data.metrics.find((metric) => metric.id === "tracking_health");
+  const stale = data.tracking_health.warnings.filter((warning) => warning.code === "stale_in_progress_step");
   const alerts = data.alerts.filter((warning) => warning.code !== "stale_in_progress_step");
   const quality = data.tracking_health.data_quality;
-  const periodButtons = ["7d", "30d"].map((key) => h("button", {
-    type: "button",
-    class: key === period ? "home-period-selected" : "",
-    data: { period: key },
-    "aria-pressed": String(key === period),
-  }, key === "7d" ? "7 d" : "30 d"));
-  const qualityText = `Completados sin inicio: ${formatNumber(quality.completed_without_start)} `
-    + `· Pasos omitidos: ${formatNumber(quality.skipped)}`;
-  const egressCount = data.egress.count === undefined
-    ? null
-    : h("p", { class: "home-muted" }, `Decisiones: ${formatNumber(data.egress.count)}`);
+  const notices = [
+    ...stale.map((warning) => ({ family: "decision", icon: "!", title: warning.message, hint: warning.hint })),
+    ...alerts.map((warning) => ({ family: "decision", icon: "·", title: warning.message, hint: warning.hint })),
+  ];
   root.replaceChildren(h("section", { class: "home" },
     h("header", { class: "home-header" },
       h("p", { class: "home-muted" }, `${project} · ${periodText(period)}`),
-      h("div", { class: "home-period", role: "group", "aria-label": "Período" }, periodButtons),
-    ),
-    h("div", { class: "home-grid" }, data.metrics.map((item) => metricCard(project, item))),
-    warningList("Salud del tracking", stale),
-    h("section", { class: "home-panel" },
-      h("h2", {}, "Calidad de datos"),
-      h("p", {}, qualityText),
-    ),
-    warningList("Alertas", alerts),
-    h("section", { class: "home-panel" },
-      h("h2", {}, "Egress"),
-      h("p", {}, data.egress.message),
-      egressCount,
-    ),
+      segmented({ label: "Período", options: [["7d", "7 días"], ["30d", "30 días"]], current: period, attribute: "period" })),
+    metricGrid(cards.map((metric) => metricTile(project, metric))),
+    h("div", { class: "home-panels" },
+      panel(`Salud del tracking · ${formatNumber(health?.value ?? notices.length)}`,
+        noticeList(notices, "Sin advertencias: el tracking está al día.")),
+      h("div", { class: "home-side" },
+        panel("Calidad de datos",
+          h("p", { class: "home-muted" },
+            `Completados sin inicio: ${formatNumber(quality.completed_without_start)} · `
+            + `Pasos omitidos: ${formatNumber(quality.skipped)}`)),
+        panel("Egress",
+          h("p", { class: "home-muted" }, data.egress.message),
+          data.egress.count === undefined ? null
+            : h("p", { class: "home-muted" }, `Decisiones: ${formatNumber(data.egress.count)}`)))),
+    sources(data.metrics),
   ));
 }
 
