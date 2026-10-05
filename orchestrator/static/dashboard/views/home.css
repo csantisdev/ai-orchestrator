@@ -41,6 +41,7 @@
     text-decoration: none;
   }
   .home-project:hover { border-color: var(--family-knowledge); }
+  .home-project:focus-visible { outline: 2px solid var(--state-focus); outline-offset: 2px; }
   .home-project-alias { font-size: var(--text-15); font-weight: 600; overflow-wrap: anywhere; }
   .home-project-facts { font-size: var(--text-12); color: var(--text-secondary); }
   .home-project-activity { font-size: var(--text-11); color: var(--text-muted); }

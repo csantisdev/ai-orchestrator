@@ -192,10 +192,11 @@
     color: var(--family-knowledge);
     background: color-mix(in srgb, var(--family-knowledge) 12%, transparent);
   }
-  .pill.state-in-progress {
+  .pill.state-in-progress, .pill.state-running {
     color: var(--family-execution);
     background: color-mix(in srgb, var(--family-execution) 12%, transparent);
   }
+  /* Pendiente queda neutro a propósito: no pide atención. */
   .pill.state-skipped, .pill.state-programado, .pill.state-blocked {
     color: var(--family-decision);
     background: color-mix(in srgb, var(--family-decision) 12%, transparent);
