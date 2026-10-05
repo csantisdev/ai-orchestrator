@@ -7,6 +7,7 @@ import { SECTIONS, describeSelection, panelFor, resolveSection } from "./core/se
 import { createApi } from "./core/api.js";
 import { createViewHost } from "./core/mount.js";
 import { createPageTitles, deniedText, navCounts } from "./core/page.js";
+import { runAction } from "./core/actions.js";
 
 const $ = (id) => document.getElementById(id);
 const store = createStore({});
@@ -104,6 +105,9 @@ function renderTabs(resolved) {
 
 function showViewError(error, root) {
   console.error("No se pudo mostrar la vista:", error);
+  // El host desmontó la vista: su próximo montaje es otra instancia (core/page.js).
+  titles.restart();
+  if (lastResolved) renderTitle(lastResolved);
   const box = document.createElement("section");
   box.className = "shell-empty";
   const title = document.createElement("h2");
@@ -225,36 +229,13 @@ async function loadHeaderCounts() {
   }
 }
 
-// Acciones del dashboard heredado: viven en sus pestañas (Ejecuciones › Actividad y Trabajo ›
-// Flujos), así que primero se navega hasta ellas.
-const ACTIONS = {
-  "clear-selection": () => store.set({ sel: null }),
-  "new-task": () => {
-    store.set({ view: "ejecuciones", tab: "actividad" });
-    const panel = $("senderPanel");
-    panel?.classList.add("open");
-    panel?.scrollIntoView({ block: "start" });
-    $("senderTask")?.focus();
-  },
-  "new-flow": () => {
-    store.set({ view: "trabajo", tab: "flujos" });
-    $("ctxTitle")?.scrollIntoView({ block: "center" });
-    $("ctxTitle")?.focus();
-  },
-};
-
 $("shell-project").addEventListener("change", (event) => event.currentTarget.form.submit());
 $("themeSelect")?.addEventListener("change", (event) => window.setTheme?.(event.currentTarget.value));
 
 document.addEventListener("click", (event) => {
   const target = event.target.closest?.("[data-view], [data-action]");
   if (!target) return;
-  const action = ACTIONS[target.dataset.action];
-  if (action) {
-    $("shell-menu").open = false;
-    action();
-    return;
-  }
+  if (target.dataset.action && runAction(target.dataset.action, { store, doc: document })) return;
   if (!target.dataset.view) return;
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1) return;
   event.preventDefault();

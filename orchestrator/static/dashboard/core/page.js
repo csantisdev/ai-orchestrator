@@ -1,6 +1,7 @@
 // Encabezado de página que fija la vista montada (`page.set`, contrato en ../README.md).
-// Cada entrada a una vista abre una época nueva: un `page.set` de un montaje anterior (una
-// carga que terminó tarde, aunque sea de la misma vista) se ignora. Puro, para `node --test`.
+// Cada entrada a una vista, y cada vez que la vista falla y se desmonta, abre una época nueva:
+// un `page.set` de un montaje anterior (una carga que terminó tarde, aunque sea de la misma
+// vista) se ignora. Puro, para `node --test`.
 
 export function createPageTitles(onChange = () => {}) {
   let key = null;
@@ -11,6 +12,12 @@ export function createPageTitles(onChange = () => {}) {
     enter(nextKey) {
       if (nextKey === key) return;
       key = nextKey;
+      epoch += 1;
+      value = null;
+    },
+    // La vista vigente falló y el host la desmontó (core/mount.js): el próximo montaje de la
+    // misma clave es otra instancia y el anterior ya no puede tocar el título.
+    restart() {
       epoch += 1;
       value = null;
     },
