@@ -542,6 +542,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
       current = next;
       if (next.project !== previous.project || next.ctx !== previous.ctx || next.step !== previous.step) {
         mapView = freshMapView();
+        if (next.project !== previous.project) consView.focus = null;
         load();
         return;
       }

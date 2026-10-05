@@ -191,6 +191,11 @@ test("Trabajo · Grafo: carga la constelación, controles locales, selección y 
   handle.update({ ...state, sel: C(3) });
   handle.update({ ...state, sel: null });
   assert.match(root.textContent, /seleccioná un contexto/);
+  // El foco no sobrevive al cambio de proyecto.
+  handle.update({ ...state, sel: C(3) });
+  handle.update({ ...state, project: "otro", sel: null });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(root.textContent, /seleccioná un contexto/);
 }));
 
 test("Trabajo · Grafo: puentes con commits seleccionables y portal informativo", () => withDocument(async (doc) => {
