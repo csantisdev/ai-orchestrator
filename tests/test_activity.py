@@ -67,6 +67,16 @@ def test_activity_alignment_state_is_a_status_token(data):
     }
 
 
+def test_activity_hides_skipped_steps_with_completion_timestamps(data):
+    data.execute("UPDATE steps SET status='skipped' WHERE id=1")
+    data.commit()
+
+    completed = [item for item in project_activity(data, "mi-proyecto")["items"]
+                 if item["kind"] == "step_completed"]
+
+    assert not completed
+
+
 def test_activity_cursor_has_no_duplicates_or_gaps(data):
     expected = [item["id"] for item in project_activity(data, "mi-proyecto", 200)["items"]]
     found, cursor = [], None

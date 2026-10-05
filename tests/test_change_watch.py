@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 
-from orchestrator.change_watch import ChangeWatcher
+from orchestrator.change_watch import ChangeWatcher, activity_fingerprint
 from orchestrator.server import _watch_changes_enabled
 
 
@@ -95,3 +95,71 @@ def test_serve_can_disable_the_watcher_explicitly():
     assert not _watch_changes_enabled(True, False)
     assert _watch_changes_enabled(False, True)
     assert not _watch_changes_enabled(False, None)
+
+
+def _activity_database(path):
+    conn = sqlite3.connect(path)
+    for table, columns in {
+        "runs": "id INTEGER PRIMARY KEY",
+        "tool_calls": "id INTEGER PRIMARY KEY",
+        "alignments": "id INTEGER PRIMARY KEY",
+        "egress_decisions": "id INTEGER PRIMARY KEY",
+        "contexts": "id INTEGER PRIMARY KEY, updated_at TEXT",
+        "steps": "id INTEGER PRIMARY KEY, started_at TEXT, completed_at TEXT",
+        "mcp_invocations": "id INTEGER PRIMARY KEY, tool_category TEXT",
+    }.items():
+        conn.execute(f"CREATE TABLE {table} ({columns})")
+    conn.commit()
+    conn.close()
+
+
+def test_activity_fingerprint_ignores_read_invocations(tmp_path):
+    path = tmp_path / "watch.db"
+    _activity_database(path)
+    events = []
+    watcher = ChangeWatcher(path, lambda kind, data: events.append((kind, json.loads(data))),
+                            fingerprint=activity_fingerprint)
+    connected = threading.Event()
+    original_connect = watcher._connect
+
+    def record_connection():
+        conn = original_connect()
+        connected.set()
+        return conn
+
+    watcher._connect = record_connection
+    watcher.start()
+    assert connected.wait(3)
+    subprocess.run([sys.executable, "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"INSERT INTO mcp_invocations (tool_category) VALUES ('read')\"); c.commit()", str(path)], check=True)
+    time.sleep(1.2)
+    watcher.stop()
+    assert not events
+
+
+def test_activity_fingerprint_publishes_mutations_and_context_updates(tmp_path):
+    path = tmp_path / "watch.db"
+    _activity_database(path)
+    events = []
+    watcher = ChangeWatcher(path, lambda kind, data: events.append((kind, json.loads(data))),
+                            fingerprint=activity_fingerprint)
+    connected = threading.Event()
+    original_connect = watcher._connect
+
+    def record_connection():
+        conn = original_connect()
+        connected.set()
+        return conn
+
+    watcher._connect = record_connection
+    watcher.start()
+    assert connected.wait(3)
+    write_finished = time.monotonic()
+    subprocess.run([sys.executable, "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"INSERT INTO mcp_invocations (tool_category) VALUES ('workflow_mutation')\"); c.commit()", str(path)], check=True)
+    assert _wait(events, timeout=3)
+    assert time.monotonic() - write_finished < 3
+    subprocess.run([sys.executable, "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"INSERT INTO contexts (updated_at) VALUES ('first')\"); c.commit()", str(path)], check=True)
+    assert _wait(events, count=2, timeout=3)
+    subprocess.run([sys.executable, "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"UPDATE contexts SET updated_at='second' WHERE id=1\"); c.commit()", str(path)], check=True)
+    assert _wait(events, count=3, timeout=3)
+    watcher.stop()
+    assert [event[1]["generation"] for event in events] == [1, 2, 3]

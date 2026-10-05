@@ -113,7 +113,7 @@ def serve(
     from orchestrator.dashboard import build_html
     from orchestrator.index import ProjectNotFoundError
     from orchestrator.sse import BUS
-    from orchestrator.change_watch import ChangeWatcher, set_current_watcher
+    from orchestrator.change_watch import ChangeWatcher, activity_fingerprint, set_current_watcher
     from orchestrator.paths import DB_PATH
 
     # Compartido entre los handlers manuales de sync y el hilo de autosync
@@ -1858,7 +1858,7 @@ def serve(
             pass
     watcher = None
     if _watch_changes_enabled(start_background, watch_changes):
-        watcher = ChangeWatcher(DB_PATH, BUS.publish)
+        watcher = ChangeWatcher(DB_PATH, BUS.publish, fingerprint=activity_fingerprint)
         watcher.start()
         set_current_watcher(watcher)
 

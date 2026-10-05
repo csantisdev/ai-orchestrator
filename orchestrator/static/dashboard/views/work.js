@@ -538,8 +538,9 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
   root.addEventListener("keydown", onKeyDown);
   await load();
   return {
-    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla.
-    refresh: () => load({ quiet: true }),
+    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla;
+    // si hay una carga en curso (de la persona), no la cancela: el próximo aviso la retoma.
+    refresh: () => (pending ? undefined : load({ quiet: true })),
     update(next) {
       const previous = current;
       current = next;

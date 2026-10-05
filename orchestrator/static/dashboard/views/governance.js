@@ -288,9 +288,10 @@ export async function mount(root, { api, state, signal, store }) {
   root.addEventListener("click", onClick);
   await load();
   return {
-    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla.
+    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla;
+    // si hay una carga en curso (de la persona), no la cancela: el próximo aviso la retoma.
     // Con más de una página cargada no se refresca: se perdería lo que la persona ya pidió.
-    refresh: () => (appended ? undefined : load({ quiet: true })),
+    refresh: () => (appended || pending ? undefined : load({ quiet: true })),
     update(next) {
       const previous = current;
       current = next;

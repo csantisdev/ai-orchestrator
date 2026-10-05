@@ -99,8 +99,9 @@ def project_activity(conn: sqlite3.Connection, project: str, limit: int = 50, cu
         items.append(_item("egress", row, {"provider": _token(row[3]), "phase": _token(row[4]),
                                              "decision": _token(row[5]), "reason_code": _token(row[6])}, row[5], run=row[7]))
     for kind, column in (("step_started", "started_at"), ("step_completed", "completed_at")):
+        status_filter = " AND s.status = 'completed'" if kind == "step_completed" else ""
         for row in _rows(conn, f"SELECT s.id, julianday(s.{column}), s.{column} AS ts, s.status, s.order_idx, s.provider, s.context_id "
-                         f"FROM steps s JOIN contexts c ON c.id = s.context_id WHERE c.project = ? AND julianday(s.{column}) IS NOT NULL",
+                         f"FROM steps s JOIN contexts c ON c.id = s.context_id WHERE c.project = ? AND julianday(s.{column}) IS NOT NULL{status_filter}",
                          [project], limit, after, kind):
             items.append(_item(kind, row, {"idx": _number(row[4]), "provider": _token(row[5])}, row[3], row[6], row[0]))
     for row in _rows(conn, "SELECT id, julianday(ts), ts, tool_name, tool_category, client_surface, reason_code, is_error, status "

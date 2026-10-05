@@ -5,7 +5,7 @@ import { h } from "../../orchestrator/static/dashboard/core/dom.js";
 import { watchChanges } from "../../orchestrator/static/dashboard/core/live.js";
 import { createViewHost } from "../../orchestrator/static/dashboard/core/mount.js";
 import {
-  activityActions, activityFilter, activitySummary, activityText, formatActivityTime, mountActivity,
+  activityActions, activityFilter, activitySummary, activityText, formatActivityTime, mergeFirstPage, mountActivity,
 } from "../../orchestrator/static/dashboard/components/activity.js";
 
 const item = (kind, id, extra = {}) => ({
@@ -131,17 +131,6 @@ test("mountActivity: sin proyecto pide elegir uno y un fallo se informa sin romp
   assert.match(root.textContent, /No se pudo cargar la actividad/);
 }));
 
-function fakeTimers() {
-  const queue = new Map();
-  let next = 1;
-  return {
-    setTimeout: (fn) => { queue.set(next, fn); return next++; },
-    clearTimeout: (id) => queue.delete(id),
-    flush() { const fns = [...queue.values()]; queue.clear(); fns.forEach((fn) => fn()); },
-    get size() { return queue.size; },
-  };
-}
-
 function fakeTarget() {
   const handlers = {};
   return {
@@ -153,31 +142,121 @@ function fakeTarget() {
   };
 }
 
-test("watchChanges agrupa ráfagas y espera a que la pestaña sea visible", () => {
+function fakeTimers() {
+  const queue = new Map();
+  let next = 1;
+  return {
+    delays: [],
+    setTimeout(fn, ms) { this.delays.push(ms); queue.set(next, fn); return next++; },
+    clearTimeout: (id) => queue.delete(id),
+    async flush() { const fns = [...queue.values()]; queue.clear(); await Promise.all(fns.map((fn) => fn())); },
+    get size() { return queue.size; },
+  };
+}
+
+test("watchChanges: agrupa ráfagas, limita la cadencia, no superpone refrescos y espera a la pestaña visible", async () => {
   const events = fakeTarget();
   const doc = fakeTarget();
   const timers = fakeTimers();
+  let now = 0;
   let calls = 0;
-  const watch = watchChanges({ events, doc, timers, onChange: () => { calls += 1; } });
+  let release;
+  const watch = watchChanges({
+    events, doc, timers, clock: () => now, delay: 800, minInterval: 2500,
+    onChange: () => { calls += 1; return new Promise((resolve) => { release = resolve; }); },
+  });
   events.emit("db_changed");
   events.emit("db_changed");
   events.emit("db_changed");
   assert.equal(timers.size, 1);
-  timers.flush();
+  assert.equal(timers.delays.at(-1), 800);
+  const first = timers.flush();
   assert.equal(calls, 1);
+  // Durante el refresco en curso los avisos solo quedan pendientes: no se lanza otro.
+  events.emit("db_changed");
+  events.emit("db_changed");
+  assert.equal(timers.size, 0);
+  now = 1000;
+  release();
+  await first;
+  // Al terminar, un solo refresco más, recién cuando se cumple el intervalo mínimo.
+  assert.equal(timers.size, 1);
+  assert.equal(timers.delays.at(-1), 1500);
+  now = 2500;
+  const second = timers.flush();
+  release();
+  await second;
+  assert.equal(calls, 2);
   doc.hidden = true;
   events.emit("db_changed");
-  timers.flush();
-  assert.equal(calls, 1);
+  now = 6000;
+  await timers.flush();
+  assert.equal(calls, 2);
   doc.hidden = false;
   doc.emit("visibilitychange");
-  timers.flush();
-  assert.equal(calls, 2);
+  const third = timers.flush();
+  release();
+  await third;
+  assert.equal(calls, 3);
   watch.stop();
   assert.equal(events.count("db_changed"), 0);
   assert.equal(doc.count("visibilitychange"), 0);
   assert.doesNotThrow(() => watchChanges({ events: null, onChange() {} }).stop());
 });
+
+test("mergeFirstPage conserva las páginas extra salvo que haya un hueco", () => {
+  const ids = (list) => list.map((entry) => entry.id);
+  const page = (list, next) => ({ items: list.map((id) => ({ id })), next_cursor: next });
+  const loaded = [{ id: "run:3" }, { id: "run:2" }, { id: "run:1" }];
+  assert.deepEqual(mergeFirstPage(loaded, "c-old", page(["run:4", "run:3"], "c1"), 1), { items: [{ id: "run:4" }, { id: "run:3" }], cursor: "c1" });
+  const kept = mergeFirstPage(loaded, "c-old", page(["run:4", "run:3"], "c1"), 2);
+  assert.deepEqual([ids(kept.items), kept.cursor], [["run:4", "run:3", "run:2", "run:1"], "c-old"]);
+  const gap = mergeFirstPage(loaded, "c-old", page(["run:9", "run:8"], "c9"), 2);
+  assert.deepEqual([ids(gap.items), gap.cursor, gap.reset], [["run:9", "run:8"], "c9", true]);
+});
+
+test("mountActivity: un refresco no pisa un Cargar más en curso y se juntan los refrescos seguidos", () => withDocument(async (doc) => {
+  const gates = [];
+  const calls = [];
+  const api = { get: (path, { params }) => new Promise((resolve) => {
+    calls.push(params.cursor ?? "first");
+    gates.push(() => resolve(params.cursor
+      ? { items: [item("run", 1)], next_cursor: null }
+      : { items: [item("run", calls.length === 1 ? 3 : 4), item("run", 3), item("run", 2)].filter((v, i, a) => a.findIndex((x) => x.id === v.id) === i), next_cursor: "c1" }));
+  }) };
+  const root = new FakeNode(doc, "section");
+  const summary = new FakeNode(doc, "span");
+  const activity = mountActivity({ root, summary, api, store: fakeStore({ project: "mi-proyecto", sel: null }) });
+  const initial = activity.refresh();
+  await new Promise((resolve) => setImmediate(resolve));
+  gates.shift()();
+  await initial;
+  const click = (target) => root.listeners.forEach((handler) => handler({ target: { closest: () => target } }));
+  click({ dataset: { actMore: "1" } });
+  const one = activity.refresh();
+  const two = activity.refresh();
+  assert.equal(one, two);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["first", "c1"]);
+  gates.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["first", "c1", "first"]);
+  gates.shift()();
+  await one;
+  const texts = findAll(root, (node) => node.tagName === "li").map((node) => node.textContent);
+  assert.equal(texts.length, 4);
+  assert.match(texts[0], /Run #4/);
+  assert.match(texts[3], /Run #1/);
+  assert.match(summary.textContent, /^Run #4/);
+}));
+
+test("mountActivity: el resumen no queda con un evento viejo", () => withDocument(async (doc) => {
+  const root = new FakeNode(doc, "section");
+  const summary = new FakeNode(doc, "span");
+  await mountActivity({ root, summary, api: { get: async () => ({ items: [], next_cursor: null }) },
+    store: fakeStore({ project: "mi-proyecto" }) }).refresh();
+  assert.equal(summary.textContent, "sin eventos");
+}));
 
 test("createViewHost.refresh usa refresh de la vista o la vuelve a montar con el último estado", async () => {
   const doc = { createElement: () => ({ dataset: {} }) };

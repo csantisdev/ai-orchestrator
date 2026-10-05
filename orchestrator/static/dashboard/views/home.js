@@ -201,10 +201,12 @@ export async function mount(root, { api, state, signal }) {
   let controller;
   let currentProject = state.project;
   let period = "7d";
+  let loading = false;
   const load = async ({ quiet = false } = {}) => {
     controller?.abort();
     controller = new AbortController();
     const current = controller;
+    loading = true;
     const abort = () => current.abort();
     signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -233,6 +235,7 @@ export async function mount(root, { api, state, signal }) {
       }
     } finally {
       signal?.removeEventListener("abort", abort);
+      if (current === controller) loading = false;
     }
   };
   const click = (event) => {
@@ -244,8 +247,9 @@ export async function mount(root, { api, state, signal }) {
   root.addEventListener("click", click);
   await load();
   return {
-    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla.
-    refresh: () => load({ quiet: true }),
+    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla;
+    // si hay una carga en curso (de la persona), no la cancela: el próximo aviso la retoma.
+    refresh: () => (loading ? undefined : load({ quiet: true })),
     update(next) {
       if (next.project !== currentProject) {
         currentProject = next.project;

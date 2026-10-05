@@ -15,13 +15,34 @@ _active: Optional["ChangeWatcher"] = None
 _active_lock = threading.Lock()
 
 
+def activity_fingerprint(conn: sqlite3.Connection) -> tuple:
+    """Huella barata de lo que muestran las proyecciones: las lecturas MCP no la cambian."""
+    return tuple(conn.execute("""
+        SELECT
+            (SELECT MAX(id) FROM runs),
+            (SELECT MAX(id) FROM tool_calls),
+            (SELECT MAX(id) FROM alignments),
+            (SELECT MAX(id) FROM egress_decisions),
+            (SELECT MAX(id) FROM contexts),
+            (SELECT MAX(id) FROM steps),
+            (SELECT MAX(id) FROM mcp_invocations WHERE tool_category != 'read'),
+            (SELECT MAX(updated_at) FROM contexts),
+            (SELECT MAX(started_at) FROM steps),
+            (SELECT MAX(completed_at) FROM steps),
+            (SELECT COUNT(*) FROM steps),
+            (SELECT COUNT(*) FROM contexts)
+    """).fetchone())
+
+
 class ChangeWatcher:
     """Publica un evento cuando otra conexión modifica la base observada."""
 
-    def __init__(self, db_path, publish: Callable[[str, str], None], interval: float = 1.0) -> None:
+    def __init__(self, db_path, publish: Callable[[str, str], None], interval: float = 1.0,
+                 fingerprint: Callable[[sqlite3.Connection], tuple] | None = None) -> None:
         self.db_path = Path(db_path)
         self.publish = publish
         self.interval = max(0.01, float(interval))
+        self.fingerprint = fingerprint
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._generation = 0
@@ -55,27 +76,46 @@ class ChangeWatcher:
     def _data_version(conn: sqlite3.Connection) -> int:
         return int(conn.execute("PRAGMA data_version").fetchone()[0])
 
+    def _fingerprint(self, conn: sqlite3.Connection) -> tuple | None:
+        return self.fingerprint(conn) if self.fingerprint is not None else None
+
     def _run(self) -> None:
         conn: Optional[sqlite3.Connection] = None
         baseline: Optional[int] = None
+        baseline_fingerprint: tuple | None = None
         backoff = 0.05
         while not self._stop.is_set():
             try:
                 if conn is None:
                     conn = self._connect()
                     baseline = self._data_version(conn)
+                    try:
+                        baseline_fingerprint = self._fingerprint(conn)
+                    except Exception:
+                        # Without a usable schema, the first later write is relevant.
+                        baseline_fingerprint = None
                     backoff = 0.05
                 else:
                     version = self._data_version(conn)
                     if version != baseline:
                         baseline = version
-                        with self._lock:
-                            self._generation += 1
-                            generation = self._generation
-                        self.publish("db_changed", json.dumps({
-                            "generation": generation,
-                            "ts": datetime.now(timezone.utc).isoformat(),
-                        }))
+                        try:
+                            fingerprint = self._fingerprint(conn)
+                        except Exception:
+                            # A schema migration or partial database must not kill the watcher.
+                            fingerprint = None
+                            relevant = True
+                        else:
+                            relevant = self.fingerprint is None or fingerprint != baseline_fingerprint
+                        baseline_fingerprint = fingerprint
+                        if relevant:
+                            with self._lock:
+                                self._generation += 1
+                                generation = self._generation
+                            self.publish("db_changed", json.dumps({
+                                "generation": generation,
+                                "ts": datetime.now(timezone.utc).isoformat(),
+                            }))
                 self._stop.wait(self.interval)
             except Exception:
                 if conn is not None:
@@ -85,6 +125,7 @@ class ChangeWatcher:
                         pass
                 conn = None
                 baseline = None
+                baseline_fingerprint = None
                 self._stop.wait(backoff)
                 backoff = min(backoff * 2, 1.0)
         if conn is not None:

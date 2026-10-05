@@ -94,28 +94,68 @@ export function activitySummary(item, options) {
 function row(item, selected) {
   const filter = activityFilter(item);
   const { sel, trace } = activityActions(item);
+  const key = (action) => `${item.id}|${action}`;
   return h("li", { class: ["act-event", `family-${FAMILY[filter]}`, selected && sel === selected && "is-selected"] },
     h("time", { class: "act-event-time", datetime: item.ts }, formatActivityTime(item.ts)),
     h("span", { class: "act-event-dot", "aria-hidden": "true" }),
     h("span", { class: "act-event-text" }, activityText(item)),
     h("span", { class: "act-event-actions" },
-      sel ? h("button", { type: "button", class: "act-link", data: { actSel: sel }, "aria-pressed": String(sel === selected) }, "Ver") : null,
-      trace ? h("button", { type: "button", class: "act-link", data: { actTrace: JSON.stringify(trace) } }, "Trace") : null,
-      h("button", { type: "button", class: "act-link", data: { actFilter: filter }, title: "Mostrar solo este tipo de evento" }, "Filtrar")));
+      sel ? h("button", { type: "button", class: "act-link", data: { actSel: sel, actKey: key("ver") },
+        "aria-pressed": String(sel === selected) }, "Ver") : null,
+      trace ? h("button", { type: "button", class: "act-link", data: { actTrace: JSON.stringify(trace), actKey: key("trace") } }, "Trace") : null,
+      h("button", { type: "button", class: "act-link", data: { actFilter: filter, actKey: key("filter") },
+        title: "Mostrar solo este tipo de evento" }, "Filtrar")));
+}
+
+// Identidad estable de un control para devolverle el foco después de redibujar.
+function controlKey(element) {
+  const data = element?.dataset;
+  if (!data) return null;
+  if (data.actKey) return `[data-act-key="${CSS_ESCAPE(data.actKey)}"]`;
+  if (data.actKind !== undefined) return `[data-act-kind="${CSS_ESCAPE(data.actKind)}"]`;
+  if (data.actMore) return "[data-act-more]";
+  return null;
+}
+
+const CSS_ESCAPE = (value) => String(value).replace(/["\\]/g, "\\$&");
+
+// Une la primera página recién pedida con lo ya cargado: lo nuevo arriba y, si el usuario ya
+// pidió más páginas y no hay hueco entre ambas, se conservan (y su cursor).
+export function mergeFirstPage(items, cursor, page, pages) {
+  if (pages <= 1) return { items: page.items, cursor: page.next_cursor };
+  const fresh = new Set(page.items.map((item) => item.id));
+  const overlaps = items.some((item) => fresh.has(item.id));
+  if (!overlaps && page.next_cursor) return { items: page.items, cursor: page.next_cursor, reset: true };
+  return { items: [...page.items, ...items.filter((item) => !fresh.has(item.id))], cursor };
 }
 
 // Monta la Activity del proyecto. `refresh()` vuelve a pedir la primera página (lo llama el
-// shell ante `db_changed` o al cambiar de proyecto); `select(sel)` marca lo seleccionado.
+// shell ante `db_changed`); `select()` marca lo seleccionado. Las peticiones van en cola: un
+// refresco nunca cancela un "Cargar más" ni pisa su resultado, y dos refrescos seguidos se
+// juntan en uno.
 export function mountActivity({ root, summary, api, store }) {
   let project = null;
   let items = [];
   let cursor = null;
+  let pages = 0;
   let filter = "";
   let failed = false;
-  let controller = null;
-  let latest = null;
+  let queue = Promise.resolve();
+  let refreshQueued = null;
+
+  function enqueue(task) {
+    queue = queue.then(task, task);
+    return queue;
+  }
+
+  function writeSummary() {
+    if (!summary) return;
+    summary.textContent = failed ? "actividad no disponible" : activitySummary(items[0] ?? null) ?? "sin eventos";
+  }
 
   function draw() {
+    const doc = root.ownerDocument;
+    const focused = doc?.activeElement && root.contains?.(doc.activeElement) ? controlKey(doc.activeElement) : null;
     const selected = store.get().sel;
     const visible = filter ? items.filter((item) => activityFilter(item) === filter) : items;
     const list = visible.length
@@ -129,52 +169,60 @@ export function mountActivity({ root, summary, api, store }) {
       list,
       cursor ? h("button", { type: "button", class: "act-more", data: { actMore: "1" } }, "Cargar más") : null,
     );
-    if (summary && latest) summary.textContent = activitySummary(latest);
+    if (focused) root.querySelector?.(focused)?.focus?.();
   }
 
-  async function fetchPage(after) {
-    controller?.abort();
-    const mine = new AbortController();
-    controller = mine;
+  async function load(after) {
     const params = { limit: PAGE };
     if (after) params.cursor = after;
-    const data = await api.get(`/api/v1/projects/${project}/activity`, { params, signal: mine.signal });
-    return controller === mine ? data : null;
+    return api.get(`/api/v1/projects/${project}/activity`, { params });
   }
 
-  async function refresh() {
+  async function doRefresh() {
     project = store.get().project;
     if (!project || !PROJECT.test(project)) {
       root.replaceChildren(h("p", { class: "act-empty" }, "Elegí un proyecto para ver su actividad."));
       return;
     }
     try {
-      const data = await fetchPage(null);
-      if (!data) return;
-      items = data.items;
-      cursor = data.next_cursor;
+      const page = await load(null);
+      const merged = mergeFirstPage(items, cursor, page, pages);
+      items = merged.items;
+      cursor = merged.cursor;
+      pages = merged.reset || pages === 0 ? 1 : pages;
       failed = false;
-      latest = items[0] ?? null;
     } catch (error) {
-      if (error.name === "AbortError") return;
       console.warn("No se pudo cargar la actividad:", error);
-      failed = true;
+      failed = !items.length;
     }
+    writeSummary();
     draw();
   }
 
-  async function more() {
-    if (!cursor) return;
-    try {
-      const data = await fetchPage(cursor);
-      if (!data) return;
-      const seen = new Set(items.map((item) => item.id));
-      items = [...items, ...data.items.filter((item) => !seen.has(item.id))];
-      cursor = data.next_cursor;
-    } catch (error) {
-      if (error.name !== "AbortError") console.warn("No se pudo cargar más actividad:", error);
+  function refresh() {
+    if (!refreshQueued) {
+      refreshQueued = enqueue(async () => {
+        refreshQueued = null;
+        await doRefresh();
+      });
     }
-    draw();
+    return refreshQueued;
+  }
+
+  function more() {
+    return enqueue(async () => {
+      if (!cursor) return;
+      try {
+        const page = await load(cursor);
+        const seen = new Set(items.map((item) => item.id));
+        items = [...items, ...page.items.filter((item) => !seen.has(item.id))];
+        cursor = page.next_cursor;
+        pages += 1;
+      } catch (error) {
+        console.warn("No se pudo cargar más actividad:", error);
+      }
+      draw();
+    });
   }
 
   root.addEventListener("click", (event) => {

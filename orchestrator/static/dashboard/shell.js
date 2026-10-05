@@ -279,11 +279,7 @@ activity?.refresh();
 watchChanges({
   events: window.__dashboardEvents,
   doc: document,
-  onChange() {
-    views.refresh();
-    activity?.refresh();
-    loadHeaderCounts();
-  },
+  onChange: () => Promise.all([views.refresh(), activity?.refresh(), loadHeaderCounts()]),
 });
 document.documentElement.dataset.shell = "ready";
 
