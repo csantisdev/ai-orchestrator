@@ -174,9 +174,23 @@ test("Trabajo · Grafo: carga la constelación, controles locales, selección y 
   assert.match(root.textContent, /Uno/);
   const pressed = findAll(root, (node) => node.attributes?.["data-node"] === C(3))[0];
   assert.equal(pressed.attributes["aria-pressed"], "true");
-  // Al volver a la Lista, el contexto seleccionado se conserva (§23.2).
+  // Elegir y soltar un commit no mueve el foco local.
+  const commit = `commit:${"0".repeat(40)}`;
+  handle.update({ ...state, sel: commit });
+  handle.update({ ...state, sel: null });
+  assert.match(root.textContent, /Tres/);
+  assert.doesNotMatch(root.textContent, /seleccioná un contexto/);
+  // Al volver a la Lista, la selección (contexto o commit) se conserva (§23.2).
+  handle.update({ ...state, sel: C(3) });
   click({ dataset: { as: "list" } });
   assert.deepEqual(sets.at(-1), { as: null, sel: C(3) });
+  handle.update({ ...state, sel: commit });
+  click({ dataset: { as: "list" } });
+  assert.deepEqual(sets.at(-1), { as: null, sel: commit });
+  // Soltar el contexto que fija el foco lo limpia.
+  handle.update({ ...state, sel: C(3) });
+  handle.update({ ...state, sel: null });
+  assert.match(root.textContent, /seleccioná un contexto/);
 }));
 
 test("Trabajo · Grafo: puentes con commits seleccionables y portal informativo", () => withDocument(async (doc) => {

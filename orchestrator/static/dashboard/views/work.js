@@ -134,8 +134,9 @@ function constellationSection(state, data, cons, view) {
     return [panel("Grafo · Labs", h("p", { class: "empty-note" },
       "La constelación no está disponible ahora; la pestaña Lista sigue funcionando."))];
   }
-  // El foco del modo local es el último contexto seleccionado; elegir un commit no lo cambia.
-  if (!state.sel || state.sel.startsWith("context:")) view.focus = state.sel ?? null;
+  // El foco del modo local es el último contexto seleccionado; elegir o soltar un commit no lo
+  // cambia (deseleccionar el contexto lo limpia en `update`).
+  if (state.sel?.startsWith("context:")) view.focus = state.sel;
   const focus = view.focus;
   const layout = layoutConstellation(cons, { scope: view.scope, mode: view.mode, focus, depth: view.depth, lens: view.lens });
   const graphic = renderConstellation(layout);
@@ -462,7 +463,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     if (target.dataset.as !== undefined) {
       const value = target.dataset.as;
       // Entre Lista y Grafo de contextos la selección se conserva (§23.2); el mapa la limpia.
-      const keep = pageFor(current) === "contexts" && current.sel?.startsWith("context:");
+      const keep = pageFor(current) === "contexts" && Boolean(current.sel);
       store.set({ as: value === "map" || value === "constellation" ? value : null, sel: keep ? current.sel : null });
       return;
     }
@@ -550,6 +551,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
         return;
       }
       if (next.sel !== previous.sel && pageFor(next) === "contexts" && next.as === "constellation" && lastConstellation) {
+        if (!next.sel && previous.sel === consView.focus) consView.focus = null;
         // En modo local la selección es el foco: cambia lo visible y se redibuja.
         if (consView.mode === "local") {
           redrawContexts();

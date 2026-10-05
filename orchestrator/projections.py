@@ -656,9 +656,9 @@ def _layout_iterations(count: int) -> int:
 
 @functools.lru_cache(maxsize=32)
 def _cached_layout(ids: tuple[str, ...], weights: tuple[tuple[tuple[str, str], int], ...],
-                   iterations: int) -> tuple[tuple[str, float, float], ...]:
+                   iterations: int, version: str) -> tuple[tuple[str, float, float], ...]:
     """Caché por contenido (§22.4): la clave son los nodos, los puentes con su peso, las
-    iteraciones y, por el módulo, la versión del algoritmo. Cualquier cambio en los datos, venga
+    iteraciones y la versión del algoritmo. Cualquier cambio en los datos, venga
     de este proceso o de otro, cambia la clave y fuerza el recálculo; sin cambios, se reutiliza."""
     layout = _force_layout(list(ids), dict(weights), iterations)
     return tuple((node, x, y) for node, (x, y) in layout.items())
@@ -838,7 +838,8 @@ def project_constellation(conn: sqlite3.Connection, project: str, commits: Optio
     force_ids = sorted(connected | set(portals), key=lambda item: (item.startswith("portal:"), item))
     weights = tuple(((b["source"], b["target"]), b["weight"]) for b in bridges)
     iterations = _layout_iterations(len(force_ids))
-    positions = {node: {"x": x, "y": y} for node, x, y in _cached_layout(tuple(force_ids), weights, iterations)}
+    positions = {node: {"x": x, "y": y} for node, x, y in _cached_layout(
+        tuple(force_ids), weights, iterations, CONSTELLATION_LAYOUT_VERSION)}
     isolated = [node["id"] for node in nodes if node["kind"] == "context" and not node["attrs"]["connected"]]
     top = _CONSTELLATION_HEIGHT + 40 if force_ids else 60
     gap = (_CONSTELLATION_WIDTH - 120) / (_CONSTELLATION_COLUMNS - 1)
