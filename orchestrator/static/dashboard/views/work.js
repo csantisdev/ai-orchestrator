@@ -6,7 +6,8 @@ import { h } from "../core/dom.js";
 import { toSearch } from "../core/router.js";
 import { facts, objectList, statusPill } from "../renderers/list.js";
 import { renderTrace } from "../renderers/trace.js";
-import { progress, segmented } from "../core/ui.js";
+import { panel, progress, segmented } from "../core/ui.js";
+import { citingSteps, layoutMap, renderMap, select as selectOnMap } from "../renderers/map.js";
 
 export const CONTEXT_STATUS = Object.freeze({
   active: "Activo", programado: "Programado", completed: "Completado", abandoned: "Abandonado",
@@ -134,15 +135,71 @@ function contextsPage(state, data, filter) {
   return [header(undefined, null, filters), list];
 }
 
-function contextPage(state, data) {
+export const REPRESENTATIONS = Object.freeze([["list", "Pasos"], ["map", "◇ Mapa"]]);
+const MAP_NOT_APPLICABLE = "Un solo carril de agente y ningún commit compartido: el mapa no agrega relaciones a la lista.";
+
+// Mapa del contexto (§21.3): disposición, controles de ventana y aviso si no es elegible.
+function mapSection(state, map, view) {
+  if (!map) return null;
+  if (!map.map.eligible && !view.force) {
+    return panel("Mapa",
+      h("p", { class: "empty-note" }, `${MAP_NOT_APPLICABLE} La lista de pasos lo muestra igual.`),
+      h("button", { type: "button", class: "ui-button", data: { forceMap: "1" } }, "Ver el mapa igual"));
+  }
+  const layout = layoutMap(map, { expanded: view.expanded, start: view.start });
+  const graphic = renderMap(layout);
+  view.layout = layout;
+  view.svg = graphic;
+  const { first, size, total } = layout.columns;
+  const windowControls = total > size
+    ? h("div", { class: "map-window" },
+      h("button", { type: "button", class: "ui-button", data: { mapWindow: String(Math.max(0, first - size)) }, disabled: first === 0 },
+        "← Pasos anteriores"),
+      h("span", { class: "empty-note" }, `Columnas ${first + 1}–${Math.min(first + size, total)} de ${total}`),
+      h("button", { type: "button", class: "ui-button", data: { mapWindow: String(first + size) }, disabled: first + size >= total },
+        "Pasos siguientes →"))
+    : null;
+  if (state.sel) selectOnMap(graphic, layout, state.sel);
+  return panel("Mapa",
+    h("ul", { class: "map-legend", "aria-label": "Leyenda del mapa" },
+      h("li", {}, "✓ completado · ● en curso · ○ pendiente · ⤼ omitido"),
+      h("li", {}, "◇ commit citado; trazo grueso = compartido por varios pasos"),
+      h("li", {}, "recuadro punteado = segundo agente en ese carril"),
+      h("li", {}, "Na = alineamientos · Nr = runs · ◇n = commits citados por un solo paso")),
+    windowControls,
+    h("div", { class: "map-wrap" }, graphic),
+    layout.moreCommits
+      ? h("button", { type: "button", class: "ui-button", data: { stepFilter: "more-commits" }, "aria-pressed": String(view.stepFilter === "more-commits") },
+        `+${layout.moreCommits} commits compartidos: ver los pasos que los citan`)
+      : null);
+}
+
+function contextPage(state, data, map = null, view = null) {
   const { context, steps } = data;
+  const mapBlock = state.as === "map" ? mapSection(state, map, view) : null;
   const parent = context.parent
     ? h("p", { class: "work-subtle" }, "Creado desde ",
       navLink(state, { ctx: context.parent.context_id, step: context.parent.step_id }, `el paso #${context.parent.step_id} del contexto #${context.parent.context_id}`))
     : null;
-  const list = objectList(steps, (step) => [
+  const citing = map ? citingSteps(map) : new Map();
+  const relatedSteps = new Set(state.sel?.startsWith("commit:") ? (citing.get(state.sel) ?? []) : []);
+  const filterSteps = view?.stepFilter === "more-commits" && view.layout
+    ? new Set(view.layout.moreCommitSteps)
+    : null;
+  const visibleSteps = filterSteps ? steps.filter((step) => filterSteps.has(`step:${step.id}`)) : steps;
+  const list = objectList(visibleSteps, (step) => [
+    relatedSteps.has(`step:${step.id}`) ? h("span", { class: "work-related" }, "cita el commit seleccionado") : null,
     h("div", { class: "object-main" },
-      navLink(state, { ctx: context.id, step: step.id }, [h("span", { class: "object-id" }, `Paso ${step.idx}`), step.title || "Sin título"]),
+      // Con el mapa, la lista es su equivalente sincronizado: el número del paso lo selecciona.
+      state.as === "map"
+        ? h("button", {
+          type: "button", class: "cell-button", data: { sel: `step:${step.id}` },
+          "aria-pressed": String(state.sel === `step:${step.id}`),
+        }, `Paso ${step.idx}`)
+        : null,
+      navLink(state, { ctx: context.id, step: step.id }, state.as === "map"
+        ? (step.title || "Sin título")
+        : [h("span", { class: "object-id" }, `Paso ${step.idx}`), step.title || "Sin título"]),
       statusPill(step.status, STEP_STATUS)),
     h("div", { class: "object-meta" },
       h("span", {}, agentLabel(step.lane), step.secondary.length ? ` + ${step.secondary.map(agentLabel).join(", ")}` : ""),
@@ -159,11 +216,31 @@ function contextPage(state, data) {
       step.children.length ? h("span", {}, "Contextos derivados: ",
         step.children.map((child) => navLink(state, { ctx: child, step: null }, `#${child}`))) : null),
   ], { label: "Pasos", empty: "El contexto no tiene pasos." });
+  const listNote = filterSteps
+    ? h("p", { class: "empty-note" }, "Mostrando solo los pasos que citan commits compartidos sin dibujar. ",
+      h("button", { type: "button", class: "ui-button", data: { stepFilter: "" } }, "Ver todos los pasos"))
+    : null;
+  // §23.2: si el mapa no aplica, su pestaña se muestra deshabilitada con el motivo y la
+  // opción de verlo igual. Sin el mapa (la petición falló), la pestaña queda deshabilitada.
+  const notApplicable = map ? !map.map.eligible && !view?.force : true;
+  const reason = map ? MAP_NOT_APPLICABLE : "El mapa no está disponible ahora.";
+  const showingMap = state.as === "map" && !notApplicable;
+  const options = [
+    REPRESENTATIONS[0],
+    [REPRESENTATIONS[1][0], notApplicable ? "◇ Mapa (no aplica)" : REPRESENTATIONS[1][1], { disabled: notApplicable, reason: notApplicable ? reason : null }],
+  ];
+  const representation = h("div", { class: "work-representation" },
+    segmented({ label: "Representación", options, current: showingMap ? "map" : "list", attribute: "as" }),
+    map && notApplicable
+      ? h("button", { type: "button", class: "ui-button", data: { forceMap: "1" } }, "Ver el mapa igual")
+      : null);
   return [
     h("nav", { class: "work-back" }, navLink(state, { ctx: null, step: null }, "← Contextos")),
-    header(context.status, CONTEXT_STATUS),
+    header(context.status, CONTEXT_STATUS, representation),
     context.description ? h("p", { class: "work-description" }, context.description) : null,
     parent,
+    mapBlock,
+    listNote,
     list,
   ];
 }
@@ -194,6 +271,12 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
   let current = state;
   let filter = "";
   let pending = null;
+  let lastData = null;
+  let lastMap = null;
+  // Estado local del mapa: grupos abiertos, ventana de columnas y "ver el mapa igual".
+  // Los grupos se expanden (no se seleccionan); `stepFilter` filtra la lista sincronizada.
+  const freshMapView = () => ({ expanded: new Set(), start: 0, force: false, stepFilter: null, layout: null, svg: null });
+  let mapView = freshMapView();
 
   async function load() {
     // Cualquier carga anterior queda superada, también por una página sin petición.
@@ -218,10 +301,22 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     root.replaceChildren(h("p", { class: "work-loading", role: "status" }, "Cargando…"));
     try {
       const params = page === "contexts" && filter ? { status: filter } : {};
-      const data = await api.get(path, { params, signal: controller.signal });
+      // El mapa se pide siempre en la página del contexto: la pestaña dice si aplica (§23.2).
+      const wantsMap = page === "context";
+      const [data, map] = await Promise.all([
+        api.get(path, { params, signal: controller.signal }),
+        // Si el mapa falla, la lista se muestra igual y la pestaña queda deshabilitada.
+        wantsMap ? api.get(`${path}/map`, { signal: controller.signal }).catch((error) => {
+          if (controller.signal.aborted) throw error;
+          console.warn("No se pudo cargar el mapa del contexto:", error);
+          return null;
+        }) : Promise.resolve(null),
+      ]);
       if (controller.signal.aborted) return;
+      lastData = data;
+      lastMap = map;
       const content = page === "step" ? stepPage(current, data)
-        : page === "context" ? contextPage(current, data)
+        : page === "context" ? contextPage(current, data, map, mapView)
           : contextsPage(current, data, filter);
       root.replaceChildren(...content.filter(Boolean));
       shellPage?.set(pageTitle(page, data));
@@ -241,9 +336,44 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     }
   }
 
+  // Vuelve a dibujar la página del contexto con los mismos datos (grupos, ventana, forzar).
+  function redrawContext() {
+    if (!lastData || pageFor(current) !== "context") return;
+    root.replaceChildren(...contextPage(current, lastData, lastMap, mapView).filter(Boolean));
+  }
+
+  const TARGETS = "[data-nav], [data-sel], [data-filter], [data-as], [data-group], [data-force-map], [data-map-window], [data-step-filter]";
+
   function onClick(event) {
-    const target = event.target.closest?.("[data-nav], [data-sel], [data-filter]");
+    const target = event.target.closest?.(TARGETS);
     if (!target || !root.contains(target)) return;
+    if (target.dataset.as !== undefined) {
+      store.set({ as: target.dataset.as === "map" ? "map" : null, sel: null });
+      return;
+    }
+    if (target.dataset.group) {
+      const id = target.dataset.group;
+      if (mapView.expanded.has(id)) mapView.expanded.delete(id);
+      else mapView.expanded.add(id);
+      redrawContext();
+      return;
+    }
+    if (target.dataset.forceMap !== undefined) {
+      mapView.force = true;
+      if (current.as === "map") redrawContext();
+      else store.set({ as: "map", sel: null });
+      return;
+    }
+    if (target.dataset.stepFilter !== undefined) {
+      mapView.stepFilter = target.dataset.stepFilter || null;
+      redrawContext();
+      return;
+    }
+    if (target.dataset.mapWindow !== undefined) {
+      mapView.start = Number(target.dataset.mapWindow) || 0;
+      redrawContext();
+      return;
+    }
     if (target.dataset.filter !== undefined) {
       filter = target.dataset.filter;
       load();
@@ -259,15 +389,48 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     store.set({ ctx: id(target.dataset.ctx), step: id(target.dataset.step), sel: null });
   }
 
+  // Teclado en el mapa (§21.6): Enter o Espacio activan el nodo; las flechas recorren los
+  // pasos y grupos en orden de columna.
+  function onKeyDown(event) {
+    const node = event.target.closest?.("[data-node]");
+    if (!node || !root.contains(node)) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onClick({ target: node, preventDefault() {} });
+      return;
+    }
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    const order = [...root.querySelectorAll(".map-step, .map-group")];
+    const index = order.indexOf(node);
+    if (index < 0) return;
+    event.preventDefault();
+    order[(index + (event.key === "ArrowRight" ? 1 : -1) + order.length) % order.length]?.focus();
+  }
+
   root.addEventListener("click", onClick);
+  root.addEventListener("keydown", onKeyDown);
   await load();
   return {
     update(next) {
       const previous = current;
       current = next;
       if (next.project !== previous.project || next.ctx !== previous.ctx || next.step !== previous.step) {
+        mapView = freshMapView();
         load();
         return;
+      }
+      if (next.as !== previous.as) {
+        if (lastData && pageFor(next) === "context") redrawContext();
+        else load();
+        return;
+      }
+      if (next.sel !== previous.sel && pageFor(next) === "context" && lastMap) {
+        // La lista resalta los pasos del commit seleccionado; el mapa solo cambia clases.
+        if (next.sel?.startsWith("commit:") || previous.sel?.startsWith("commit:")) {
+          redrawContext();
+          return;
+        }
+        if (mapView.svg && mapView.layout) selectOnMap(mapView.svg, mapView.layout, next.sel);
       }
       if (next.sel !== previous.sel) {
         for (const chip of root.querySelectorAll("[data-sel]")) {
@@ -279,6 +442,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
     },
     unmount() {
       root.removeEventListener("click", onClick);
+      root.removeEventListener("keydown", onKeyDown);
       pending?.abort();
     },
   };

@@ -1,0 +1,437 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/context_map.schema.json",
+  "title": "Mapa del contexto",
+  "description": "GET /api/v1/projects/{p}/contexts/{id}/map (spec §21.3, §21.4): ProjectGraph completo del contexto más la extensión `map` (carriles, colocación de commits, compartidos, grupos, elegibilidad y topes). Los topes de commits y aristas los aplica el cliente sobre la ventana visible. Sin texto libre.",
+  "type": "object",
+  "required": [
+    "nodes",
+    "edges",
+    "metadata",
+    "map"
+  ],
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "map": {
+      "type": "object",
+      "required": [
+        "lanes",
+        "eligible",
+        "shared",
+        "placement",
+        "groups",
+        "max_columns",
+        "limits"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lanes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/agent"
+          },
+          "uniqueItems": true
+        },
+        "eligible": {
+          "type": "boolean"
+        },
+        "shared": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^commit:([0-9a-f]{40}|[0-9a-f]{64})$"
+          },
+          "uniqueItems": true
+        },
+        "placement": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^commit:([0-9a-f]{40}|[0-9a-f]{64})$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "column",
+              "stack"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "column": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "stack": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "from_idx",
+              "to_idx",
+              "count",
+              "members",
+              "lane",
+              "lanes",
+              "single_commits"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^group:[0-9]+-[0-9]+$"
+              },
+              "from_idx": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "to_idx": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 2
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^step:[0-9]+$"
+                },
+                "minItems": 2
+              },
+              "lane": {
+                "$ref": "#/$defs/agent"
+              },
+              "lanes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "single_commits": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "max_columns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "limits": {
+          "type": "object",
+          "required": [
+            "commits",
+            "edges"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "commits": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "edges": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "node_id": {
+      "type": "string",
+      "pattern": "^(context:[0-9]+|step:[0-9]+|commit:([0-9a-f]{40}|[0-9a-f]{64}))$"
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}$"
+    },
+    "agent": {
+      "enum": [
+        "claude",
+        "codex",
+        "copilot",
+        "otros",
+        "sin agente"
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "project",
+        "generated_at"
+      ],
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "context_id": {
+          "type": "integer"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/node_id"
+        },
+        "kind": {
+          "enum": [
+            "context",
+            "step",
+            "commit"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "pattern": "^(Contexto [0-9]+|Paso [0-9]+|[0-9a-f]{7})$"
+        },
+        "state": {
+          "$ref": "#/$defs/token"
+        },
+        "attrs": {
+          "$ref": "#/$defs/step_attrs"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "step"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "state",
+              "attrs"
+            ],
+            "properties": {
+              "id": {
+                "pattern": "^step:"
+              },
+              "label": {
+                "pattern": "^Paso "
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "attrs"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "context"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "id": {
+                "pattern": "^context:"
+              },
+              "label": {
+                "pattern": "^Contexto "
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "commit"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^commit:"
+              },
+              "label": {
+                "pattern": "^[0-9a-f]{7}$"
+              }
+            },
+            "not": {
+              "required": [
+                "state"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "step_attrs": {
+      "type": "object",
+      "required": [
+        "idx",
+        "order_idx",
+        "lane",
+        "secondary",
+        "alignments",
+        "deviations",
+        "runs",
+        "cost_usd",
+        "prs",
+        "unverified_shas",
+        "mentions_tests"
+      ],
+      "properties": {
+        "idx": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "order_idx": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lane": {
+          "$ref": "#/$defs/agent"
+        },
+        "secondary": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "claude",
+              "codex",
+              "copilot",
+              "otros"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "alignments": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deviations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "prs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uniqueItems": true
+        },
+        "unverified_shas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mentions_tests": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "source",
+        "target",
+        "relation_type",
+        "origin",
+        "confidence",
+        "evidence_ref"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/node_id"
+        },
+        "target": {
+          "$ref": "#/$defs/node_id"
+        },
+        "relation_type": {
+          "enum": [
+            "contains",
+            "cites"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "system",
+            "verified_reference"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "evidence_ref": {
+          "enum": [
+            "steps.context_id",
+            "steps.notes"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

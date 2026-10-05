@@ -11,6 +11,7 @@
   .work-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
   .work-header-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
   .work-siblings { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+  .work-representation { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
   .work-link { color: var(--text-primary); text-decoration: none; overflow-wrap: anywhere; }
   .work-link:hover { text-decoration: underline; }
   .work-sibling { font-size: var(--text-12); color: var(--text-secondary); }
@@ -19,6 +20,12 @@
   .work-description { font-size: var(--text-13); line-height: 1.6; color: var(--text-secondary); white-space: pre-wrap; }
   .work-subtle, .work-loading { font-size: var(--text-12); color: var(--text-muted); }
   .work-warning { color: var(--state-warning); }
+  .work-related {
+    display: inline-block;
+    margin-bottom: var(--space-1);
+    font-size: var(--text-11);
+    color: var(--family-execution);
+  }
   .work-view .shell-empty { margin: 0; }
 
   @media (max-width: 767px) {

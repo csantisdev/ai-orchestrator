@@ -30,13 +30,17 @@ export function metricGrid(cards) {
 }
 
 // Grupo de botones excluyentes; el elegido lleva `aria-pressed="true"`. `attribute` es la
-// clave de `data-*` que la vista lee por delegación (p. ej. "period" → data-period).
+// clave de `data-*` que la vista lee por delegación (p. ej. "period" → data-period). Una opción
+// `[value, text, { disabled, reason }]` se muestra deshabilitada con el motivo como título.
 export function segmented({ label, options, current, attribute }) {
   return h("div", { class: "segmented", role: "group", "aria-label": label },
-    options.map(([value, text]) => h("button", {
+    options.map(([value, text, extra = {}]) => h("button", {
       type: "button",
       data: { [attribute]: value },
       "aria-pressed": String(value === current),
+      disabled: Boolean(extra.disabled),
+      title: extra.reason ?? undefined,
+      "aria-description": extra.reason ?? undefined,
     }, text)));
 }
 

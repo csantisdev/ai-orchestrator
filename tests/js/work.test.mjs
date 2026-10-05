@@ -185,7 +185,10 @@ test("mount no deja listeners en el signal y una carga superada no dibuja", asyn
     const api = {
       get: (path, { signal }) => new Promise((resolve, reject) => {
         calls.push(path);
-        gates.push(() => resolve({ contexts: [], context: { id: 21, title: "C", description: "", status: "active", parent: null }, steps: [] }));
+        gates.push(() => resolve(path.endsWith("/map")
+          ? { nodes: [], edges: [], metadata: {}, map: { lanes: [], eligible: false, shared: [], placement: {}, groups: [],
+            max_columns: 30, limits: { commits: 20, edges: 60 } } }
+          : { contexts: [], context: { id: 21, title: "C", description: "", status: "active", parent: null }, steps: [] }));
         signal.addEventListener("abort", () => reject(new DOMException("abortado", "AbortError")));
       }),
     };
@@ -198,8 +201,11 @@ test("mount no deja listeners en el signal y una carga superada no dibuja", asyn
     assert.equal(calls.length, 0);
     handle.update({ ...BASE });
     handle.update({ ...BASE, ctx: 21 });
-    assert.deepEqual(calls, ["/api/v1/projects/mi-proyecto/contexts", "/api/v1/projects/mi-proyecto/contexts/21"]);
+    // La página del contexto pide también el mapa, para saber si la pestaña aplica.
+    assert.deepEqual(calls, ["/api/v1/projects/mi-proyecto/contexts", "/api/v1/projects/mi-proyecto/contexts/21",
+      "/api/v1/projects/mi-proyecto/contexts/21/map"]);
     gates[1]();
+    gates[2]();
     await new Promise((r) => setImmediate(r));
     assert.equal(active(), 0);
     assert.match(root.textContent, /El contexto no tiene pasos/);
@@ -224,4 +230,106 @@ test("pageTitle: el encabezado nombra el objeto de cada página", () => {
   assert.deepEqual(pageTitle("step", {
     step: { idx: 3, title: "" }, navigation: { total: 5 }, context: { id: 21, title: "Migrar" },
   }), { title: "Paso 3 de 5 · Sin título", subtitle: "Contexto #21 · Migrar" });
+});
+
+
+test("contexto con mapa: pestaña deshabilitada si no aplica, lista resaltada por commit, filtro y selección tras redibujar", async () => {
+  const doc = fakeRoot().ownerDocument;
+  h.document = doc;
+  doc.createElementNS = (ns, tag) => {
+    const node = new FakeNode(doc, tag);
+    node.classes = new Set();
+    node.classList = { toggle: (name, on) => (on ? node.classes.add(name) : node.classes.delete(name)) };
+    node.getAttribute = (name) => node.attributes[name] ?? null;
+    node.querySelectorAll = () => {
+      const found = [];
+      const walk = (item) => {
+        if (!item || item.nodeType === 3) return;
+        if (item !== node && ("data-node" in (item.attributes ?? {}) || "data-from" in (item.attributes ?? {}) || "data-owner" in (item.attributes ?? {}))) found.push(item);
+        (item.childNodes ?? []).forEach(walk);
+      };
+      walk(node);
+      return found;
+    };
+    return node;
+  };
+  try {
+    const shas = ["a", "b", "c"].map((ch) => ch.repeat(8) + "0123456789abcdef".repeat(2));
+    const context = { id: 21, title: "C", description: "", status: "active", parent: null };
+    const stepRow = (id, idx) => ({ id, idx, title: `P${idx}`, status: "completed", provider: "claude", lane: "claude", secondary: [],
+      started_at: null, completed_at: null, has_notes: true, alignments: 0, deviations: 0, tool_calls: 0, runs: 0, cost_usd: 0,
+      verified_commits: 0, prs: [], children: [] });
+    const steps = [stepRow(1, 1), stepRow(2, 2), stepRow(3, 3)];
+    const graphStep = (id) => ({ id: `step:${id}`, kind: "step", label: `Paso ${id}`, state: "completed",
+      attrs: { idx: id, order_idx: id, lane: "claude", secondary: [], alignments: 0, deviations: 0, runs: 0, cost_usd: 0, prs: [],
+        unverified_shas: 0, mentions_tests: false } });
+    let eligible = false;
+    const cite = (step, sha) => ({ source: `step:${step}`, target: `commit:${sha}`, relation_type: "cites" });
+    const mapDto = () => ({
+      nodes: [graphStep(1), graphStep(2), graphStep(3), ...shas.map((sha) => ({ id: `commit:${sha}`, kind: "commit", label: sha.slice(0, 7) }))],
+      metadata: {},
+      edges: [cite(1, shas[0]), cite(3, shas[0]), cite(2, shas[1]), cite(3, shas[1]), cite(2, shas[2]), cite(3, shas[2])],
+      map: { lanes: ["claude"], eligible, shared: shas.map((sha) => `commit:${sha}`),
+        placement: Object.fromEntries(shas.map((sha, index) => [`commit:${sha}`, { column: 1 + Math.min(index, 1), stack: 0 }])),
+        groups: [], max_columns: 30, limits: { commits: 2, edges: 60 } },
+    });
+    const api = { get: async (path) => (path.endsWith("/map") ? mapDto() : { context, steps }) };
+    const root = fakeRoot();
+    const listeners = [];
+    root.addEventListener = (_, handler) => { root.listeners += 1; listeners.push(handler); };
+    const click = (target) => listeners.forEach((handler) => handler({ target: { closest: () => target }, preventDefault() {} }));
+    root.contains = () => true;
+    const sets = [];
+    const state = { ...BASE, ctx: 21 };
+    const handle = await mount(root, { api, store: { set: (patch) => sets.push(patch) }, state, signal: new AbortController().signal });
+    // No aplica: la pestaña Mapa queda deshabilitada con el motivo y hay un botón aparte.
+    const mapTab = findAll(root, (node) => node.dataset?.as === "map")[0];
+    assert.equal(mapTab.attributes.disabled, "");
+    assert.match(mapTab.attributes.title, /Un solo carril/);
+    click({ dataset: { forceMap: "1" } });
+    assert.deepEqual(sets.at(-1), { as: "map", sel: null });
+    eligible = true;
+    handle.update({ ...state, as: "map" });
+    await new Promise((r) => setImmediate(r));
+    // Tope de 2 commits: SHA_C queda resumido; el control filtra la lista a sus citantes.
+    assert.match(root.textContent, /\+1 commits compartidos/);
+    handle.update({ ...state, as: "map", sel: `commit:${shas[0]}` });
+    assert.equal((root.textContent.match(/cita el commit seleccionado/g) ?? []).length, 2);
+    // La selección sobrevive al redibujo: el commit queda marcado en el mapa.
+    const selected = findAll(root, (node) => node.attributes?.["data-node"] === `commit:${shas[0]}`)[0];
+    assert.equal(selected.attributes["aria-pressed"], "true");
+    assert.ok(selected.classes.has("is-selected"));
+    click({ dataset: { stepFilter: "more-commits" } });
+    assert.match(root.textContent, /Mostrando solo los pasos que citan commits compartidos sin dibujar/);
+    assert.doesNotMatch(root.textContent, /P1/);
+    assert.match(root.textContent, /P2/);
+    click({ dataset: { stepFilter: "" } });
+    assert.match(root.textContent, /P1/);
+  } finally {
+    delete h.document;
+  }
+});
+
+test("si el mapa falla, la página del contexto muestra igual la lista", async () => {
+  const doc = fakeRoot().ownerDocument;
+  h.document = doc;
+  try {
+    const context = { id: 21, title: "C", description: "", status: "active", parent: null };
+    const api = { get: async (path) => {
+      if (path.endsWith("/map")) throw Object.assign(new Error("falló"), { status: 500 });
+      return { context, steps: [] };
+    } };
+    const root = fakeRoot();
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      await mount(root, { api, store: { set() {} }, state: { ...BASE, ctx: 21 }, signal: new AbortController().signal });
+    } finally {
+      console.warn = warn;
+    }
+    assert.match(root.textContent, /El contexto no tiene pasos/);
+    assert.match(root.textContent, /◇ Mapa \(no aplica\)/);
+  } finally {
+    delete h.document;
+  }
 });
