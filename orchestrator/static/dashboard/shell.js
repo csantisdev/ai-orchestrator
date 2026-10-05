@@ -6,6 +6,7 @@ import { connectRouter } from "./core/router.js";
 import { SECTIONS, describeSelection, panelFor, resolveSection } from "./core/sections.js";
 import { createApi } from "./core/api.js";
 import { createViewHost } from "./core/mount.js";
+import { createPageTitles, deniedText, navCounts } from "./core/page.js";
 
 const $ = (id) => document.getElementById(id);
 const store = createStore({});
@@ -21,27 +22,16 @@ const views = createViewHost({
 });
 // Título que fija la vista montada con `page.set` (contrato en README.md): vale solo mientras
 // esa vista siga en pantalla; al cambiar de vista vuelve el título de la sección.
-let currentViewKey = null;
-let pageTitle = null;
 let lastResolved = null;
+const titles = createPageTitles(() => lastResolved && renderTitle(lastResolved));
 
 function viewKey(resolved) {
   if (!resolved.module) return null;
   return resolved.tab ? `${resolved.section.id}:${resolved.tab.id}` : resolved.section.id;
 }
 
-function pageFor(key) {
-  return {
-    set({ title = null, subtitle = null } = {}) {
-      if (key !== currentViewKey) return;
-      pageTitle = { key, title, subtitle };
-      if (lastResolved) renderTitle(lastResolved);
-    },
-  };
-}
-
 function renderTitle(resolved) {
-  const own = pageTitle && pageTitle.key === currentViewKey ? pageTitle : null;
+  const own = titles.current;
   const fallback = resolved.tab ? `${resolved.section.label} · ${resolved.tab.label}` : resolved.section.label;
   $("shell-title").textContent = own?.title || fallback;
   const subtitle = own?.subtitle ?? resolved.section.question ?? "";
@@ -136,7 +126,7 @@ function renderContent(resolved, state) {
   $("view-root").hidden = !resolved.module;
   if (resolved.module) {
     const key = viewKey(resolved);
-    views.show(key, resolved.module, { store, api, state, page: pageFor(key) });
+    views.show(key, resolved.module, { store, api, state, page: titles.pageFor(key) });
   } else {
     views.hide();
   }
@@ -160,9 +150,7 @@ function render(state, previous = {}) {
     if (overlayLayout.matches) closeActivity();
   }
   const resolved = resolveSection(state);
-  const key = viewKey(resolved);
-  if (key !== currentViewKey) pageTitle = null;
-  currentViewKey = key;
+  titles.enter(viewKey(resolved));
   lastResolved = resolved;
   renderNavigation(resolved);
   renderTabs(resolved);
@@ -221,20 +209,17 @@ async function loadHeaderCounts() {
   if (!project) return;
   try {
     const { projects } = await api.get("/api/v1/meta/projects");
-    const own = projects.find((item) => item.alias === project);
-    const counts = { trabajo: own?.active_contexts, ejecuciones: own?.runs };
-    for (const [view, value] of Object.entries(counts)) {
+    for (const [view, value] of Object.entries(navCounts(projects, project))) {
       const slot = document.querySelector(`.shell-nav-count[data-count="${view}"]`);
-      if (slot) slot.textContent = value ? new Intl.NumberFormat("es-CL").format(value) : "";
+      if (slot) slot.textContent = value === null ? "" : new Intl.NumberFormat("es-CL").format(value);
     }
     // La API de proyectos limita la ruta a caracteres seguros; si el alias no cabe, no hay aviso.
     if (!/^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/.test(project)) return;
     const summary = await api.get(`/api/v1/projects/${project}/governance/summary`, { params: { period: "7d" } });
-    const problems = summary.mcp.denied + summary.mcp.error;
+    const text = deniedText(summary);
     const pill = $("shell-denied");
-    pill.hidden = problems === 0;
-    pill.textContent = `${problems} ${problems === 1 ? "denegada o con error" : "denegadas o con error"} · 7 d`;
-    pill.href = `/?${new URLSearchParams({ project, view: "gobernanza" })}`;
+    pill.hidden = !text;
+    pill.textContent = text ?? "";
   } catch (error) {
     console.warn("No se pudieron cargar los contadores del header:", error);
   }

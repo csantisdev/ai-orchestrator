@@ -218,6 +218,8 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     _legacy_scripts = "".join(f'<script src="{bundle.url(f"legacy/{name}.js")}"></script>\n' for name in _JS_FILES)
     _shell_script = bundle.url("shell.js")
     _navigation = _shell_navigation(selected_project)
+    _governance_query = {"project": selected_project, "view": "gobernanza"} if selected_project else {"view": "gobernanza"}
+    _governance_href = _escape("/?" + urllib.parse.urlencode(_governance_query))
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -243,7 +245,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   </form>
   <div class="shell-header-status">
     <span class="shell-status" id="shell-status" data-state="connecting" role="status">Conectando…</span>
-    <a class="shell-pill" id="shell-denied" href="/?view=gobernanza" data-view="gobernanza" hidden></a>
+    <a class="shell-pill" id="shell-denied" href="{_governance_href}" data-view="gobernanza" hidden></a>
   </div>
   <details class="shell-menu" id="shell-menu">
     <summary>Acciones</summary>
