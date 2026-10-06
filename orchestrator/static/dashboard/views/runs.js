@@ -110,7 +110,7 @@ export async function mount(root, { api, state, signal, store }) {
     ].filter(Boolean));
   }
 
-  async function load(more = false) {
+  async function load(more = false, quiet = false) {
     pending?.abort();
     pending = null;
     if (!current.project) {
@@ -128,7 +128,7 @@ export async function mount(root, { api, state, signal, store }) {
     const abort = () => controller.abort();
     pending = controller;
     signal.addEventListener("abort", abort, { once: true });
-    if (!more) root.replaceChildren(h("p", { role: "status" }, "Cargando…"));
+    if (!more && !quiet) root.replaceChildren(h("p", { role: "status" }, "Cargando…"));
     try {
       const data = await api.get(`/api/v1/projects/${current.project}/runs`, {
         params: { source, limit: 50, cursor: more ? cursor : null },
@@ -140,6 +140,7 @@ export async function mount(root, { api, state, signal, store }) {
       render();
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (quiet) return console.warn("No se pudieron refrescar los runs:", error);
       const suffix = error?.reason === "session_expired" ? " El servidor se reinició: recargá la página." : "";
       root.replaceChildren(message("No se pudieron cargar los runs", `${error?.message ?? error}.${suffix}`));
     } finally {
@@ -180,6 +181,10 @@ export async function mount(root, { api, state, signal, store }) {
   root.addEventListener("click", onClick);
   await load();
   return {
+    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla;
+    // si hay una carga en curso (de la persona), no la cancela: el próximo aviso la retoma.
+    // Con más de una página cargada no se refresca: se perdería lo que la persona ya pidió.
+    refresh: () => (rows.length > 50 || pending ? undefined : load(false, true)),
     update(next) {
       const previous = current;
       const changedProject = next.project !== previous.project;

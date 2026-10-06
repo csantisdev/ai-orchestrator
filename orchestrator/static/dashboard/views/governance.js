@@ -183,6 +183,7 @@ export async function mount(root, { api, state, signal, store }) {
   let summary = null;
   let items = [];
   let nextCursor = null;
+  let appended = false;
   let pending = null;
   let failure = null;
 
@@ -218,7 +219,7 @@ export async function mount(root, { api, state, signal, store }) {
       summarySlot, listSlot);
   }
 
-  async function request(work) {
+  async function request(work, { quiet = false } = {}) {
     pending?.abort();
     const controller = new AbortController();
     pending = controller;
@@ -228,6 +229,7 @@ export async function mount(root, { api, state, signal, store }) {
       await work(controller.signal);
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (quiet) return console.warn("No se pudo refrescar Gobernanza:", error);
       const reload = error?.reason === "session_expired" ? " El servidor se reinició: recargá la página." : "";
       failure = `${error?.message ?? error}.${reload}`;
       renderList();
@@ -237,7 +239,7 @@ export async function mount(root, { api, state, signal, store }) {
     }
   }
 
-  async function load({ append = false } = {}) {
+  async function load({ append = false, quiet = false } = {}) {
     const paths = endpoints(current.project);
     if (!paths) {
       root.replaceChildren(current.project
@@ -245,7 +247,7 @@ export async function mount(root, { api, state, signal, store }) {
         : message("Elegí un proyecto", "Gobernanza muestra las decisiones de un proyecto: elegilo en el selector de arriba."));
       return;
     }
-    if (!append) {
+    if (!append && !quiet) {
       render();
       listSlot.replaceChildren(h("p", { class: "gov-muted", role: "status" }, "Cargando…"));
     }
@@ -260,10 +262,11 @@ export async function mount(root, { api, state, signal, store }) {
       failure = null;
       summary = summaryData;
       items = append ? [...items, ...page.items] : page.items;
+      appended = append;
       nextCursor = page.next_cursor;
       summarySlot.replaceChildren(summaryBlock(summary, tab));
       renderList();
-    });
+    }, { quiet });
   }
 
   function onClick(event) {
@@ -285,6 +288,10 @@ export async function mount(root, { api, state, signal, store }) {
   root.addEventListener("click", onClick);
   await load();
   return {
+    // `refresh` (db_changed, §19.4 O5): recarga sin aviso de carga y sin pisar lo visible si falla;
+    // si hay una carga en curso (de la persona), no la cancela: el próximo aviso la retoma.
+    // Con más de una página cargada no se refresca: se perdería lo que la persona ya pidió.
+    refresh: () => (appended || pending ? undefined : load({ quiet: true })),
     update(next) {
       const previous = current;
       current = next;

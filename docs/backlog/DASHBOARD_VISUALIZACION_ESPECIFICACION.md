@@ -705,6 +705,17 @@ Presupuestos (local, un usuario). Se miden de punta a punta, no en proceso:
 | O6 | Índices para Activity (`steps.started_at`, `steps.completed_at`, `alignments.ts`) solo si una medición lo pide | Con el volumen actual no hace falta |
 | O7 | ChromaDB perezosa y aislada; si falla, estado "degradado" | Overview y Trace no dependen de ella |
 
+**Nota de implementación (D4, 2026-10-05).** Las invocaciones MCP de solo lectura también escriben
+la base (`mcp_invocations`), así que `PRAGMA data_version` cambia casi cada segundo mientras un
+agente trabaja. Para no refrescar sin motivo, cuando el contador cambia el hilo de O4 calcula una
+huella barata de lo que muestran las proyecciones y publica `db_changed` (y sube la generación)
+solo si la huella cambió. La huella incluye los máximos de id, los conteos y los timestamps de
+pasos y contextos, más la "cola" de estados de las últimas 20 filas de runs, tool calls, egress,
+MCP no-read y pasos tocados. En el cliente (O5), el refresco espera 500 ms para agrupar la
+ráfaga, nunca se superpone con otro y deja al menos 2,5 s entre uno y el siguiente. Medido en
+navegador: un cambio desde otro proceso se ve en 1,2–1,8 s, y una lectura MCP no provoca ninguna
+petición.
+
 ### 19.5 Uso de recursos
 
 - **Servidor:** un proceso local, SQLite en WAL con `busy_timeout` de 5 s (ya configurado). Cada

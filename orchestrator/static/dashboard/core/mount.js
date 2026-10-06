@@ -5,12 +5,14 @@
 //
 //   export async function mount(root, { store, api, state, signal }) {
 //     ...dibuja dentro de root (con core/dom.js)...
-//     return { update(state) { ... }, unmount() { ... } };   // ambos opcionales
+//     return { update(state) { ... }, refresh() { ... }, unmount() { ... } };   // opcionales
 //   }
 //
 // `signal` se aborta al salir de la sección: los fetch pendientes deben usarlo. `update`
 // recibe los cambios de estado del router mientras la sección sigue visible; los que llegan
-// durante el montaje se combinan y se entrega solo el más reciente.
+// durante el montaje se combinan y se entrega solo el más reciente. `refresh` vuelve a pedir
+// los datos sin perder el estado local de la vista (lo llama el shell ante `db_changed`, §19.4
+// O5); si la vista no lo ofrece, el host la vuelve a montar con el estado vigente.
 //
 // `show` nunca rechaza: un fallo de la vista vigente (carga, `mount` o `update`) la desmonta
 // y llama a `onError(error, root)` para que el shell dibuje el aviso. Los fallos de montajes
@@ -62,6 +64,7 @@ export function createViewHost({ root, load, onError = (error) => console.error(
       return;
     }
     if (current && current.id === id) {
+      current.context = context;
       try {
         current.handle.update?.(context.state);
       } catch (error) {
@@ -106,7 +109,7 @@ export function createViewHost({ root, load, onError = (error) => console.error(
     }
     const latest = pending.state;
     pending = null;
-    current = { id, controller, handle };
+    current = { id, modulePath, controller, handle, context: { ...context, state: latest } };
     if (latest === context.state) return;
     try {
       handle.update?.(latest);
@@ -115,8 +118,26 @@ export function createViewHost({ root, load, onError = (error) => console.error(
     }
   }
 
+  async function refresh() {
+    if (!current) return;
+    const { id, modulePath, handle, context } = current;
+    if (typeof handle.refresh !== "function") {
+      teardown();
+      await show(id, modulePath, context);
+      return;
+    }
+    const mine = current;
+    try {
+      await handle.refresh();
+    } catch (error) {
+      if (current === mine) fail(error);
+      else console.error("Falló el refresco de una vista ya reemplazada:", error);
+    }
+  }
+
   return {
     show,
+    refresh,
     hide: teardown,
     get current() {
       return current?.id ?? null;

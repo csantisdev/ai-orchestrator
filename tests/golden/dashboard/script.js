@@ -240,7 +240,7 @@ function _fmtTs(iso) {
 
 function _handleTrace(d) {
   const key  = _traceKey(d);
-  const log  = document.getElementById("activity-log");
+  const log  = document.getElementById("activity-live");
   const dot  = document.getElementById("act-dot");
   const runLabel = d.run_id != null ? "#" + d.run_id : "";
   const detLabel = d.detail ? " · " + escHtml(d.detail) : "";
@@ -258,7 +258,7 @@ function _handleTrace(d) {
     _traceMap[key] = row;
     log.insertBefore(row, log.firstChild);
     while (log.children.length > 80) log.removeChild(log.lastChild);
-    if (!_actOpen && !_actUserClosed) { _actOpen = true; log.style.display = "block"; document.getElementById("act-toggle").textContent = "▲"; }
+    if (!_actOpen && !_actUserClosed) { _actOpen = true; document.getElementById("activity-log").style.display = "block"; document.getElementById("act-toggle").textContent = "▲"; }
   } else {
     const icon = d.status === "done" ? "✓" : "✗";
     const dur  = d.duration_ms != null ? d.duration_ms + "ms" : "";
@@ -283,7 +283,7 @@ function _handleTrace(d) {
 
 // ── Actions menu (doctor / fix / sync / index) ───────────────────────────────
 function _actAppend(text, level) {
-  const log  = document.getElementById("activity-log");
+  const log  = document.getElementById("activity-live");
   const icon = level==="ok"?"✓":level==="fail"?"✗":level==="warn"?"⚠":"·";
   const cls  = level==="ok"?"tr-done":level==="fail"?"tr-error":level==="warn"?"tr-warn":"tr-running";
   const ts   = new Date().toLocaleTimeString("es", {hour12:false});
@@ -297,7 +297,7 @@ function _actAppend(text, level) {
     `<span class="tr-dur"></span>`;
   log.insertBefore(row, log.firstChild);
   while (log.children.length > 80) log.removeChild(log.lastChild);
-  if (!_actOpen && !_actUserClosed) { _actOpen=true; log.style.display="block"; document.getElementById("act-toggle").textContent="▲"; }
+  if (!_actOpen && !_actUserClosed) { _actOpen=true; document.getElementById("activity-log").style.display="block"; document.getElementById("act-toggle").textContent="▲"; }
   document.getElementById("act-dot").classList.add("live");
   document.getElementById("act-summary").textContent = icon + "  " + text;
 }

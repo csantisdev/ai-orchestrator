@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-orchestrator.local/schemas/project_activity.schema.json",
+  "title": "Actividad del proyecto",
+  "type": "object",
+  "required": ["items", "next_cursor", "metadata"],
+  "properties": {
+    "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "next_cursor": {"type": ["string", "null"]},
+    "metadata": {"type": "object", "required": ["project", "generated_at", "limit", "sources"], "properties": {
+      "project": {"type": "string"}, "generated_at": {"type": "string", "format": "date-time"},
+      "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+      "sources": {"type": "array", "items": {"enum": ["run", "tool_call", "alignment", "egress", "step_started", "step_completed", "mcp"]}}
+    }, "additionalProperties": false}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "token": {"type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}$"},
+    "item": {"type": "object", "required": ["id", "kind", "ts", "state", "attrs", "refs"], "properties": {
+      "id": {"type": "string", "pattern": "^(run|tool_call|alignment|egress|step_started|step_completed|mcp):[0-9]+$"},
+      "kind": {"enum": ["run", "tool_call", "alignment", "egress", "step_started", "step_completed", "mcp"]},
+      "ts": {"type": "string", "format": "date-time", "pattern": "\\+00:00$"}, "state": {"$ref": "#/$defs/token"},
+      "attrs": {"type": "object", "additionalProperties": {"type": ["string", "number", "integer", "boolean", "null"]}},
+      "refs": {"type": "object", "required": ["context", "step", "run"], "properties": {
+        "context": {"type": ["string", "null"], "pattern": "^context:[0-9]+$"},
+        "step": {"type": ["string", "null"], "pattern": "^step:[0-9]+$"},
+        "run": {"type": ["string", "null"], "pattern": "^run:[0-9]+$"}
+      }, "additionalProperties": false}
+    }, "additionalProperties": false}
+  }
+}

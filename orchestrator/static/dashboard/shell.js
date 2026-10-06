@@ -8,6 +8,8 @@ import { createApi } from "./core/api.js";
 import { createViewHost } from "./core/mount.js";
 import { createPageTitles, deniedText, navCounts } from "./core/page.js";
 import { navigationFor, runAction } from "./core/actions.js";
+import { watchChanges } from "./core/live.js";
+import { mountActivity } from "./components/activity.js";
 
 const $ = (id) => document.getElementById(id);
 const store = createStore({});
@@ -149,6 +151,8 @@ function renderInspector(state) {
 }
 
 function render(state, previous = {}) {
+  if (state.sel !== previous.sel) activity?.select();
+  if ("project" in previous && state.project !== previous.project) activity?.refresh();
   if (state.sel && state.sel !== previous.sel) {
     inspectorDismissed = false;
     if (overlayLayout.matches) closeActivity();
@@ -261,11 +265,23 @@ connectRouter({
   location: window.location,
   addEventListener: window.addEventListener.bind(window),
 });
+// Activity del proyecto (§6.4) en la barra inferior, debajo del encabezado heredado.
+const activityRoot = $("activity-feed");
+const activity = activityRoot
+  ? mountActivity({ root: activityRoot, summary: $("act-summary"), api, store })
+  : null;
 store.subscribe(render);
 render(store.get());
 watchActivity();
 watchConnection();
 loadHeaderCounts();
+activity?.refresh();
+// Cambios hechos desde otro proceso (agentes vía MCP, §19.4 O4–O5): se refresca lo visible.
+watchChanges({
+  events: window.__dashboardEvents,
+  doc: document,
+  onChange: () => Promise.all([views.refresh(), activity?.refresh(), loadHeaderCounts()]),
+});
 document.documentElement.dataset.shell = "ready";
 
 export { SECTIONS, store };

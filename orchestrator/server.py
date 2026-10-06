@@ -25,6 +25,11 @@ from orchestrator.venv_python import venv_python, venv_python_rel
 _console = Console(legacy_windows=False)
 
 
+def _watch_changes_enabled(start_background: bool, watch_changes: Optional[bool]) -> bool:
+    """Mantiene el comportamiento de fondo por defecto, con opt-out explícito."""
+    return start_background if watch_changes is None else watch_changes
+
+
 def _host_allowed(values: list[str], server_port: int) -> bool:
     """Return whether exactly one Host header names this local server."""
     if len(values) != 1:
@@ -88,6 +93,7 @@ def serve(
     *,
     on_server_ready=None,
     start_background: bool = True,
+    watch_changes: Optional[bool] = None,
 ) -> None:
     """Servidor HTTP del dashboard en http://127.0.0.1:<port>."""
     def _chroma_age_seconds() -> float | None:
@@ -107,6 +113,8 @@ def serve(
     from orchestrator.dashboard import build_html
     from orchestrator.index import ProjectNotFoundError
     from orchestrator.sse import BUS
+    from orchestrator.change_watch import ChangeWatcher, activity_fingerprint, set_current_watcher
+    from orchestrator.paths import DB_PATH
 
     # Compartido entre los handlers manuales de sync y el hilo de autosync
     # periodico (mas abajo) para que no corran dos sincronizaciones a la vez
@@ -1848,6 +1856,12 @@ def serve(
             _store_chroma_stats()
         except Exception:
             pass
+    watcher = None
+    if _watch_changes_enabled(start_background, watch_changes):
+        watcher = ChangeWatcher(DB_PATH, BUS.publish, fingerprint=activity_fingerprint)
+        watcher.start()
+        set_current_watcher(watcher)
+
     if on_server_ready is not None:
         on_server_ready(server)
 
@@ -1905,3 +1919,6 @@ def serve(
         _console.print("\n[dim]Dashboard detenido.[/dim]")
     finally:
         server.server_close()
+        if watcher is not None:
+            watcher.stop()
+            set_current_watcher(None)
