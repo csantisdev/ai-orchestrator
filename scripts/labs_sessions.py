@@ -46,6 +46,7 @@ FEATURES = ("map", "constellation")
 GRAPH, LIST = "grafo", "lista"
 CONDITIONS = (GRAPH, LIST)
 MODES = {"g": "global", "l": "local"}
+UNRECORDED = "sin registrar"
 MIN_SESSIONS = 10
 MIN_GAIN = 0.20
 
@@ -224,9 +225,10 @@ def append_session(path: Path, records: list[dict]) -> None:
 def plan_session(items: list[dict], session: int, history: list[dict], rng: random.Random) -> list[tuple[dict, str]]:
     """Ensayos de una sesión: por cada tipo de tarea, un ítem por condición, ítems distintos.
 
-    Contrabalanceo: se eligen los ítems menos medidos y cada uno va a la condición en la que
-    menos veces se midió (así, a lo largo de las sesiones, cada ítem pasa por las dos). El
-    orden de las condiciones se alterna por sesión (par: grafo primero).
+    Contrabalanceo: se eligen los dos ítems menos medidos y, de las dos formas de repartirlos
+    entre las condiciones, la que menos repite ítem-condición ya medidos (así, a lo largo de las
+    sesiones, cada ítem pasa por las dos). En empate, el primer ítem va a la condición que se
+    presenta primero. El orden de las condiciones se alterna por sesión (par: grafo primero).
     """
     order = (GRAPH, LIST) if session % 2 == 0 else (LIST, GRAPH)
     exposure: dict[tuple[str, str], int] = {}
@@ -241,10 +243,9 @@ def plan_session(items: list[dict], session: int, history: list[dict], rng: rand
         rng.shuffle(pool)
         pool.sort(key=lambda item: exposure.get((item["id"], GRAPH), 0) + exposure.get((item["id"], LIST), 0))
         first, second = pool[0], pool[1]
-        # El primer ítem va donde menos veces se midió; el segundo, a la otra condición.
-        first_condition = min(CONDITIONS, key=lambda condition: (exposure.get((first["id"], condition), 0), condition != order[0]))
-        other = LIST if first_condition == GRAPH else GRAPH
-        assigned = {first_condition: first, other: second}
+        options = [{order[0]: first, order[1]: second}, {order[0]: second, order[1]: first}]
+        assigned = min(options, key=lambda option: sum(exposure.get((item["id"], condition), 0)
+                                                        for condition, item in option.items()))
         trials.extend((assigned[condition], condition) for condition in order)
     return trials
 
@@ -281,27 +282,45 @@ def _stats(trials: list[dict]) -> dict:
             "accuracy": sum(trial["correct"] for trial in trials) / len(trials)}
 
 
+def _verdict(graph: dict, listing: dict, enough: bool, missing: str) -> tuple[Optional[float], str]:
+    if not graph["trials"] or not listing["trials"] or not listing["median_s"]:
+        return None, "sin datos suficientes"
+    gain = 1 - graph["median_s"] / listing["median_s"]
+    if not enough:
+        return gain, missing
+    if gain >= MIN_GAIN and graph["accuracy"] >= listing["accuracy"]:
+        return gain, "se mantiene"
+    return gain, "no cumple"
+
+
 def summarize(records: list[dict], feature: str) -> dict:
-    """Mediana de tiempo y acierto por condición, y el veredicto (con valores sin redondear)."""
+    """Mediana de tiempo y acierto por condición, y el veredicto (con valores sin redondear).
+
+    En la Constelación cada modo (global y local) se compara además contra la lista (§22.5:
+    se miden por separado y, si el grafo no cumple, queda solo el modo local como panel).
+    """
     sessions = complete_sessions(records, feature)
     trials = [trial for group in sessions.values() for trial in group]
     result = {"feature": feature, "sessions": len(sessions)}
     for condition in CONDITIONS:
         result[condition] = _stats([trial for trial in trials if trial["condition"] == condition])
-    if feature == "constellation":
-        result["modes"] = {mode: _stats([trial for trial in trials if trial.get("mode") == mode]) for mode in MODES.values()}
     graph, listing = result[GRAPH], result[LIST]
-    if not graph["trials"] or not listing["trials"] or not listing["median_s"]:
-        result["gain"] = None
-        result["verdict"] = "sin datos suficientes"
-        return result
-    result["gain"] = 1 - graph["median_s"] / listing["median_s"]
-    if result["sessions"] < MIN_SESSIONS:
-        result["verdict"] = f"faltan sesiones ({result['sessions']} de {MIN_SESSIONS})"
-    elif result["gain"] >= MIN_GAIN and graph["accuracy"] >= listing["accuracy"]:
-        result["verdict"] = "se mantiene"
-    else:
-        result["verdict"] = "no cumple: retirar o dejar solo como enlace"
+    missing = f"faltan sesiones ({result['sessions']} de {MIN_SESSIONS})"
+    result["gain"], verdict = _verdict(graph, listing, result["sessions"] >= MIN_SESSIONS, missing)
+    if feature == "constellation":
+        graph_trials = [trial for trial in trials if trial["condition"] == GRAPH]
+        result["modes"] = {}
+        for mode in (*MODES.values(), UNRECORDED):
+            stats = _stats([trial for trial in graph_trials if trial.get("mode", UNRECORDED) == mode])
+            if mode != UNRECORDED:
+                stats["gain"], stats["verdict"] = _verdict(stats, listing, stats["trials"] >= MIN_SESSIONS,
+                                                           f"faltan ensayos ({stats['trials']} de {MIN_SESSIONS})")
+            result["modes"][mode] = stats
+        if verdict == "no cumple":
+            verdict = "no cumple: queda solo el modo local como panel del Inspector (§22.5)"
+    elif verdict == "no cumple":
+        verdict = "no cumple: retirar o dejar solo como enlace (§21.6)"
+    result["verdict"] = verdict
     return result
 
 
@@ -316,8 +335,16 @@ def tracking_line(summary: dict) -> str:
             f"vs lista {_fmt(listing['median_s'])} s (mejora {gain}); acierto {_fmt(graph['accuracy'], 2)} vs "
             f"{_fmt(listing['accuracy'], 2)}.")
     if "modes" in summary:
-        line += " Uso del grafo: " + ", ".join(
-            f"{mode} {stats['trials']} ensayos (mediana {_fmt(stats['median_s'])} s)" for mode, stats in summary["modes"].items()) + "."
+        parts = []
+        for mode, stats in summary["modes"].items():
+            if mode == UNRECORDED:
+                if stats["trials"]:
+                    parts.append(f"{mode} {stats['trials']} ensayos")
+                continue
+            gain = "—" if stats.get("gain") is None else f"{stats['gain'] * 100:.0f} %"
+            parts.append(f"{mode} {stats['trials']} ensayos (mediana {_fmt(stats['median_s'])} s, mejora {gain}, "
+                         f"acierto {_fmt(stats['accuracy'], 2)}: {stats['verdict']})")
+        line += " Por modo: " + "; ".join(parts) + "."
     return line + f" Veredicto: {summary['verdict']}."
 
 

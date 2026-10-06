@@ -105,6 +105,15 @@ def test_plan_alternates_order_and_balances_items_across_conditions():
     assert plan.get("commit0", labs.LIST) == labs.LIST and plan.get("commit1", labs.GRAPH) == labs.GRAPH
 
 
+def test_plan_assigns_the_pair_jointly_to_minimize_repeats():
+    # A no se midió en el grafo; B ya se midió 10 veces en lista: B va al grafo y A a la lista,
+    # aunque en una sesión par el grafo se presenta primero.
+    items = [_item("commit", 0), _item("commit", 1)]
+    history = [{"item": "commit1", "condition": labs.LIST}] * 10 + [{"item": "commit0", "condition": labs.LIST}]
+    plan = {item["id"]: condition for item, condition in labs.plan_session(items, 2, history, random.Random(0))}
+    assert plan == {"commit1": labs.GRAPH, "commit0": labs.LIST}
+
+
 def test_url_for_switches_representation():
     item = {"feature": "map", "context": 7}
     assert labs.url_for("http://localhost:8080/", "mi-proyecto", item, labs.GRAPH) == \
@@ -128,21 +137,32 @@ def test_summary_applies_the_criterion_without_rounding():
     assert (round(kept["gain"], 2), kept["verdict"]) == (0.25, "se mantiene")
     assert labs.summarize(_records(9, 30, 40), "map")["verdict"].startswith("faltan sesiones")
     # 80,04 s vs 100 s es 19,96 %: no alcanza aunque redondeado parezca 20 %.
-    assert labs.summarize(_records(10, 80.04, 100), "map")["verdict"].startswith("no cumple")
+    assert labs.summarize(_records(10, 80.04, 100), "map")["verdict"].startswith("no cumple: retirar")
     assert labs.summarize(_records(10, 30, 40, graph_ok=False), "map")["verdict"].startswith("no cumple")
     assert labs.summarize([], "map")["verdict"] == "sin datos suficientes"
     line = labs.tracking_line(kept)
     assert "10 sesiones completas" in line and "25 %" in line
 
 
-def test_partial_sessions_do_not_count_and_constellation_reports_modes():
+def test_partial_sessions_do_not_count_and_constellation_judges_each_mode():
     records = _records(10, 30, 40, feature="constellation")
     records.append({"feature": "constellation", "session": 11, "task": "shared", "item": "y", "condition": labs.GRAPH,
                     "seconds": 1, "correct": True, "mode": "global"})
     summary = labs.summarize(records, "constellation")
     assert summary["sessions"] == 10 and summary[labs.GRAPH]["median_s"] == 30
-    assert summary["modes"]["local"]["trials"] == 10 and summary["modes"]["global"]["trials"] == 0
-    assert "Uso del grafo: global 0 ensayos" in labs.tracking_line(summary)
+    assert summary["modes"]["local"]["trials"] == 10 and summary["modes"]["local"]["verdict"] == "se mantiene"
+    assert summary["modes"]["global"]["verdict"] == "sin datos suficientes"
+    assert "local 10 ensayos" in labs.tracking_line(summary)
+
+
+def test_constellation_failure_falls_back_to_local_only_and_unrecorded_modes_are_reported():
+    records = _records(10, 39, 40, feature="constellation")
+    for record in records:
+        record.pop("mode", None)
+    summary = labs.summarize(records, "constellation")
+    assert summary["verdict"].startswith("no cumple: queda solo el modo local")
+    assert summary["modes"][labs.UNRECORDED]["trials"] == 10
+    assert "sin registrar 10 ensayos" in labs.tracking_line(summary)
 
 
 def test_corrupt_lines_are_skipped_with_a_warning(tmp_path):
