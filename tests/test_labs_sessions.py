@@ -1,6 +1,7 @@
 """Kit de medición de Labs (scripts/labs_sessions.py, spec §21.6, §22.5, §23.8)."""
 
 import importlib.util
+import json
 import random
 from pathlib import Path
 
@@ -26,61 +27,82 @@ def conn():
     db = _empty_db()
     a = _context(db, "mi-proyecto", "a", "active", TS, TS)
     b = _context(db, "mi-proyecto", "b", "completed", TS, TS)
-    _context(db, "mi-proyecto", "c", "completed", TS, TS)
-    s1 = _step(db, a, 1, "uno", "completed", provider="claude", notes=f"{sha(1)} {sha(2)}")
-    _step(db, a, 2, "dos", "completed", provider="codex", notes=f"{sha(1)} {sha(2)}")
-    _step(db, a, 3, "tres", "completed", provider="claude", notes=sha(1))
+    c = _context(db, "mi-proyecto", "c", "completed", TS, TS)
+    d = _context(db, "mi-proyecto", "d", "completed", TS, TS)
+    # order_idx discontinuo: "Paso N" es el ordinal que muestra la UI (1, 2, 3).
+    s1 = _step(db, a, 10, "uno", "completed", provider="claude", notes=f"{sha(1)} {sha(2)}")
+    _step(db, a, 20, "dos", "completed", provider="codex", notes=f"{sha(1)} {sha(2)}")
+    _step(db, a, 30, "tres", "completed", provider="claude", notes=sha(1))
     _step(db, b, 1, "otro", "completed", provider="codex", notes=sha(2))
-    # Codex también participó en el paso 1 (alineamiento): agente secundario.
+    # c y d (cerrados) comparten un commit entre sí: fuera del alcance por defecto del grafo.
+    _step(db, c, 1, "c1", "completed", provider="claude", notes=sha(3))
+    _step(db, d, 1, "d1", "completed", provider="claude", notes=sha(3))
     db.execute("INSERT INTO alignments (ts, step_id, context_id, agent, confirmed, checkpoint, message) VALUES (?, ?, ?, ?, 1, '', '')",
                (TS, s1, a, "codex"))
-    for n in (1, 2):
+    for n in (1, 2, 3):
         _run(db, "mi-proyecto", TS, provider=GIT_PROVIDER, session_id=f"git::mi-proyecto::{sha(n)}")
     db.commit()
-    yield db, a, b
+    yield db, a, b, c, d
     db.close()
 
 
-def test_map_items_ask_for_shared_commits_and_participants(conn):
-    db, a, _ = conn
+def test_map_items_use_the_ordinal_shown_by_the_ui(conn):
+    db, a, *_ = conn
     items = labs.map_items(db, "mi-proyecto")
-    commit = next(item for item in items if item["task"] == "commit")
-    assert commit["context"] == a and commit["expected"] == {"steps": [1, 2, 3]}
-    assert sha(1)[:7] in commit["question"]
+    commits = [item for item in items if item["task"] == "commit"]
+    assert [item["expected"]["steps"] for item in commits] == [[1, 2, 3], [1, 2]]
+    assert sha(1)[:7] in commits[0]["question"]
     agent = next(item for item in items if item["task"] == "agent")
+    assert agent["context"] == a and "Paso 1" in agent["question"]
     assert agent["expected"] == {"lane": "claude", "agents": ["claude", "codex"]}
-    assert "Paso 1" in agent["question"]
+    # El id es un hash local: no guarda el SHA.
+    assert sha(1) not in json.dumps([item["id"] for item in items])
 
 
-def test_constellation_items_list_neighbors(conn):
-    db, a, b = conn
+def test_constellation_items_flag_contexts_outside_the_default_scope(conn):
+    db, a, b, c, d = conn
     items = {item["context"]: item for item in labs.constellation_items(db, "mi-proyecto")}
     assert items[a]["expected"] == {"contexts": [b], "portals": []}
-    assert items[b]["expected"] == {"contexts": [a], "portals": []}
+    assert (items[a]["all_scope"], items[b]["all_scope"]) == (False, False)
+    assert items[c]["expected"]["contexts"] == [d] and items[c]["all_scope"] is True
 
 
 @pytest.mark.parametrize("task,expected,answer,ok", [
-    ("commit", {"steps": [1, 3]}, "Paso 1 y paso 3", True),
+    ("commit", {"steps": [1, 3]}, "1, 3", True),
+    ("commit", {"steps": [1, 3]}, "paso 1 y #3", True),
+    ("commit", {"steps": [1, 3]}, "1, 3 (commit a1b2c3d)", True),
     ("commit", {"steps": [1, 3]}, "1", False),
     ("commit", {"steps": [1, 3]}, "1, 2, 3", False),
-    ("agent", {"lane": "claude", "agents": ["claude", "codex"]}, "Claude, participó Codex", True),
-    ("agent", {"lane": "claude", "agents": ["claude", "codex"]}, "codex y claude", False),
+    ("agent", {"lane": "claude", "agents": ["claude", "codex"]}, "Claude, Codex", True),
+    ("agent", {"lane": "claude", "agents": ["claude", "codex"]}, "CLAUDE; codex", True),
+    ("agent", {"lane": "claude", "agents": ["claude", "codex"]}, "codex, claude", False),
     ("agent", {"lane": "claude", "agents": ["claude", "codex"]}, "claude", False),
-    ("shared", {"contexts": [28, 29], "portals": ["otro-proyecto"]}, "#28, #29 y otro-proyecto", True),
-    ("shared", {"contexts": [28, 29], "portals": ["otro-proyecto"]}, "#28 y #29", False),
+    ("shared", {"contexts": [28, 29], "portals": ["otro-proyecto"]}, "28, 29, otro-proyecto", True),
+    ("shared", {"contexts": [28, 29], "portals": ["otro-proyecto"]}, "#28 #29", False),
+    ("shared", {"contexts": [28], "portals": ["proyecto-a"]}, "28, proyecto", False),
 ])
 def test_check_answer_requires_the_exact_set(task, expected, answer, ok):
     assert labs.check_answer({"task": task, "expected": expected}, answer) is ok
 
 
-def test_plan_session_alternates_conditions_with_distinct_items():
-    items = [{"task": "commit", "key": str(n)} for n in range(4)] + [{"task": "agent", "key": "x"}]
-    even = labs.plan_session(items, 2, random.Random(1))
-    odd = labs.plan_session(items, 3, random.Random(1))
+def _item(task, n):
+    return {"task": task, "id": f"{task}{n}", "feature": "map", "context": n}
+
+
+def test_plan_alternates_order_and_balances_items_across_conditions():
+    items = [_item("commit", n) for n in range(4)] + [_item("agent", 0)]
+    even = labs.plan_session(items, 2, [], random.Random(1))
+    odd = labs.plan_session(items, 3, [], random.Random(1))
     # Un solo ítem de "agent" no alcanza para las dos condiciones: esa tarea se omite.
     assert [condition for _, condition in even] == [labs.GRAPH, labs.LIST]
     assert [condition for _, condition in odd] == [labs.LIST, labs.GRAPH]
-    assert even[0][0]["key"] != even[1][0]["key"]
+    assert even[0][0]["id"] != even[1][0]["id"]
+    # Con historial, se eligen los menos medidos y cada uno va a la condición que le falta.
+    history = [{"item": "commit0", "condition": labs.GRAPH}, {"item": "commit1", "condition": labs.LIST},
+               {"item": "commit2", "condition": labs.GRAPH}, {"item": "commit2", "condition": labs.LIST}]
+    plan = {item["id"]: condition for item, condition in labs.plan_session(items[:4], 4, history, random.Random(3))}
+    assert "commit2" not in plan or set(plan) == {"commit3", "commit2"}
+    assert plan.get("commit0", labs.LIST) == labs.LIST and plan.get("commit1", labs.GRAPH) == labs.GRAPH
 
 
 def test_url_for_switches_representation():
@@ -92,35 +114,87 @@ def test_url_for_switches_representation():
     assert graph.endswith("tab=contextos&as=constellation")
 
 
-def _records(sessions, graph_s, list_s, graph_ok=True, list_ok=True):
+def _records(sessions, graph_s, list_s, graph_ok=True, list_ok=True, feature="map"):
     records = []
     for session in range(1, sessions + 1):
-        records.append({"feature": "map", "session": session, "condition": labs.GRAPH, "seconds": graph_s, "correct": graph_ok})
-        records.append({"feature": "map", "session": session, "condition": labs.LIST, "seconds": list_s, "correct": list_ok})
+        base = {"feature": feature, "session": session, "task": "commit", "item": "x"}
+        records.append({**base, "condition": labs.GRAPH, "seconds": graph_s, "correct": graph_ok, "mode": "local"})
+        records.append({**base, "condition": labs.LIST, "seconds": list_s, "correct": list_ok})
     return records
 
 
-def test_summary_applies_the_permanence_criterion():
+def test_summary_applies_the_criterion_without_rounding():
     kept = labs.summarize(_records(10, 30, 40), "map")
-    assert (kept["gain"], kept["verdict"]) == (0.25, "se mantiene")
+    assert (round(kept["gain"], 2), kept["verdict"]) == (0.25, "se mantiene")
     assert labs.summarize(_records(9, 30, 40), "map")["verdict"].startswith("faltan sesiones")
-    assert labs.summarize(_records(10, 35, 40), "map")["verdict"].startswith("no cumple")
+    # 80,04 s vs 100 s es 19,96 %: no alcanza aunque redondeado parezca 20 %.
+    assert labs.summarize(_records(10, 80.04, 100), "map")["verdict"].startswith("no cumple")
     assert labs.summarize(_records(10, 30, 40, graph_ok=False), "map")["verdict"].startswith("no cumple")
     assert labs.summarize([], "map")["verdict"] == "sin datos suficientes"
-    assert "10 sesiones" in labs.tracking_line(kept) and "25 %" in labs.tracking_line(kept)
+    line = labs.tracking_line(kept)
+    assert "10 sesiones completas" in line and "25 %" in line
 
 
-def test_records_are_appended_without_answer_text(tmp_path, monkeypatch, conn):
-    db, _, _ = conn
+def test_partial_sessions_do_not_count_and_constellation_reports_modes():
+    records = _records(10, 30, 40, feature="constellation")
+    records.append({"feature": "constellation", "session": 11, "task": "shared", "item": "y", "condition": labs.GRAPH,
+                    "seconds": 1, "correct": True, "mode": "global"})
+    summary = labs.summarize(records, "constellation")
+    assert summary["sessions"] == 10 and summary[labs.GRAPH]["median_s"] == 30
+    assert summary["modes"]["local"]["trials"] == 10 and summary["modes"]["global"]["trials"] == 0
+    assert "Uso del grafo: global 0 ensayos" in labs.tracking_line(summary)
+
+
+def test_corrupt_lines_are_skipped_with_a_warning(tmp_path):
+    path = tmp_path / "labs-sessions.jsonl"
+    good = _records(1, 30, 40)
+    path.write_text("\n".join([json.dumps(good[0]), "{truncado", json.dumps({"feature": "map"}), json.dumps(good[1])]) + "\n",
+                    encoding="utf-8")
+    warnings = []
+    records = labs.load_records(path, warn=warnings.append)
+    assert len(records) == 2 and len(warnings) == 2 and "Línea 2" in warnings[0]
+
+
+def _run_session(monkeypatch, tmp_path, db, answers, feature="map"):
     from orchestrator import db as db_module
     from orchestrator import paths
 
     monkeypatch.setattr(paths, "HOME_DIR", tmp_path)
     monkeypatch.setattr(db_module, "_conn", lambda: db)
-    answers = iter(["", "texto privado 1 2 3", "", "otra cosa"])
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
-    assert labs.run_session("map", "mi-proyecto", "http://localhost:8080", False, seed=1) == 0
-    records = labs.load_records(tmp_path / "labs-sessions.jsonl")
+    replies = iter(answers)
+
+    def ask(prompt=""):
+        value = next(replies)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    code = labs.run_session(feature, "mi-proyecto", "http://localhost:8080", False, seed=1, ask=ask)
+    return code, labs.load_records(tmp_path / "labs-sessions.jsonl")
+
+
+def test_a_complete_session_is_saved_without_answer_text(tmp_path, monkeypatch, conn):
+    db, *_ = conn
+    code, records = _run_session(monkeypatch, tmp_path, db, ["", "texto privado 1 2 3", "", "otra cosa"])
+    assert code == 0
     assert len(records) == 2 and {record["session"] for record in records} == {1}
-    assert "texto privado" not in (tmp_path / "labs-sessions.jsonl").read_text(encoding="utf-8")
+    text = (tmp_path / "labs-sessions.jsonl").read_text(encoding="utf-8")
+    assert "texto privado" not in text and sha(1) not in text
     assert labs.next_session(records, "map") == 2
+
+
+def test_an_interrupted_session_saves_nothing(tmp_path, monkeypatch, conn):
+    db, *_ = conn
+    code, records = _run_session(monkeypatch, tmp_path, db, ["", "1, 2, 3", KeyboardInterrupt()])
+    assert code == 130 and records == []
+
+
+def test_constellation_session_records_the_mode_used(tmp_path, monkeypatch, conn):
+    db, *_ = conn
+    # Sesión 1 (impar): primero la lista (Enter y respuesta), después el grafo (más el modo).
+    answers = ["", "respuesta", "", "respuesta", "l"]
+    code, records = _run_session(monkeypatch, tmp_path, db, answers, feature="constellation")
+    assert code == 0
+    graph = [record for record in records if record["condition"] == labs.GRAPH]
+    assert graph and graph[0]["mode"] == "local"
+    assert all("mode" not in record for record in records if record["condition"] == labs.LIST)
