@@ -229,7 +229,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orchestrator Dashboard</title>
-  <script>try{{const _t=localStorage.getItem("theme")||"system";const _r=_t==="system"?(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):_t;if(_r!=="dark")document.documentElement.setAttribute("data-theme",_r)}}catch(e){{}}</script>
+  <script>let _t="system";try{{_t=localStorage.getItem("theme")||"system"}}catch(e){{}}try{{const _r=_t==="system"?(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):_t;if(_r!=="dark")document.documentElement.setAttribute("data-theme",_r)}}catch(e){{}}</script>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicons/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicons/favicon-16x16.png">

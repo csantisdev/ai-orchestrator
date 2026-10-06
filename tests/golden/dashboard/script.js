@@ -213,6 +213,7 @@ function setTheme(name) {
 
 (function() {
   const saved = _savedTheme();
+  _applyTheme(saved);
   const sel = document.getElementById("themeSelect");
   if (sel) sel.value = saved;
   if (_systemLight) _systemLight.addEventListener("change", () => { if (_savedTheme() === "system") _applyTheme("system"); });

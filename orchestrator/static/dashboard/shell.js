@@ -291,9 +291,19 @@ document.addEventListener("click", (event) => {
 
 // Atajos de teclado (core/keyboard.js, spec §8). Al navegar con un atajo, el foco pasa al
 // título de la sección para que el lector de pantalla anuncie dónde quedó.
+// Paneles modales heredados (confirmación y detalle; son <div>, no <dialog>, hasta la ola 6):
+// mientras uno está abierto los atajos no actúan detrás y Escape lo cierra.
+const legacyOverlay = () => document.querySelector(".detail-overlay.open");
+
+function closeLegacyOverlay(overlay) {
+  if (overlay.id === "confirmModal" && typeof window.closeConfirmModal === "function") window.closeConfirmModal();
+  else overlay.classList.remove("open");
+}
+
 document.addEventListener("keydown", (event) => {
   const dialog = $("shell-shortcuts");
-  const shortcut = shortcutFor(event, { dialogOpen: Boolean(dialog?.open) });
+  const overlay = legacyOverlay();
+  const shortcut = shortcutFor(event, { dialogOpen: Boolean(dialog?.open || overlay) });
   if (!shortcut) return;
   if (shortcut.view) {
     event.preventDefault();
@@ -310,12 +320,13 @@ document.addEventListener("keydown", (event) => {
   } else if (shortcut.command === "escape") {
     const menu = $("shell-menu");
     const target = escapeTarget({
-      dialogOpen: Boolean(dialog?.open), menuOpen: Boolean(menu?.open), activityOpen: activityOpen(), selection: store.get().sel,
+      dialogOpen: Boolean(dialog?.open || overlay), menuOpen: Boolean(menu?.open), activityOpen: activityOpen(), selection: store.get().sel,
     });
     if (!target) return;
     event.preventDefault();
     if (target === "dialog") {
-      dialog.close();
+      if (dialog?.open) dialog.close();
+      else closeLegacyOverlay(overlay);
     } else if (target === "menu") {
       menu.open = false;
       menu.querySelector("summary")?.focus();

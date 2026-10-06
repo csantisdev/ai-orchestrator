@@ -23,6 +23,10 @@ test("shortcutFor: teclas del catálogo, sin modificadores ni mientras se escrib
   }
   assert.equal(shortcutFor(key("a", { target: { tagName: "DIV", isContentEditable: true } })), null);
   assert.equal(isTyping(null), false);
+  // Shift solo para "?".
+  assert.equal(shortcutFor(key("?", { shiftKey: true })).command, "help");
+  assert.equal(shortcutFor(key("Escape", { shiftKey: true })), null);
+  assert.equal(shortcutFor(key("A", { shiftKey: true })), null);
   // Con el diálogo abierto, solo Escape.
   assert.equal(shortcutFor(key("2"), { dialogOpen: true }), null);
   assert.equal(shortcutFor(key("Escape"), { dialogOpen: true }).command, "escape");
@@ -89,4 +93,28 @@ test("el diálogo de atajos sale del catálogo, se crea una vez y lo abre la acc
   } finally {
     delete h.document;
   }
+});
+
+import { readFileSync } from "node:fs";
+
+// El script del <head> resuelve el tema antes de pintar (modo System, spec §8). Se prueba el que
+// genera build_html (instantánea dorada) con un localStorage y un matchMedia simulados.
+function runHeadScript({ stored, storageThrows = false, prefersLight }) {
+  const html = readFileSync(new URL("../golden/dashboard/page_all.html", import.meta.url), "utf8");
+  const code = html.match(/<script>(let _t="system";[\s\S]*?)<\/script>/)[1];
+  const attributes = {};
+  const localStorage = { getItem: () => { if (storageThrows) throw new Error("bloqueado"); return stored ?? null; } };
+  const matchMedia = () => ({ matches: prefersLight });
+  const document = { documentElement: { setAttribute: (name, value) => { attributes[name] = value; } } };
+  new Function("localStorage", "matchMedia", "document", code)(localStorage, matchMedia, document);
+  return attributes["data-theme"] ?? "dark";
+}
+
+test("script del head: System por defecto, sin localStorage y con temas guardados", () => {
+  assert.equal(runHeadScript({ prefersLight: true }), "light");
+  assert.equal(runHeadScript({ prefersLight: false }), "dark");
+  assert.equal(runHeadScript({ storageThrows: true, prefersLight: true }), "light");
+  assert.equal(runHeadScript({ stored: "dark", prefersLight: true }), "dark");
+  assert.equal(runHeadScript({ stored: "nord", prefersLight: true }), "nord");
+  assert.equal(runHeadScript({ stored: "system", prefersLight: false }), "dark");
 });

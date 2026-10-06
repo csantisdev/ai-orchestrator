@@ -22,9 +22,11 @@ export function isTyping(target) {
 }
 
 // Atajo de una tecla, o null si no corresponde: con modificadores, mientras se escribe en un
-// campo o si otro manejador ya la usó. Con el diálogo de atajos abierto solo cuenta Escape.
+// campo o si otro manejador ya la usó. Shift solo vale para "?" (en casi todos los teclados se
+// escribe con Shift). Con un diálogo abierto (el de atajos o uno heredado) solo cuenta Escape.
 export function shortcutFor(event, { dialogOpen = false } = {}) {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return null;
+  if (event.shiftKey && event.key !== "?") return null;
   if (isTyping(event.target)) return null;
   if (dialogOpen && event.key !== "Escape") return null;
   return SHORTCUTS.find((shortcut) => shortcut.key === event.key) ?? null;
