@@ -74,3 +74,25 @@ export function noticeList(items, empty) {
     h("span", { class: "notice-icon", "aria-hidden": "true" }, item.icon ?? "!"),
     h("span", { class: "notice-body" }, h("strong", {}, item.title), item.hint ? h("span", {}, item.hint) : null))));
 }
+
+// Estados especiales (spec §7): cada uno con icono y texto, nunca solo color. `failure` es un
+// error técnico (alerta); `blocked`, una decisión de política (escudo, no es error);
+// `degraded` y `desync` avisan sin bloquear; `empty` explica qué falta y cómo seguir.
+const STATE_NOTICES = Object.freeze({
+  degraded: { icon: "◌", role: "status" },
+  blocked: { icon: "⛨", role: null },
+  failure: { icon: "!", role: "alert" },
+  desync: { icon: "⟳", role: "status" },
+  empty: { icon: "○", role: null },
+});
+
+export function stateNotice(kind, title, body = null, ...extra) {
+  const known = STATE_NOTICES[kind] ? kind : "empty";
+  const { icon, role } = STATE_NOTICES[known];
+  return h("section", { class: ["state-notice", `is-${known}`], role: role ?? undefined },
+    h("span", { class: "state-notice-icon", "aria-hidden": "true" }, icon),
+    h("div", { class: "state-notice-body" },
+      h("h2", { class: "state-notice-title" }, title),
+      body ? h("p", {}, body) : null,
+      extra));
+}

@@ -1,6 +1,6 @@
 import { h } from "../core/dom.js";
 import { toSearch } from "../core/router.js";
-import { dataTable, segmented } from "../core/ui.js";
+import { dataTable, segmented, stateNotice } from "../core/ui.js";
 import { statusPill } from "../renderers/list.js";
 
 const STYLE_KEY = "executions";
@@ -47,8 +47,10 @@ function ensureStylesheet(document) {
   }));
 }
 
-function message(title, body) {
-  return h("section", { class: "shell-empty" }, h("h2", {}, title), h("p", {}, body));
+// Mensajes de la vista con los estados de §7 (core/ui.js): vacío por defecto, falla técnica
+// cuando la API no respondió.
+function message(title, body, kind = "empty") {
+  return stateNotice(kind, title, body);
 }
 
 const COLUMNS = [
@@ -142,7 +144,7 @@ export async function mount(root, { api, state, signal, store }) {
       if (controller.signal.aborted) return;
       if (quiet) return console.warn("No se pudieron refrescar los runs:", error);
       const suffix = error?.reason === "session_expired" ? " El servidor se reinició: recargá la página." : "";
-      root.replaceChildren(message("No se pudieron cargar los runs", `${error?.message ?? error}.${suffix}`));
+      root.replaceChildren(message("No se pudieron cargar los runs", `${error?.message ?? error}.${suffix}`, "failure"));
     } finally {
       signal.removeEventListener("abort", abort);
       if (pending === controller) pending = null;

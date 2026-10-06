@@ -38,6 +38,8 @@ NAV_SECTIONS = (
     ("Control", (("proveedores", "Proveedores"), ("politicas", "Políticas"), ("ajustes", "Ajustes"))),
 )
 STYLESHEETS = ("tokens.css", "base.css", "components.css", "legacy/legacy.css")
+# Atajos de las secciones del proyecto (core/keyboard.js, spec §8).
+_NAV_SHORTCUTS = {"inicio": "1", "trabajo": "2", "ejecuciones": "3", "gobernanza": "4"}
 
 
 def _shell_navigation(selected_project: str = "") -> str:
@@ -51,8 +53,9 @@ def _shell_navigation(selected_project: str = "") -> str:
         for view, label in sections:
             query = {"project": selected_project, "view": view} if selected_project else {"view": view}
             href = _escape("/?" + urllib.parse.urlencode(query))
+            shortcut = f' aria-keyshortcuts="{_NAV_SHORTCUTS[view]}"' if view in _NAV_SHORTCUTS else ""
             parts.append(
-                f'    <a class="shell-nav-link" href="{href}" data-view="{view}">{label}'
+                f'    <a class="shell-nav-link" href="{href}" data-view="{view}"{shortcut}>{label}'
                 f'<span class="shell-nav-count" data-count="{view}"></span></a>\n'
             )
     return "".join(parts)
@@ -226,7 +229,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orchestrator Dashboard</title>
-  <script>try{{const _t=localStorage.getItem("theme");if(_t&&_t!=="dark")document.documentElement.setAttribute("data-theme",_t)}}catch(e){{}}</script>
+  <script>try{{const _t=localStorage.getItem("theme")||"system";const _r=_t==="system"?(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):_t;if(_r!=="dark")document.documentElement.setAttribute("data-theme",_r)}}catch(e){{}}</script>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicons/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicons/favicon-16x16.png">
@@ -236,6 +239,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 {_stylesheets}</head>
 <body>
 
+<a class="skip-link" href="#shell-main">Saltar al contenido</a>
 <header class="shell-header">
   <a class="shell-brand" href="/">ai-orchestrator</a>
   <form method="get" class="shell-project">
@@ -245,6 +249,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   </form>
   <div class="shell-header-status">
     <span class="shell-status" id="shell-status" data-state="connecting" role="status">Conectando…</span>
+    <span class="shell-pill shell-degraded" id="shell-degraded" role="status" hidden></span>
     <a class="shell-pill" id="shell-denied" href="{_governance_href}" data-view="gobernanza" hidden></a>
   </div>
   <details class="shell-menu" id="shell-menu">
@@ -252,11 +257,13 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
     <div class="shell-menu-list">
       <button type="button" class="shell-menu-item" data-action="new-task">+ Nueva tarea</button>
       <button type="button" class="shell-menu-item" data-action="new-flow">+ Nuevo flujo</button>
+      <button type="button" class="shell-menu-item" data-action="shortcuts" aria-keyshortcuts="?">Atajos de teclado <kbd>?</kbd></button>
       <a class="shell-menu-item" href="/docs">Docs</a>
       <a class="shell-menu-item" href="/mcp">MCP</a>
       <a class="shell-menu-item" href="/security">Seguridad</a>
       <label class="shell-menu-item shell-menu-theme">Tema
         <select id="themeSelect" title="Cambiar tema">
+          <option value="system">Sistema</option>
           <option value="dark">Dark</option>
           <option value="light">Light</option>
           <option value="midnight">Midnight</option>
@@ -284,12 +291,13 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
   <nav class="shell-nav" aria-label="Secciones">
 {_navigation}  </nav>
 
-  <main class="shell-main" id="shell-main">
+  <main class="shell-main" id="shell-main" tabindex="-1">
     <nav class="shell-breadcrumb" id="shell-breadcrumb" aria-label="Ubicación"></nav>
     <div class="shell-heading">
-      <h1 class="shell-title" id="shell-title"></h1>
+      <h1 class="shell-title" id="shell-title" tabindex="-1"></h1>
       <p class="shell-subtitle" id="shell-subtitle"></p>
     </div>
+    <div id="shell-desync" hidden></div>
     <p class="shell-note" id="shell-note" hidden></p>
     <div class="shell-tabs" id="shell-tabs" role="tablist" hidden></div>
     <section class="shell-empty" id="shell-empty" hidden>
@@ -354,11 +362,11 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
 
 <div class="activity-bar">
   <div class="activity-hdr">
-    <div class="act-left" onclick="toggleActivity()">
+    <button type="button" class="act-left" id="act-open" onclick="toggleActivity()" aria-expanded="false" aria-controls="activity-log" aria-keyshortcuts="a">
       <span class="act-dot" id="act-dot"></span>
       <span class="act-title">Actividad</span>
       <span class="act-summary" id="act-summary">sin eventos</span>
-    </div>
+    </button>
     <div class="act-actions" onclick="event.stopPropagation()">
       <button class="act-btn" id="actBtnDoctor" onclick="runDoctor(this)" title="Diagnosticar configuración (doctor)">doctor</button>
       <div class="act-btn-wrap">
@@ -373,7 +381,7 @@ def build_html(runs: list[dict], selected_project: str = "", projects_extra: lis
       <button class="act-btn" id="actBtnSync" onclick="runSync(this)" title="Importar sesiones Claude Code + commits Git (sync-cc / sync-git)">sync</button>
       <button class="act-btn" id="actBtnIndex" onclick="runIndexDocs(this)" title="Indexar proyecto seleccionado en ChromaDB (index-docs)">index</button>
     </div>
-    <span class="act-toggle" id="act-toggle" onclick="toggleActivity()">▼</span>
+    <span class="act-toggle" id="act-toggle" onclick="toggleActivity()" aria-hidden="true">▼</span>
   </div>
   <div id="activity-log" style="display:none">
     <section id="activity-feed" class="act-feed" aria-label="Actividad del proyecto"></section>

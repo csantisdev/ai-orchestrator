@@ -76,4 +76,40 @@
       transform: translateY(calc(100% + var(--shell-activity-height)));
     }
   }
+
+  /* §8: foco visible en todo lo que se alcanza con teclado, también en lo heredado (que
+     a veces lo quita con outline: none): la capa base gana a legacy. Las reglas propias del
+     shell en components.css pueden ajustar el desplazamiento. */
+  :where(a, button, select, input, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--state-focus);
+    outline-offset: 2px;
+  }
+  /* Destinos de foco por programa (título de sección, contenido): sin anillo propio. */
+  .shell-title:focus:not(:focus-visible), .shell-main:focus:not(:focus-visible) { outline: none; }
+
+  /* Salto al contenido: primer elemento de la página, visible solo con foco. */
+  .skip-link {
+    position: absolute;
+    left: var(--space-3);
+    top: -100px;
+    z-index: 1000;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-control);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+  .skip-link:focus { top: var(--space-2); }
+
+  /* §8: con prefers-reduced-motion no hay animaciones ni transiciones, tampoco las heredadas
+     (pulsos y spinners de legacy.css). La capa base va después de legacy, así que este
+     selector universal le gana sin declaraciones importantes; las del shell ya usan --motion-*, que
+     tokens.css anula. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0s;
+      animation-iteration-count: 1;
+      transition-duration: 0s;
+      scroll-behavior: auto;
+    }
+  }
 }

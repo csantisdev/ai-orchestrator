@@ -2,8 +2,11 @@
 // (Ejecuciones › Actividad y Trabajo › Flujos), que el shell oculta fuera de ellas: primero
 // se navega y después se abre el formulario. Sin acceso global al DOM, para `node --test`.
 
+import { openShortcuts } from "./keyboard.js";
+
 export const ACTIONS = Object.freeze({
   "clear-selection": ({ store }) => store.set({ sel: null }),
+  shortcuts: ({ doc }) => openShortcuts(doc),
   "new-task": ({ store, doc }) => {
     store.set({ view: "ejecuciones", tab: "actividad" });
     const panel = doc.getElementById("senderPanel");

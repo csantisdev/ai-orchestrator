@@ -142,8 +142,10 @@ def serve(
         se conserva la última instantánea válida.
         """
         from datetime import datetime, timezone
+        from orchestrator import health
         from orchestrator.rag import chroma_stats_isolated
         stats = chroma_stats_isolated()
+        health.report("chroma", bool(stats))
         if not stats:
             return False
         _chroma_cache["stats"] = stats

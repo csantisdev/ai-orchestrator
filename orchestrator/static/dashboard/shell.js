@@ -8,7 +8,9 @@ import { createApi } from "./core/api.js";
 import { createViewHost } from "./core/mount.js";
 import { createPageTitles, deniedText, navCounts } from "./core/page.js";
 import { navigationFor, runAction } from "./core/actions.js";
+import { stateNotice } from "./core/ui.js";
 import { watchChanges } from "./core/live.js";
+import { escapeTarget, openShortcuts, shortcutFor } from "./core/keyboard.js";
 import { mountActivity } from "./components/activity.js";
 
 const $ = (id) => document.getElementById(id);
@@ -179,6 +181,10 @@ function watchActivity() {
     if (event.target.closest?.(".act-left, #act-toggle")) lastActivityClick = Date.now();
   }, true);
   const inspectorOpen = () => $("shell-inspector").dataset.open === "true";
+  // El botón de la barra anuncia si Activity está abierta (la abre el heredado con style).
+  const syncExpanded = () => $("act-open")?.setAttribute("aria-expanded", String(activityOpen()));
+  syncExpanded();
+  new MutationObserver(syncExpanded).observe(log, { attributes: true, attributeFilter: ["style"] });
   new MutationObserver(() => {
     if (!overlayLayout.matches || !activityOpen() || !inspectorOpen()) return;
     if (Date.now() - lastActivityClick < 500) {
@@ -194,22 +200,59 @@ function watchActivity() {
   });
 }
 
-function watchConnection() {
+// Estado de la conexión en vivo. Si se corta, la vista puede quedar atrasada (§7,
+// "desincronizado"): aviso no bloqueante y, al volver, se refresca lo visible porque los
+// eventos de mientras se perdieron.
+function watchConnection({ onReconnect }) {
   const status = $("shell-status");
+  const desync = $("shell-desync");
   const events = window.__dashboardEvents;
+  let down = false;
   const set = (state, text) => {
     status.dataset.state = state;
     status.textContent = text;
+  };
+  const showDesync = (offline) => {
+    desync.replaceChildren(stateNotice("desync", "La vista puede estar desactualizada",
+      offline ? "Se perdió la conexión en vivo con el servidor. Recargá la página cuando vuelva a estar disponible."
+        : "Se perdió la conexión en vivo; reconectando. Al volver, la vista se actualiza sola."));
+    desync.hidden = false;
   };
   if (!events) {
     set("offline", "Sin conexión");
     return;
   }
   set(events.readyState === 1 ? "live" : "connecting", events.readyState === 1 ? "En vivo" : "Conectando…");
-  events.addEventListener("open", () => set("live", "En vivo"));
-  events.addEventListener("error", () => set(events.readyState === 2 ? "offline" : "connecting",
-    events.readyState === 2 ? "Sin conexión" : "Reconectando…"));
+  events.addEventListener("open", () => {
+    set("live", "En vivo");
+    desync.hidden = true;
+    if (down) onReconnect();
+    down = false;
+  });
+  events.addEventListener("error", () => {
+    const offline = events.readyState === 2;
+    set(offline ? "offline" : "connecting", offline ? "Sin conexión" : "Reconectando…");
+    down = true;
+    showDesync(offline);
+  });
 }
+
+// Componentes opcionales degradados (§7): píldora en el header con lo que deja de funcionar.
+async function loadHealth() {
+  try {
+    const { components } = await api.get("/api/v1/meta/health");
+    const degraded = Object.entries(components).filter(([, item]) => item.state === "degraded");
+    const pill = $("shell-degraded");
+    pill.hidden = degraded.length === 0;
+    pill.textContent = degraded.length ? `◌ Degradado · ${degraded.map(([name]) => COMPONENT_NAMES[name] ?? name).join(", ")}` : "";
+    pill.title = degraded.map(([, item]) => item.effect).join(" ");
+    if (degraded.length) pill.setAttribute("aria-description", pill.title);
+    else pill.removeAttribute("aria-description");
+  } catch (error) {
+    console.warn("No se pudo consultar la salud de los componentes:", error);
+  }
+}
+const COMPONENT_NAMES = { chroma: "ChromaDB" };
 
 // Contadores de la navegación y aviso de denegadas del header (§23.4), del proyecto elegido.
 async function loadHeaderCounts() {
@@ -246,6 +289,45 @@ document.addEventListener("click", (event) => {
   store.set(navigation);
 });
 
+// Atajos de teclado (core/keyboard.js, spec §8). Al navegar con un atajo, el foco pasa al
+// título de la sección para que el lector de pantalla anuncie dónde quedó.
+document.addEventListener("keydown", (event) => {
+  const dialog = $("shell-shortcuts");
+  const shortcut = shortcutFor(event, { dialogOpen: Boolean(dialog?.open) });
+  if (!shortcut) return;
+  if (shortcut.view) {
+    event.preventDefault();
+    store.set({ view: shortcut.view, tab: null });
+    $("shell-title")?.focus();
+  } else if (shortcut.command === "toggle-activity") {
+    event.preventDefault();
+    lastActivityClick = Date.now();
+    window.toggleActivity?.();
+    if (activityOpen()) $("activity-feed")?.querySelector("button")?.focus();
+  } else if (shortcut.command === "help") {
+    event.preventDefault();
+    openShortcuts(document);
+  } else if (shortcut.command === "escape") {
+    const menu = $("shell-menu");
+    const target = escapeTarget({
+      dialogOpen: Boolean(dialog?.open), menuOpen: Boolean(menu?.open), activityOpen: activityOpen(), selection: store.get().sel,
+    });
+    if (!target) return;
+    event.preventDefault();
+    if (target === "dialog") {
+      dialog.close();
+    } else if (target === "menu") {
+      menu.open = false;
+      menu.querySelector("summary")?.focus();
+    } else if (target === "activity") {
+      closeActivity();
+      $("act-open")?.focus();
+    } else {
+      store.set({ sel: null });
+    }
+  }
+});
+
 // Pestañas de representación: flechas, Inicio y Fin mueven la selección (patrón ARIA tabs).
 $("shell-tabs").addEventListener("keydown", (event) => {
   const tabs = [...event.currentTarget.querySelectorAll('[role="tab"]')];
@@ -273,14 +355,16 @@ const activity = activityRoot
 store.subscribe(render);
 render(store.get());
 watchActivity();
-watchConnection();
+const refreshVisible = () => Promise.all([views.refresh(), activity?.refresh(), loadHeaderCounts(), loadHealth()]);
+watchConnection({ onReconnect: refreshVisible });
 loadHeaderCounts();
+loadHealth();
 activity?.refresh();
 // Cambios hechos desde otro proceso (agentes vía MCP, §19.4 O4–O5): se refresca lo visible.
 watchChanges({
   events: window.__dashboardEvents,
   doc: document,
-  onChange: () => Promise.all([views.refresh(), activity?.refresh(), loadHeaderCounts()]),
+  onChange: refreshVisible,
 });
 document.documentElement.dataset.shell = "ready";
 
