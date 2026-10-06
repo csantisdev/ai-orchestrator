@@ -311,7 +311,7 @@ def summarize(records: list[dict], feature: str) -> dict:
         graph_trials = [trial for trial in trials if trial["condition"] == GRAPH]
         result["modes"] = {}
         for mode in (*MODES.values(), UNRECORDED):
-            stats = _stats([trial for trial in graph_trials if trial.get("mode", UNRECORDED) == mode])
+            stats = _stats([trial for trial in graph_trials if (trial.get("mode") if trial.get("mode") in MODES.values() else UNRECORDED) == mode])
             if mode != UNRECORDED:
                 stats["gain"], stats["verdict"] = _verdict(stats, listing, stats["trials"] >= MIN_SESSIONS,
                                                            f"faltan ensayos ({stats['trials']} de {MIN_SESSIONS})")

@@ -157,8 +157,14 @@ def test_partial_sessions_do_not_count_and_constellation_judges_each_mode():
 
 def test_constellation_failure_falls_back_to_local_only_and_unrecorded_modes_are_reported():
     records = _records(10, 39, 40, feature="constellation")
-    for record in records:
-        record.pop("mode", None)
+    # Sin clave, nula, vacía o desconocida: todo cuenta como "sin registrar".
+    for index, record in enumerate(records):
+        if record["condition"] == labs.GRAPH:
+            record.pop("mode", None)
+            if index % 3 == 1:
+                record["mode"] = None
+            elif index % 3 == 2:
+                record["mode"] = ""
     summary = labs.summarize(records, "constellation")
     assert summary["verdict"].startswith("no cumple: queda solo el modo local")
     assert summary["modes"][labs.UNRECORDED]["trials"] == 10
