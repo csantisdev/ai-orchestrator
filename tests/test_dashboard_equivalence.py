@@ -290,7 +290,9 @@ def test_contexts_html_is_byte_identical(outputs, name):
 def test_legacy_css_reconstructs_the_production_stylesheet():
     """D1b repartió el CSS heredado en los temas de tokens.css y las reglas de
     legacy/legacy.css (dentro de `@layer`). Unidos, deben ser el CSS que servía
-    production antes de D1b (`legacy_style.css`), salvo indentación y envoltorios."""
+    production antes de D1b (`legacy_style.css`), salvo indentación y envoltorios. D5 (ola 4)
+    cambió a propósito `--text-muted` y `--text-faint` de cada tema para cumplir AA; la
+    instantánea lleva esos valores nuevos."""
     import textwrap
 
     static = Path(__file__).parent.parent / "orchestrator" / "static" / "dashboard"

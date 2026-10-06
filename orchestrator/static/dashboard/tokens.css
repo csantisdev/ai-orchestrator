@@ -8,7 +8,7 @@
     --bg-input:#18181b;--bg-code:#0f172a;
     --border:#27272a;--border-subtle:#1f1f23;--border-faint:#18181b;
     --text-primary:#f8fafc;--text-secondary:#a1a1aa;
-    --text-muted:#71717a;--text-faint:#52525b;
+    --text-muted:#85858e;--text-faint:#81818d;
     --text-code:#e2e8f0;--text-detail:#d1d5db;
     --overlay-bg:rgba(0,0,0,.65);--shadow-panel:-4px 0 40px rgba(0,0,0,.6);
   }
@@ -17,7 +17,7 @@
     --bg-input:#f4f4f5;--bg-code:#f0f4f8;
     --border:#e4e4e7;--border-subtle:#e4e4e7;--border-faint:#e2e8f0;
     --text-primary:#0f172a;--text-secondary:#52525b;
-    --text-muted:#71717a;--text-faint:#a1a1aa;
+    --text-muted:#6b6b73;--text-faint:#6e6e7a;
     --text-code:#1e293b;--text-detail:#374151;
     --overlay-bg:rgba(0,0,0,.35);--shadow-panel:-4px 0 40px rgba(0,0,0,.1);
   }
@@ -26,7 +26,7 @@
     --bg-input:#141d35;--bg-code:#080c18;
     --border:#1e2d50;--border-subtle:#162040;--border-faint:#141d35;
     --text-primary:#e2e8f0;--text-secondary:#94a3b8;
-    --text-muted:#64748b;--text-faint:#475569;
+    --text-muted:#7c8ba1;--text-faint:#7587a1;
     --text-code:#cbd5e1;--text-detail:#b0bec5;
     --overlay-bg:rgba(0,0,0,.75);--shadow-panel:-4px 0 40px rgba(0,0,0,.7);
   }
@@ -35,7 +35,7 @@
     --bg-input:#434c5e;--bg-code:#252a35;
     --border:#4c566a;--border-subtle:#434c5e;--border-faint:#3b4252;
     --text-primary:#eceff4;--text-secondary:#d8dee9;
-    --text-muted:#a8b2c0;--text-faint:#7a8698;
+    --text-muted:#bac2cd;--text-faint:#b6bdc7;
     --text-code:#d8dee9;--text-detail:#c5ccd8;
     --overlay-bg:rgba(0,0,0,.55);--shadow-panel:-4px 0 40px rgba(0,0,0,.45);
   }
@@ -44,7 +44,7 @@
     --bg-input:#2e2018;--bg-code:#120d08;
     --border:#3d2e20;--border-subtle:#2d2218;--border-faint:#2e2018;
     --text-primary:#f5e6cf;--text-secondary:#c8a880;
-    --text-muted:#8a7055;--text-faint:#6b5540;
+    --text-muted:#a58a6d;--text-faint:#a48568;
     --text-code:#e8d5b0;--text-detail:#d4bc95;
     --overlay-bg:rgba(0,0,0,.7);--shadow-panel:-4px 0 40px rgba(0,0,0,.6);
   }
@@ -113,6 +113,21 @@
     --state-warning: #92400e;
     --state-danger: #b91c1c;
     --state-focus: #1d4ed8;
+  }
+
+  /* Nord tiene la superficie más clara de los temas oscuros: familias más luminosas para AA
+     como texto y en píldoras (tests/test_dashboard_contrast.py). */
+  [data-theme="nord"] {
+    --family-knowledge: #45df7e;
+    --family-work: #a3cbfc;
+    --family-execution: #3ad8f0;
+    --family-governance: #cebefc;
+    --family-error: #fbb5b5;
+    --family-neutral: #c8c8cd;
+    --agent-claude: #fb9846;
+    --state-live: #45df7e;
+    --state-danger: #fbb5b5;
+    --state-focus: #a3cbfc;
   }
 
   [data-theme="a11y"] {

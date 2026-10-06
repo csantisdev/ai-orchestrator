@@ -201,6 +201,12 @@
     color: var(--family-decision);
     background: color-mix(in srgb, var(--family-decision) 12%, transparent);
   }
+  /* Bloqueado por política (§7): no es error técnico; escudo + Governance. */
+  .pill.state-policy {
+    gap: var(--space-1);
+    color: var(--family-governance);
+    background: color-mix(in srgb, var(--family-governance) 12%, transparent);
+  }
   .pill.state-denied, .pill.state-error, .pill.state-abandoned {
     color: var(--family-error);
     background: color-mix(in srgb, var(--family-error) 12%, transparent);
@@ -300,7 +306,7 @@
     font-size: var(--text-12);
     color: var(--text-primary);
   }
-  .shell-header-status { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+  .shell-header-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; margin-left: auto; }
   .shell-pill {
     display: inline-flex;
     align-items: center;
@@ -612,6 +618,28 @@
   @media (prefers-reduced-motion: reduce) {
     .cons-sun, .cons-bridge { transition: none; }
   }
+
+  /* Estados especiales (§7, core/ui.js stateNotice): icono + texto, nunca solo color. */
+  .state-notice { --tone: var(--text-secondary); display: flex; gap: var(--space-3); align-items: flex-start; margin: var(--space-3) 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-surface); }
+  .state-notice-icon { flex: none; width: 1.5em; font-size: var(--text-16); font-weight: 700; line-height: 1.3; text-align: center; color: var(--tone); }
+  .state-notice-title { margin: 0 0 var(--space-1); font-size: var(--text-15); color: var(--text-primary); }
+  .state-notice p { margin: 0; font-size: var(--text-13); color: var(--text-secondary); }
+  .state-notice.is-failure { --tone: var(--family-error); border-color: var(--family-error); }
+  .state-notice.is-blocked { --tone: var(--family-governance); }
+  .state-notice.is-degraded, .state-notice.is-desync { --tone: var(--state-warning); border-style: dashed; border-color: var(--state-warning); }
+  .shell-degraded { border: 1px dashed var(--state-warning); color: var(--state-warning); }
+
+  /* Botón de la barra de Activity (antes un div con onclick): sin estilo de botón. */
+  .act-left { border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+
+  /* Diálogo de atajos de teclado (core/keyboard.js). */
+  .shell-dialog { margin: auto; max-width: min(480px, 92vw); padding: var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--bg-surface); color: var(--text-primary); }
+  .shell-dialog::backdrop { background: var(--overlay-bg); }
+  .shell-dialog-title { margin: 0 0 var(--space-2); font-size: var(--text-16); }
+  .shell-dialog-note { margin: 0 0 var(--space-4); font-size: var(--text-12); color: var(--text-secondary); }
+  .shell-shortcuts { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-5); font-size: var(--text-13); }
+  .shell-shortcuts dd { margin: 0; color: var(--text-secondary); }
+  kbd { display: inline-block; min-width: 1.6em; padding: 0 var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-elevated); font-family: var(--font-data); font-size: var(--text-11); text-align: center; color: var(--text-primary); }
 
   /* Activity del proyecto (components/activity.js, §6.4) dentro de la barra inferior. */
   #activity-log { max-height: min(45vh, 420px); }

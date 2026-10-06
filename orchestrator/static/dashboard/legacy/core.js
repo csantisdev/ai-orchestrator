@@ -186,21 +186,37 @@ function showToast(msg, isError) {
 }
 
 // ── Theme selector ────────────────────────────────────────────────────────────
-function setTheme(name) {
-  if (!name || name === "dark") {
+// "system" (predeterminado, spec §8) sigue prefers-color-scheme: claro u oscuro, y cambia en
+// vivo si el sistema cambia.
+const _systemLight = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
+
+function _applyTheme(mode) {
+  const resolved = mode === "system" ? (_systemLight && _systemLight.matches ? "light" : "dark") : mode;
+  if (resolved === "dark") {
     document.documentElement.removeAttribute("data-theme");
   } else {
-    document.documentElement.setAttribute("data-theme", name);
+    document.documentElement.setAttribute("data-theme", resolved);
   }
-  localStorage.setItem("theme", name || "dark");
+}
+
+function _savedTheme() {
+  try { return localStorage.getItem("theme") || "system"; } catch (e) { return "system"; }
+}
+
+function setTheme(name) {
+  const mode = name || "system";
+  _applyTheme(mode);
+  try { localStorage.setItem("theme", mode); } catch (e) {}
   const sel = document.getElementById("themeSelect");
-  if (sel) sel.value = name || "dark";
+  if (sel) sel.value = mode;
 }
 
 (function() {
-  const saved = localStorage.getItem("theme") || "dark";
+  const saved = _savedTheme();
+  _applyTheme(saved);
   const sel = document.getElementById("themeSelect");
   if (sel) sel.value = saved;
+  if (_systemLight) _systemLight.addEventListener("change", () => { if (_savedTheme() === "system") _applyTheme("system"); });
 })();
 
 function escHtml(s) {

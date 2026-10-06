@@ -78,5 +78,5 @@ test("acciones del menú: navegan a la pestaña heredada, abren el formulario y 
   assert.equal(runAction("desconocida", { store, doc: flow.doc }), false);
   // Sin los paneles heredados en la página, no falla.
   runAction("new-task", { store, doc: { getElementById: () => null } });
-  assert.deepEqual(Object.keys(ACTIONS), ["clear-selection", "new-task", "new-flow"]);
+  assert.deepEqual(Object.keys(ACTIONS), ["clear-selection", "shortcuts", "new-task", "new-flow"]);
 });

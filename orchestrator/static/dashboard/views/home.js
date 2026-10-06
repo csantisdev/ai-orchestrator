@@ -1,5 +1,5 @@
 import { h } from "../core/dom.js";
-import { metricCard, metricGrid, noticeList, panel, segmented } from "../core/ui.js";
+import { metricCard, metricGrid, noticeList, panel, segmented, stateNotice } from "../core/ui.js";
 import { ApiError } from "../core/api.js";
 import { layoutConstellation, renderConstellation } from "../renderers/constellation.js";
 
@@ -212,8 +212,8 @@ export async function mount(root, { api, state, signal }) {
     try {
       if (!currentProject) return await projects(root, api, current.signal);
       if (aliasNeedsEncoding(currentProject)) {
-        root.replaceChildren(h("p", { class: "home-error" },
-          "Este alias requiere codificación y no puede consultarse desde esta versión del dashboard."));
+        root.replaceChildren(stateNotice("empty", "Este proyecto no se puede consultar desde la vista nueva",
+          "Su alias requiere codificación y la API no lo acepta en la ruta."));
         return;
       }
       if (!quiet) root.replaceChildren(h("p", { class: "home-muted" }, "Cargando inicio…"));
@@ -231,7 +231,7 @@ export async function mount(root, { api, state, signal }) {
     } catch (error) {
       if (!current.signal.aborted && error.name !== "AbortError" && current === controller) {
         if (quiet) return console.warn("No se pudo refrescar Inicio:", error);
-        root.replaceChildren(h("p", { class: "home-error" }, errorMessage(error)));
+        root.replaceChildren(stateNotice("failure", "No se pudo cargar Inicio", errorMessage(error)));
       }
     } finally {
       signal?.removeEventListener("abort", abort);

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orchestrator Dashboard</title>
-  <script>try{const _t=localStorage.getItem("theme");if(_t&&_t!=="dark")document.documentElement.setAttribute("data-theme",_t)}catch(e){}</script>
+  <script>let _t="system";try{_t=localStorage.getItem("theme")||"system"}catch(e){}try{const _r=_t==="system"?(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):_t;if(_r!=="dark")document.documentElement.setAttribute("data-theme",_r)}catch(e){}</script>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicons/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicons/favicon-16x16.png">
@@ -18,6 +18,7 @@
 </head>
 <body>
 
+<a class="skip-link" href="#shell-main">Saltar al contenido</a>
 <header class="shell-header">
   <a class="shell-brand" href="/">ai-orchestrator</a>
   <form method="get" class="shell-project">
@@ -27,6 +28,7 @@
   </form>
   <div class="shell-header-status">
     <span class="shell-status" id="shell-status" data-state="connecting" role="status">Conectando…</span>
+    <span class="shell-pill shell-degraded" id="shell-degraded" role="status" hidden></span>
     <a class="shell-pill" id="shell-denied" href="/?project=mi-proyecto&amp;view=gobernanza" data-view="gobernanza" hidden></a>
   </div>
   <details class="shell-menu" id="shell-menu">
@@ -34,11 +36,13 @@
     <div class="shell-menu-list">
       <button type="button" class="shell-menu-item" data-action="new-task">+ Nueva tarea</button>
       <button type="button" class="shell-menu-item" data-action="new-flow">+ Nuevo flujo</button>
+      <button type="button" class="shell-menu-item" data-action="shortcuts" aria-keyshortcuts="?">Atajos de teclado <kbd>?</kbd></button>
       <a class="shell-menu-item" href="/docs">Docs</a>
       <a class="shell-menu-item" href="/mcp">MCP</a>
       <a class="shell-menu-item" href="/security">Seguridad</a>
       <label class="shell-menu-item shell-menu-theme">Tema
         <select id="themeSelect" title="Cambiar tema">
+          <option value="system">Sistema</option>
           <option value="dark">Dark</option>
           <option value="light">Light</option>
           <option value="midnight">Midnight</option>
@@ -65,22 +69,23 @@
 <div class="shell">
   <nav class="shell-nav" aria-label="Secciones">
     <p class="shell-nav-group">Proyecto</p>
-    <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=inicio" data-view="inicio">Inicio<span class="shell-nav-count" data-count="inicio"></span></a>
-    <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=trabajo" data-view="trabajo">Trabajo<span class="shell-nav-count" data-count="trabajo"></span></a>
-    <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=ejecuciones" data-view="ejecuciones">Ejecuciones<span class="shell-nav-count" data-count="ejecuciones"></span></a>
-    <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=gobernanza" data-view="gobernanza">Gobernanza<span class="shell-nav-count" data-count="gobernanza"></span></a>
+    <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=inicio" data-view="inicio" aria-keyshortcuts="1">Inicio<span class="shell-nav-count" data-count="inicio"></span></a>
+    <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=trabajo" data-view="trabajo" aria-keyshortcuts="2">Trabajo<span class="shell-nav-count" data-count="trabajo"></span></a>
+    <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=ejecuciones" data-view="ejecuciones" aria-keyshortcuts="3">Ejecuciones<span class="shell-nav-count" data-count="ejecuciones"></span></a>
+    <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=gobernanza" data-view="gobernanza" aria-keyshortcuts="4">Gobernanza<span class="shell-nav-count" data-count="gobernanza"></span></a>
     <p class="shell-nav-group">Control</p>
     <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=proveedores" data-view="proveedores">Proveedores<span class="shell-nav-count" data-count="proveedores"></span></a>
     <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=politicas" data-view="politicas">Políticas<span class="shell-nav-count" data-count="politicas"></span></a>
     <a class="shell-nav-link" href="/?project=mi-proyecto&amp;view=ajustes" data-view="ajustes">Ajustes<span class="shell-nav-count" data-count="ajustes"></span></a>
   </nav>
 
-  <main class="shell-main" id="shell-main">
+  <main class="shell-main" id="shell-main" tabindex="-1">
     <nav class="shell-breadcrumb" id="shell-breadcrumb" aria-label="Ubicación"></nav>
     <div class="shell-heading">
-      <h1 class="shell-title" id="shell-title"></h1>
+      <h1 class="shell-title" id="shell-title" tabindex="-1"></h1>
       <p class="shell-subtitle" id="shell-subtitle"></p>
     </div>
+    <div id="shell-desync" hidden></div>
     <p class="shell-note" id="shell-note" hidden></p>
     <div class="shell-tabs" id="shell-tabs" role="tablist" hidden></div>
     <section class="shell-empty" id="shell-empty" hidden>
@@ -349,11 +354,11 @@
 
 <div class="activity-bar">
   <div class="activity-hdr">
-    <div class="act-left" onclick="toggleActivity()">
+    <button type="button" class="act-left" id="act-open" onclick="toggleActivity()" aria-expanded="false" aria-controls="activity-log" aria-keyshortcuts="a">
       <span class="act-dot" id="act-dot"></span>
       <span class="act-title">Actividad</span>
       <span class="act-summary" id="act-summary">sin eventos</span>
-    </div>
+    </button>
     <div class="act-actions" onclick="event.stopPropagation()">
       <button class="act-btn" id="actBtnDoctor" onclick="runDoctor(this)" title="Diagnosticar configuración (doctor)">doctor</button>
       <div class="act-btn-wrap">
@@ -368,7 +373,7 @@
       <button class="act-btn" id="actBtnSync" onclick="runSync(this)" title="Importar sesiones Claude Code + commits Git (sync-cc / sync-git)">sync</button>
       <button class="act-btn" id="actBtnIndex" onclick="runIndexDocs(this)" title="Indexar proyecto seleccionado en ChromaDB (index-docs)">index</button>
     </div>
-    <span class="act-toggle" id="act-toggle" onclick="toggleActivity()">▼</span>
+    <span class="act-toggle" id="act-toggle" onclick="toggleActivity()" aria-hidden="true">▼</span>
   </div>
   <div id="activity-log" style="display:none">
     <section id="activity-feed" class="act-feed" aria-label="Actividad del proyecto"></section>

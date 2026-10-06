@@ -6,7 +6,7 @@ import { h } from "../core/dom.js";
 import { toSearch } from "../core/router.js";
 import { facts, objectList, statusPill } from "../renderers/list.js";
 import { renderTrace, selectable } from "../renderers/trace.js";
-import { panel, progress, segmented } from "../core/ui.js";
+import { panel, progress, segmented, stateNotice } from "../core/ui.js";
 import { citingSteps, layoutMap, renderMap, select as selectOnMap } from "../renderers/map.js";
 import {
   agentLabel as consAgentLabel, layoutConstellation, renderConstellation, selectConstellation,
@@ -356,8 +356,10 @@ function stepPage(state, data) {
   ];
 }
 
-function message(title, body) {
-  return h("section", { class: "shell-empty" }, h("h2", {}, title), body ? h("p", {}, body) : null);
+// Mensajes de la vista con los estados de §7 (core/ui.js): vacío por defecto, falla técnica
+// cuando la API no respondió.
+function message(title, body, kind = "empty") {
+  return stateNotice(kind, title, body);
 }
 
 export async function mount(root, { api, state, signal, store, page: shellPage }) {
@@ -436,7 +438,7 @@ export async function mount(root, { api, state, signal, store, page: shellPage }
         return;
       }
       const reload = error?.reason === "session_expired" ? " El servidor se reinició: recargá la página." : "";
-      root.replaceChildren(message("No se pudo cargar Trabajo", `${error?.message ?? error}.${reload}`));
+      root.replaceChildren(message("No se pudo cargar Trabajo", `${error?.message ?? error}.${reload}`, "failure"));
     } finally {
       signal.removeEventListener("abort", abort);
       if (pending === controller) pending = null;

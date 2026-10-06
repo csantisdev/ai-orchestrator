@@ -5,7 +5,7 @@
 
 import { h } from "../core/dom.js";
 import { objectList, statusPill } from "../renderers/list.js";
-import { metricCard, metricGrid, panel, segmented } from "../core/ui.js";
+import { metricCard, metricGrid, panel, segmented, stateNotice } from "../core/ui.js";
 
 export const PERIODS = Object.freeze([["7d", "7 días"], ["30d", "30 días"], ["90d", "90 días"]]);
 export const MCP_FILTERS = Object.freeze([
@@ -58,6 +58,14 @@ export function reasonText(code) {
 }
 
 // Estado visible: una invocación `success` marcada con `is_error` es un fallo.
+// Denegada (MCP) o bloqueada (egress) es una decisión de política, no una falla técnica
+// (spec §7): escudo y color de Governance; el error técnico sigue en rojo.
+export function decisionPill(status, labels) {
+  if (status !== "denied" && status !== "blocked") return statusPill(status, labels);
+  return h("span", { class: ["pill", "state-policy"] },
+    h("span", { class: "pill-icon", "aria-hidden": "true" }, "⛨"), labels[status] ?? status);
+}
+
 export function displayStatus(item) {
   return item.is_error && item.status === "success" ? "error" : item.status;
 }
@@ -129,7 +137,7 @@ function mcpRow(item, selected) {
     },
     h("span", { class: "gov-row-main" },
       h("span", { class: "gov-tool" }, item.tool_name || "—"),
-      statusPill(displayStatus(item), STATUS),
+      decisionPill(displayStatus(item), STATUS),
       reason ? h("code", { class: "gov-reason" }, reason) : null),
     h("span", { class: "gov-row-meta" },
       h("span", {}, agentLabel(item.agent)),
@@ -155,7 +163,7 @@ function egressRow(item, selected) {
     },
     h("span", { class: "gov-row-main" },
       h("span", { class: "gov-tool" }, item.provider || "—"),
-      statusPill(item.decision, EGRESS),
+      decisionPill(item.decision, EGRESS),
       h("code", { class: "gov-reason" }, item.reason_code || "—")),
     h("span", { class: "gov-row-meta" },
       h("span", {}, item.phase),
@@ -169,8 +177,10 @@ function egressRow(item, selected) {
   ];
 }
 
-function message(title, body) {
-  return h("section", { class: "shell-empty" }, h("h2", {}, title), body ? h("p", {}, body) : null);
+// Mensajes de la vista con los estados de §7 (core/ui.js): vacío por defecto, falla técnica
+// cuando la API no respondió.
+function message(title, body, kind = "empty") {
+  return stateNotice(kind, title, body);
 }
 
 export async function mount(root, { api, state, signal, store }) {
@@ -202,7 +212,7 @@ export async function mount(root, { api, state, signal, store }) {
       });
     // `replaceChildren` escribe `null` como texto: solo nodos.
     listSlot.replaceChildren(...[
-      failure ? message("No se pudo cargar la lista", failure) : rows,
+      failure ? message("No se pudo cargar la lista", failure, "failure") : rows,
       nextCursor ? h("button", { type: "button", class: "ui-button", data: { more: "1" } }, "Cargar más") : null,
     ].filter(Boolean));
   }

@@ -86,3 +86,11 @@ def projects(request: Request) -> dict:
     except Exception:
         registered = set()
     return {"projects": project_summaries(_conn(), registered)}
+
+
+@route("GET", "/api/v1/meta/health")
+def health_endpoint(request: Request):
+    """Componentes opcionales y su estado (spec §7): `ok`, `degraded` o `unknown`."""
+    from orchestrator import health
+
+    return {"components": health.snapshot()}

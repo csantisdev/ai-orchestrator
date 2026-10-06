@@ -1,7 +1,7 @@
 import { h } from "../core/dom.js";
 import { toSearch } from "../core/router.js";
 import { formatUsd } from "./runs.js";
-import { dataTable, metricCard, metricGrid, panel, segmented } from "../core/ui.js";
+import { dataTable, metricCard, metricGrid, panel, segmented, stateNotice } from "../core/ui.js";
 
 const STYLE_KEY = "executions";
 const PATH_SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/;
@@ -25,8 +25,10 @@ function ensureStylesheet(document) {
   }));
 }
 
-function message(title, body) {
-  return h("section", { class: "shell-empty" }, h("h2", {}, title), h("p", {}, body));
+// Mensajes de la vista con los estados de §7 (core/ui.js): vacío por defecto, falla técnica
+// cuando la API no respondió.
+function message(title, body, kind = "empty") {
+  return stateNotice(kind, title, body);
 }
 
 // Días con costo, para no listar 90 filas en cero; el resto se resume en una línea.
@@ -124,7 +126,7 @@ export async function mount(root, { api, state, signal, store }) {
       if (controller.signal.aborted) return;
       if (quiet) return console.warn("No se pudieron refrescar los costos:", error);
       const suffix = error?.reason === "session_expired" ? " El servidor se reinició: recargá la página." : "";
-      root.replaceChildren(message("No se pudieron cargar los costos", `${error?.message ?? error}.${suffix}`));
+      root.replaceChildren(message("No se pudieron cargar los costos", `${error?.message ?? error}.${suffix}`, "failure"));
     } finally {
       signal.removeEventListener("abort", abort);
       if (pending === controller) pending = null;
