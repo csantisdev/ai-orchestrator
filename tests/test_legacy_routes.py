@@ -93,6 +93,9 @@ def _static_sources() -> dict[str, str]:
 
 
 POST_CALL = re.compile(r"\bpostJson\(\s*([^,)]+)")
+# La única ruta armada que se admite: "/context/" + <id> + "/delete".
+CONTEXT_DELETE_CALL = re.compile(
+    r"""postJson\(\s*(['"])/context/\1\s*\+\s*(?:Number\(\s*\w+\s*\)|\w+)\s*\+\s*(['"])/delete\2\s*,""")
 
 
 def test_post_calls_use_literal_routes():
@@ -105,6 +108,8 @@ def test_post_calls_use_literal_routes():
             if re.fullmatch(r"""(['"`])/[^'"`$]*\1""", argument):
                 continue
             if argument.startswith(('"/context/"', "'/context/'")):
+                assert CONTEXT_DELETE_CALL.match(text, match.start()), (
+                    f"{name}: solo se admite \"/context/\" + id + \"/delete\": {text[match.start():match.start() + 80]}")
                 continue
             if name == "legacy/core.js" and argument == "url":
                 continue
@@ -120,7 +125,7 @@ def _called_routes(text: str) -> set[str]:
     for match in re.finditer(r"""\b(?:postJson|_syncOne)\(\s*(['"`])(/[^'"`$]*)\1(\s*\+)?""", text):
         if not match.group(3):
             routes.add(match.group(2))
-    if re.search(r"""postJson\(\s*['"]/context/['"]\s*\+""", text):
+    if CONTEXT_DELETE_CALL.search(text):
         routes.add(CONTEXT_DELETE_ROUTE)
     return routes
 
