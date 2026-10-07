@@ -283,9 +283,10 @@ falla o no hay remoto, se sigue con el paso siguiente. Symlinks se resuelven ant
    (`rag.py:384-390`), y respuestas históricas de runs, indexadas y recuperadas por proyecto
    (`rag.py:588`, `rag.py:404`); las dos se inyectan en el contexto de ejecución. La misma
    transacción del paso 3 deja una **segunda intención durable**, de RAG, que un trabajo
-   (`maintenance`, recurso `project:<destino>:rag`) cumple en **las dos colecciones**, migrando IDs
-   y metadatos de forma idempotente, o reconstruyendo documentos y reindexando las respuestas de
-   los runs del destino si la migración falla. Mientras esa intención esté pendiente, las
+   (`maintenance`, recurso `project:<destino>:rag`) cumple en **las dos colecciones**, de forma
+   idempotente: en documentos, cuyo ID lleva el alias (`<alias>::<ruta>::<n>`), migra IDs y
+   metadatos o reconstruye el índice del destino; en respuestas, cuyo ID es `run_<run_id>` sin
+   alias (`rag.py:594-596`), actualiza solo el metadato `project` o las reindexa por `run_id`. Mientras esa intención esté pendiente, las
    consultas de documentos y de respuestas del destino incluyen también los alias equivalentes y
    la UI muestra el estado degradado (§7 de la especificación). Al arrancar, una intención RAG
    pendiente vuelve a encolarse.
@@ -351,9 +352,9 @@ Comandos del mismo catálogo, sin diseño propio:
   `POST /api/v1/commands/{name}`. Un test estático lista las rutas POST del servidor y falla si
   aparece una ruta que no está en el catálogo ni en el inventario de heredadas pendientes (§7).
 - **I2.** Repetir un comando con el mismo `request_id` y los mismos argumentos no repite el
-  efecto y responde según el estado del registro (§3.2): `accepted` con el mismo `job_id` si
-  sigue en curso, o el mismo recibo si terminó o se interrumpió; con argumentos distintos
-  responde `409`.
+  efecto y responde según el estado del registro (§3.2): si quedó `not_admitted` (`busy`), vuelve
+  a evaluar la admisión; `accepted` con el mismo `job_id` si sigue en curso; o el mismo recibo si
+  terminó o se interrumpió. Con argumentos distintos responde `409`.
 - **I3.** Cada `request_id` tiene exactamente un registro lógico y cada intento HTTP exactamente
   una fila de intento; ninguno guarda argumentos ni resultados en claro (solo hashes y
   metadatos), y ningún recibo contiene texto libre.
