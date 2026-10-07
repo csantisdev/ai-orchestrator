@@ -13,7 +13,7 @@ related: [RFC-008, RFC-009]
 # RFC-010 — Comandos gobernados desde la UI e identidad de proyectos
 
 **Estado:** Draft
-**Versión:** 0.2
+**Versión:** 0.3
 **Fecha:** 2026-10-06
 **Repo de referencia:** `csantisdev/ai-orchestrator@production` = `82a229c5cebc317af4342ed7734676bb65737102` (verificado 2026-10-06)
 **Relación con la serie:** Es el prerrequisito de la ola 6 de la especificación del dashboard
@@ -44,6 +44,12 @@ Ver "Regla de anonimización" en `../README.md`.*
 | Estado del código | Operaciones largas "dentro de la request" | `/run` ya responde 202 y corre en un hilo con un run pendiente y SSE (`server.py:1722-1738`, `background.py:24-51`): parcial, no ausente (I2) |
 | Plan | Sin transición de rutas heredadas | PR de transición: inventario de rutas heredadas con dueño, adaptador y criterio de retiro; test que impide rutas nuevas fuera del catálogo (§7, I2) |
 | Precisión de §1.1 | Afirmaciones amplias | Corregidas: alcance de "cualquier alias", ejemplo de doble avance, `session_expired` se rechaza antes del despacho (m1) |
+
+| Área | v0.2 | v0.3 |
+|---|---|---|
+| Fusión y plano RAG | Cuatro tablas en la vista previa | Se suma `chunks` (`migrate.py:343-355`) y ChromaDB, que guarda el alias en IDs y metadatos (`rag.py:235-240`) y filtra por él (`rag.py:384-390`): intención durable propia para migrar o reconstruir, consultas que incluyen los alias equivalentes mientras tanto y estado "degradado" visible (§3.4.3, I8; auditoría Codex, ronda 2) |
+| Recibos y auditoría | Recibo solo terminal; "exactamente una fila" por comando | Un **registro lógico** por `request_id` (único, como en `mcp_invocations`) y una **auditoría de intentos** aparte, solo de agregar. Reintento según estado: `queued`/`running` → `accepted` con `job_id`; `interrupted` → recibo `interrupted`; terminal → recibo terminal (§3.2, I2, I3) |
+| Perfiles y categorías nuevas | Sin mapeo normativo | Solo `admin` concede `project_admin` y `maintenance` tras la enmienda; `workflow_operator` no; probado con I4 (§3.1) |
 
 ---
 
@@ -167,8 +173,12 @@ Body: { "request_id": "<uuid generado por la UI>",
   categorías son las cinco de RFC-008 (`read`, `append`, `workflow_mutation`,
   `workflow_transition`, `memory_ingest`) más dos que este RFC agrega como **enmienda a RFC-008**:
   `project_admin` (identidad de proyectos, registro, fusión, mover contextos) y `maintenance`
-  (purgas, reindexado, importaciones, reparación de datos). Ningún perfil MCP existente las
-  incluye; `admin` las incluye solo si RFC-008 se actualiza al aceptar este RFC.
+  (purgas, reindexado, importaciones, reparación de datos).
+- **Perfiles.** La UI usa los mismos perfiles que RFC-008. Tras la enmienda, **solo `admin`**
+  concede `project_admin` y `maintenance` (en `PROFILE_CAPABILITIES`, `admin` deriva hoy de
+  todas las categorías: `mcp_governance.py:36-41`); `readonly`, `observability`,
+  `workflow_operator` y `memory_curator` no las conceden. Un agente MCP con `admin` también
+  podría usarlas, con la misma auditoría.
 - **Una implementación por operación.** Las herramientas MCP y los comandos son adaptadores de la
   misma función de dominio; no hay dos implementaciones de `advance_step`.
 - **Perfil de la UI.** Fail-closed como RFC-008: sin configuración explícita, la UI es
@@ -183,16 +193,26 @@ Body: { "request_id": "<uuid generado por la UI>",
 
 ### 3.2 Idempotencia, recibos y auditoría
 
-- `request_id` es obligatorio. Se reclama antes de ejecutar, con el mismo mecanismo que
-  `claim_mutation`: repetir el mismo `request_id` con los mismos argumentos **no repite el
-  efecto** y devuelve el **recibo** registrado; con argumentos distintos, `409 request_id_reused`.
+- `request_id` es obligatorio y abre un **registro lógico** único del comando (mismo mecanismo
+  que `claim_mutation`, cuyo `request_id` es único: `db.py:123-146`). Repetir el mismo
+  `request_id` con los mismos argumentos **no repite el efecto**; la respuesta depende del estado
+  del registro:
+
+  | Estado del registro | Respuesta al reintento |
+  |---|---|
+  | `queued` o `running` (trabajo) | `accepted` con el mismo `job_id` |
+  | `interrupted` | recibo con estado `interrupted` (§3.3 dice si es seguro reintentar con otro `request_id`) |
+  | terminal (`ok`, `denied`, `conflict`, `error`) | el recibo terminal registrado |
+
+  Con argumentos distintos, `409 request_id_reused`.
 - El **recibo** contiene estado terminal, IDs creados o afectados, versión resultante, conteos y
   hashes del resultado. Nunca el resultado completo ni texto libre: RFC-008 no guarda resultados
   por privacidad y este RFC mantiene esa regla. La UI vuelve a leer por la API lo que necesite
   mostrar.
-- Cada comando ejecutado, denegado o en conflicto deja una fila de auditoría con el formato de
-  `mcp_invocations` (hashes y metadatos), con `client_surface = "dashboard"`. Gobernanza la
-  muestra junto a las invocaciones MCP.
+- **Auditoría en dos niveles.** El registro lógico guarda el estado y los hashes del comando
+  (formato de `mcp_invocations`, `client_surface = "dashboard"`); una tabla aparte, solo de
+  agregar, guarda **cada intento** (fecha, estado devuelto, `reason_code`), incluidos los
+  reintentos y los `409`. Gobernanza muestra ambos junto a las invocaciones MCP.
 
 ### 3.3 Trabajos, recursos y reconciliación
 
@@ -244,7 +264,8 @@ falla o no hay remoto, se sigue con el paso siguiente. Symlinks se resuelven ant
 `merge_projects(source, target)`:
 
 1. **Vista previa** con conteos por tabla (`runs`, `contexts`, `mcp_invocations`,
-   `egress_decisions`) y conflictos (por ejemplo, el mismo `session_id` en ambos). La vista
+   `egress_decisions`, `chunks`), documentos de ChromaDB del alias origen y conflictos (por
+   ejemplo, el mismo `session_id` en ambos). La vista
    previa tiene un hash; la ejecución lo exige en `confirmation` y falla con
    `confirmation_stale` si los datos cambiaron.
 2. **Respaldo** de la base (`db.backup_database`) y del índice YAML.
@@ -254,7 +275,15 @@ falla o no hay remoto, se sigue con el paso siguiente. Symlinks se resuelven ant
 4. Reescritura del YAML con archivo temporal y `replace`; al terminar, la intención se marca
    cumplida. Si el proceso cae entre 3 y 4, al arrancar se reconcilia: la intención pendiente se
    vuelve a aplicar (es idempotente).
-5. Auditoría con los conteos.
+5. **Plano RAG.** ChromaDB guarda el alias en los IDs y en los metadatos de cada documento
+   (`rag.py:235-240`) y las consultas filtran por ese metadato (`rag.py:384-390`). La misma
+   transacción del paso 3 deja una **segunda intención durable**, de RAG, que un trabajo
+   (`maintenance`, recurso `project:<destino>:rag`) cumple migrando IDs y metadatos de forma
+   idempotente, o reconstruyendo el índice del destino si la migración falla. Mientras esa
+   intención esté pendiente, las consultas del destino incluyen también los alias equivalentes y
+   la UI muestra el estado degradado (§7 de la especificación). Al arrancar, una intención RAG
+   pendiente vuelve a encolarse.
+6. Auditoría con los conteos.
 
 `rename` pasa a ser el caso particular con destino inexistente.
 
@@ -316,12 +345,15 @@ Comandos del mismo catálogo, sin diseño propio:
   `POST /api/v1/commands/{name}`. Un test estático lista las rutas POST del servidor y falla si
   aparece una ruta que no está en el catálogo ni en el inventario de heredadas pendientes (§7).
 - **I2.** Repetir un comando con el mismo `request_id` y los mismos argumentos no repite el
-  efecto y devuelve el mismo recibo; con argumentos distintos responde `409`.
-- **I3.** Todo comando ejecutado, denegado o en conflicto deja exactamente una fila de auditoría
-  sin argumentos ni resultados en claro (solo hashes y metadatos), y ningún recibo contiene texto
-  libre.
+  efecto y responde según el estado del registro (§3.2): `accepted` con el mismo `job_id` si
+  sigue en curso, o el mismo recibo si terminó o se interrumpió; con argumentos distintos
+  responde `409`.
+- **I3.** Cada `request_id` tiene exactamente un registro lógico y cada intento HTTP exactamente
+  una fila de intento; ninguno guarda argumentos ni resultados en claro (solo hashes y
+  metadatos), y ningún recibo contiene texto libre.
 - **I4.** Sin configuración explícita de la UI, todo comando que no sea `read` responde `denied`
-  (`capability_denied`), sin efectos.
+  (`capability_denied`), sin efectos; con perfil `workflow_operator`, los comandos
+  `project_admin` y `maintenance` también responden `denied`; solo `admin` los permite.
 - **I5.** Un comando sobre un proyecto fuera del alcance de la UI responde `denied` con
   `project_out_of_scope`, sin efectos.
 - **I6.** Un comando con `expected_version` distinta de la actual responde `conflict` sin
@@ -330,8 +362,10 @@ Comandos del mismo catálogo, sin diseño propio:
   `failed`, `conflict` o `interrupted`; un `run` interrumpido no se reintenta sin acción de la
   persona.
 - **I8.** `merge_projects` es recuperable: si el proceso cae en cualquier punto, tras el
-  siguiente arranque la base y el índice quedan ambos con la fusión aplicada o ambos sin ella; y
-  tras la fusión, importar una sesión desde una carpeta del alias origen la asigna al destino.
+  siguiente arranque la base y el índice quedan ambos con la fusión aplicada o ambos sin ella, y
+  una intención RAG pendiente se vuelve a encolar; mientras está pendiente, una consulta RAG del
+  destino devuelve también los documentos del origen; y tras la fusión, importar una sesión desde
+  una carpeta del alias origen la asigna al destino.
 - **I9.** Una sesión importada desde un worktree de un proyecto registrado se asigna a ese
   proyecto; una sesión desde un clon con el mismo remoto queda como `folder` con una propuesta,
   nunca asignada sin confirmación.
@@ -395,8 +429,10 @@ Cada PR con auditoría cruzada ANL-003 en dos rondas.
    arrancar; `sync-*` e `index-docs` como trabajos; `run` migra con admisión de presupuesto. Tests
    de I7, I13-I15.
 5. **Identidad de proyectos.** Resolución por repositorio, propuestas y confirmación,
-   vinculación ambigua, `merge_projects` y `move_context` con vista previa. Tests de I8-I12 e I16
-   con repositorios git sintéticos (worktree, clon y repo anidado) creados en el test.
+   vinculación ambigua, `merge_projects` (incluida la intención RAG, que depende del ejecutor y
+   la reconciliación del paso 4) y `move_context` con vista previa. Tests de I8-I12 e I16 con
+   repositorios git sintéticos (worktree, clon y repo anidado) creados en el test, y prueba de
+   caída en cada punto de la fusión.
 6. **Ola 6 por vista.** Trabajo › Flujos, Ejecuciones › Actividad (envío de tareas), Ajustes ›
    Proyectos, Datos y Configuración: cada vista migra a comandos, retira sus rutas del inventario
    y baja su línea base de literales; al llegar a cero se borra el ensamblador heredado.
@@ -429,4 +465,5 @@ por la persona sobre su base, con los conteos de la vista previa registrados com
 - Código citado: `orchestrator/server.py`, `orchestrator/background.py`,
   `orchestrator/mcp_governance.py`, `orchestrator/watcher.py`, `orchestrator/db.py`,
   `orchestrator/index.py`, `orchestrator/costs.py`, `orchestrator/cli.py`,
-  `orchestrator/change_watch.py`, en el commit de referencia.
+  `orchestrator/change_watch.py`, `orchestrator/rag.py`, `orchestrator/migrate.py`, en el commit
+  de referencia.
