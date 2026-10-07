@@ -50,6 +50,8 @@ Ver "Regla de anonimización" en `../README.md`.*
 | Fusión y plano RAG | Cuatro tablas en la vista previa | Se suma `chunks` (`migrate.py:343-355`) y ChromaDB, que guarda el alias en IDs y metadatos (`rag.py:235-240`) y filtra por él (`rag.py:384-390`): intención durable propia para migrar o reconstruir, consultas que incluyen los alias equivalentes mientras tanto y estado "degradado" visible (§3.4.3, I8; auditoría Codex, ronda 2) |
 | Recibos y auditoría | Recibo solo terminal; "exactamente una fila" por comando | Un **registro lógico** por `request_id` (único, como en `mcp_invocations`) y una **auditoría de intentos** aparte, solo de agregar. Reintento según estado: `queued`/`running` → `accepted` con `job_id`; `interrupted` → recibo `interrupted`; terminal → recibo terminal (§3.2, I2, I3) |
 | Perfiles y categorías nuevas | Sin mapeo normativo | Solo `admin` concede `project_admin` y `maintenance` tras la enmienda; `workflow_operator` no; probado con I4 (§3.1) |
+| `busy` | Sin estado de reintento | Estado `not_admitted`: no es terminal ni consume el `request_id`; reenviarlo vuelve a evaluar la admisión (§3.2, I2, I14; ronda focal) |
+| Colección de respuestas | Fuera de la fusión | La intención RAG cubre las dos colecciones de ChromaDB, documentos (`rag.py:235-240`, `384-390`) y respuestas históricas (`rag.py:404`, `588`) (§3.4.3, I8; ronda focal) |
 
 ---
 
@@ -200,6 +202,7 @@ Body: { "request_id": "<uuid generado por la UI>",
 
   | Estado del registro | Respuesta al reintento |
   |---|---|
+  | `not_admitted` (recurso ocupado: `busy`) | se vuelve a evaluar la admisión: puede ejecutarse ahora o responder `busy` otra vez. `busy` no es terminal ni consume el `request_id` |
   | `queued` o `running` (trabajo) | `accepted` con el mismo `job_id` |
   | `interrupted` | recibo con estado `interrupted` (§3.3 dice si es seguro reintentar con otro `request_id`) |
   | terminal (`ok`, `denied`, `conflict`, `error`) | el recibo terminal registrado |
@@ -275,12 +278,15 @@ falla o no hay remoto, se sigue con el paso siguiente. Symlinks se resuelven ant
 4. Reescritura del YAML con archivo temporal y `replace`; al terminar, la intención se marca
    cumplida. Si el proceso cae entre 3 y 4, al arrancar se reconcilia: la intención pendiente se
    vuelve a aplicar (es idempotente).
-5. **Plano RAG.** ChromaDB guarda el alias en los IDs y en los metadatos de cada documento
-   (`rag.py:235-240`) y las consultas filtran por ese metadato (`rag.py:384-390`). La misma
+5. **Plano RAG.** ChromaDB tiene dos colecciones con el alias: documentos del proyecto, que lo
+   guardan en IDs y metadatos (`rag.py:235-240`) y se consultan filtrando por él
+   (`rag.py:384-390`), y respuestas históricas de runs, indexadas y recuperadas por proyecto
+   (`rag.py:588`, `rag.py:404`); las dos se inyectan en el contexto de ejecución. La misma
    transacción del paso 3 deja una **segunda intención durable**, de RAG, que un trabajo
-   (`maintenance`, recurso `project:<destino>:rag`) cumple migrando IDs y metadatos de forma
-   idempotente, o reconstruyendo el índice del destino si la migración falla. Mientras esa
-   intención esté pendiente, las consultas del destino incluyen también los alias equivalentes y
+   (`maintenance`, recurso `project:<destino>:rag`) cumple en **las dos colecciones**, migrando IDs
+   y metadatos de forma idempotente, o reconstruyendo documentos y reindexando las respuestas de
+   los runs del destino si la migración falla. Mientras esa intención esté pendiente, las
+   consultas de documentos y de respuestas del destino incluyen también los alias equivalentes y
    la UI muestra el estado degradado (§7 de la especificación). Al arrancar, una intención RAG
    pendiente vuelve a encolarse.
 6. Auditoría con los conteos.
@@ -363,8 +369,9 @@ Comandos del mismo catálogo, sin diseño propio:
   persona.
 - **I8.** `merge_projects` es recuperable: si el proceso cae en cualquier punto, tras el
   siguiente arranque la base y el índice quedan ambos con la fusión aplicada o ambos sin ella, y
-  una intención RAG pendiente se vuelve a encolar; mientras está pendiente, una consulta RAG del
-  destino devuelve también los documentos del origen; y tras la fusión, importar una sesión desde
+  una intención RAG pendiente se vuelve a encolar; mientras está pendiente, las consultas RAG del
+  destino (documentos y respuestas) devuelven también los del origen; y tras la fusión, importar
+  una sesión desde
   una carpeta del alias origen la asigna al destino.
 - **I9.** Una sesión importada desde un worktree de un proyecto registrado se asigna a ese
   proyecto; una sesión desde un clon con el mismo remoto queda como `folder` con una propuesta,
@@ -377,7 +384,9 @@ Comandos del mismo catálogo, sin diseño propio:
   vinculados y sus decisiones de egress, y no modifica `mcp_invocations`.
 - **I13.** Un trabajo comprueba versión y alcance al empezar a ejecutar; si cambiaron desde que se
   encoló, termina en `conflict` sin efectos.
-- **I14.** Dos comandos que piden el mismo recurso no corren a la vez: el segundo responde `busy`.
+- **I14.** Dos comandos que piden el mismo recurso no corren a la vez: el segundo responde `busy`,
+  queda `not_admitted` y, reenviado con el mismo `request_id` cuando el recurso se libera, se
+  ejecuta una sola vez.
 - **I15.** Un comando que llama a un proveedor y cuya reserva excede el presupuesto responde
   `denied` (`budget_exceeded`) antes de cualquier llamada de red; todo comando que llama a un
   proveedor pasa por el gate de egress.
