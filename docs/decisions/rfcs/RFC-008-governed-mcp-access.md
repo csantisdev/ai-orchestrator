@@ -4,10 +4,10 @@ type: rfc
 title: Acceso MCP gobernado y superficie remota del Local AI Control Plane
 status: accepted
 created: 2026-07-11
-updated: 2026-09-25
+updated: 2026-10-07
 supersedes: []
 superseded_by: null
-related: [RFC-005, RFC-006, RFC-007]
+related: [RFC-005, RFC-006, RFC-007, RFC-010]
 ---
 
 # RFC-008 — Acceso MCP gobernado y superficie remota del Local AI Control Plane
@@ -16,6 +16,7 @@ related: [RFC-005, RFC-006, RFC-007]
 **Versión:** 0.1  
 **Fecha:** 2026-07-11  
 **Implementación (2026-09-25, `production@54c0cf9`):** Fase 0 y Fase 2 completas; Fases 1, 3 y 4 parciales; Fases 5-7 sin iniciar. Entregado por los PR #9 (perfiles, categorías, scope por proyecto, `mcp_invocations`, `ExecutionIdentity`), #10 (idempotencia por `request_id`), #11 (sin retención de payloads), #14 (onboarding del scope: hints de denegación, `fix --mcp-profile/--mcp-projects`, chequeos en `doctor`) y #15 (`workflow_state` en `get_context` y autorización de `get_context` por dueño del contexto). Pendiente dentro de las fases parciales: `outputSchema` y test de pureza de stdout (Fase 1), estado explícito de indexación Chroma `rag_index_status` (Fase 3) y `policy_hash` en las denegaciones (Fase 4). §3 y la Conclusión describen el baseline `33ed228` auditado al redactar este RFC, no el estado actual; §11.2-§11.4 ya reflejan la autorización server-side vigente.  
+**Enmienda (2026-10-07):** RFC-010 (aceptado) agrega al catálogo de categorías `project_admin` y `maintenance`, que solo concede el perfil `admin`; el resto del catálogo y el perfil `readonly` por defecto no cambian. Ver RFC-010 §3.1.  
 **Repositorio de referencia:** `github.com/csantisdev/ai-orchestrator`  
 **Fuente de verdad de código:** rama `production`, commit `33ed228e0eb12664fc2dcf407c597200bd0c95c2`  
 **Documento base:** RFC-007 v0.3  

@@ -475,7 +475,7 @@ def _tool_list_steps(args: dict) -> dict:
         params.extend([order_idx, order_idx, step_id])
     limited = "limit" in args or bool(args.get("cursor"))
     limit = args.get("limit", 200)
-    summary_columns = ("id", "context_id", "order_idx", "title", "status", "provider", "agent_preset", "started_at", "completed_at")
+    summary_columns = ("id", "context_id", "order_idx", "title", "status", "provider", "agent_preset", "started_at", "completed_at", "version")
     selected = "*"
     if args.get("fields", "full") == "summary":
         selected = ", ".join(summary_columns) + ", LENGTH(COALESCE(notes, '')) AS notes_chars"

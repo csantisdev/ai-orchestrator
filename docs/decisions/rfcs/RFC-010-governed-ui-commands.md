@@ -2,9 +2,9 @@
 id: RFC-010
 type: rfc
 title: Comandos gobernados desde la UI e identidad de proyectos
-status: draft
+status: accepted
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-07
 supersedes: []
 superseded_by: null
 related: [RFC-008, RFC-009]
@@ -12,7 +12,7 @@ related: [RFC-008, RFC-009]
 
 # RFC-010 — Comandos gobernados desde la UI e identidad de proyectos
 
-**Estado:** Draft
+**Estado:** Aceptado (2026-10-07; alcance de §3.4 y §3.7, perfil `readonly` por defecto y enmienda de categorías a RFC-008 validados por el responsable tras el PR #52)
 **Versión:** 0.3
 **Fecha:** 2026-10-06
 **Repo de referencia:** `csantisdev/ai-orchestrator@production` = `82a229c5cebc317af4342ed7734676bb65737102` (verificado 2026-10-06)
@@ -451,10 +451,10 @@ Cada PR con auditoría cruzada ANL-003 en dos rondas.
 
 **De este RFC a `accepted`:**
 
-- [ ] Auditoría cruzada (Codex) en dos rondas sin hallazgos bloqueantes.
-- [ ] La persona responsable valida el alcance de §3.4 y §3.7, el perfil `readonly` por defecto y
-      la enmienda de categorías a RFC-008.
-- [ ] RFC-008 registra la enmienda en su metadata en el mismo PR que acepta este RFC.
+- [x] Auditoría cruzada (Codex) en dos rondas sin hallazgos bloqueantes (PR #52: cinco rondas, aprobado).
+- [x] La persona responsable valida el alcance de §3.4 y §3.7, el perfil `readonly` por defecto y
+      la enmienda de categorías a RFC-008 (2026-10-07).
+- [x] RFC-008 registra la enmienda en su metadata en el mismo PR que acepta este RFC.
 
 **De cada PR de implementación:** sus invariantes con tests en verde, suite completa y, para los
 PR con migración, la prueba de upgrade.
