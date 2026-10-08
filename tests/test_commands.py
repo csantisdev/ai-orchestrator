@@ -184,7 +184,7 @@ def test_invalid_request_id_is_rejected_without_a_record(ctx):
 
 def test_unknown_command_is_recorded_without_its_name():
     body = _body({})
-    status, payload = commands.execute(SECRET, body, _identity("admin"))
+    status, payload = commands.execute(SECRET, {**body, "project": SECRET}, _identity("admin"))
     assert status == 404 and payload["reason_code"] == "unknown_command"
     assert SECRET not in json.dumps(payload)
     record = _record(body["request_id"])
@@ -192,11 +192,13 @@ def test_unknown_command_is_recorded_without_its_name():
     assert SECRET not in json.dumps(dict(record))
     assert [tuple(row) for row in _attempts(body["request_id"])] == [("error", "unknown_command")]
     assert commands.execute("confirm_alignment", body, _identity("admin"))[1]["reason_code"] == "request_id_reused"
+    assert record["project"] is None
 
 
 def test_invalid_envelope_or_arguments_are_recorded_without_echoing_input(ctx):
     bodies = [
         {**_notes_body(ctx), "expected_version": "uno"},
+        {**_notes_body(ctx), "project": SECRET, "args": []},
         _body({"step_id": ctx["step_id"], "notes": "n", SECRET: 1}, expected_version=1),
         _body({"step_id": ctx["step_id"], "notes": "   "}, expected_version=1),
     ]
@@ -205,6 +207,7 @@ def test_invalid_envelope_or_arguments_are_recorded_without_echoing_input(ctx):
         assert status == 400 and payload["reason_code"] == "invalid_arguments"
         assert SECRET not in json.dumps(payload) and "error" not in payload
         assert _record(body["request_id"])["status"] == "error"
+        assert SECRET not in json.dumps(dict(_record(body["request_id"])))
         assert len(_attempts(body["request_id"])) == 1
     assert SECRET not in _notes(ctx["step_id"])
 

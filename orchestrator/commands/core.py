@@ -252,7 +252,7 @@ def execute(name: str, body: Any, identity: Optional[ExecutionIdentity] = None) 
     category = command.category if command else "none"
     identity = identity or ui_identity()
     input_hash = input_commitment(name, body)
-    project = body.get("project") if isinstance(body.get("project"), str) else None
+    project = None
 
     with _write_lock:
         conn = _conn()
