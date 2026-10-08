@@ -143,12 +143,8 @@ def test_queued_job_answers_accepted_with_the_same_job_id(ctx):
 
 
 def _input_hash(name, body):
-    from orchestrator.commands.core import _canonical
-    from orchestrator.mcp_governance import _commitment
-    return _commitment(_canonical({
-        "command": name, "project": body.get("project"), "expected_version": body.get("expected_version"),
-        "confirmation": body.get("confirmation"), "args": body["args"],
-    }))
+    from orchestrator.commands.core import input_commitment
+    return input_commitment(name, body)
 
 
 # ── I3: un registro lógico, un intento por pedido, sin texto en claro ────────
@@ -180,14 +176,69 @@ def test_receipts_carry_no_free_text(ctx):
 
 
 def test_invalid_request_id_is_rejected_without_a_record(ctx):
-    status, payload = commands.execute("append_step_notes", {"request_id": "no-uuid", "args": {}}, _identity())
-    assert status == 400 and payload["reason_code"] == "invalid_arguments"
+    for body in ({"request_id": "no-uuid", "args": {}}, {"args": {}}, ["x"]):
+        status, payload = commands.execute("append_step_notes", body, _identity())
+        assert status == 400 and payload["reason_code"] == "invalid_arguments"
     assert _record("no-uuid") is None
 
 
-def test_unknown_command_is_404():
-    status, payload = commands.execute("drop_everything", _body({}), _identity("admin"))
+def test_unknown_command_is_recorded_without_its_name():
+    body = _body({})
+    status, payload = commands.execute(SECRET, body, _identity("admin"))
     assert status == 404 and payload["reason_code"] == "unknown_command"
+    assert SECRET not in json.dumps(payload)
+    record = _record(body["request_id"])
+    assert record["command"] == "_unknown" and record["status"] == "error"
+    assert SECRET not in json.dumps(dict(record))
+    assert [tuple(row) for row in _attempts(body["request_id"])] == [("error", "unknown_command")]
+    assert commands.execute("confirm_alignment", body, _identity("admin"))[1]["reason_code"] == "request_id_reused"
+
+
+def test_invalid_envelope_or_arguments_are_recorded_without_echoing_input(ctx):
+    bodies = [
+        {**_notes_body(ctx), "expected_version": "uno"},
+        _body({"step_id": ctx["step_id"], "notes": "n", SECRET: 1}, expected_version=1),
+        _body({"step_id": ctx["step_id"], "notes": "   "}, expected_version=1),
+    ]
+    for body in bodies:
+        status, payload = commands.execute("append_step_notes", body, _identity())
+        assert status == 400 and payload["reason_code"] == "invalid_arguments"
+        assert SECRET not in json.dumps(payload) and "error" not in payload
+        assert _record(body["request_id"])["status"] == "error"
+        assert len(_attempts(body["request_id"])) == 1
+    assert SECRET not in _notes(ctx["step_id"])
+
+
+def test_concurrent_claim_from_another_process_is_replayed(ctx):
+    """El reclamo se lee dentro de BEGIN IMMEDIATE: si otro proceso tiene la escritura y registra
+    el mismo request_id, este pedido espera y responde con su recibo sin repetir el efecto."""
+    import sqlite3
+    import threading
+    import time
+
+    import orchestrator.paths as paths
+    body = _notes_body(ctx)
+    other = sqlite3.connect(str(paths.DB_PATH), isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")
+    other.execute(
+        "INSERT INTO ui_commands (request_id, command, category, project, capability_profile, input_hash, "
+        "status, receipt_hash, result_version, created_at, updated_at) VALUES (?, 'append_step_notes', "
+        "'workflow_mutation', ?, 'workflow_operator', ?, 'ok', 'hash-de-otro', 7, 'x', 'x')",
+        (body["request_id"], PROJECT, _input_hash("append_step_notes", body)),
+    )
+    results = []
+    worker = threading.Thread(
+        target=lambda: results.append(commands.execute("append_step_notes", body, _identity())))
+    worker.start()
+    time.sleep(0.5)
+    assert not results
+    other.execute("COMMIT")
+    other.close()
+    worker.join(10)
+    status, payload = results[0]
+    assert status == 200 and payload["receipt"]["replayed"] is True
+    assert payload["receipt"]["receipt_hash"] == "hash-de-otro"
+    assert SECRET not in _notes(ctx["step_id"])
 
 
 # ── I4: perfil ───────────────────────────────────────────────────────────────
@@ -343,6 +394,7 @@ def test_failing_domain_function_rolls_back_and_records_error(ctx, monkeypatch):
     body = _body({"step_id": ctx["step_id"], "context_id": ctx["context_id"], "checkpoint": "c"})
     status, payload = commands.execute("confirm_alignment", body, _identity())
     assert status == 500 and payload["reason_code"] == "internal_error" and "falla" not in json.dumps(payload)
+    assert payload["hint"]
     assert _alignments(ctx["context_id"]) == 0
     assert _record(body["request_id"])["status"] == "error"
 

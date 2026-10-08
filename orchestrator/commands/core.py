@@ -1,12 +1,18 @@
 """Despacho de comandos de la UI (RFC-010 §3.1-§3.2, I2-I6).
 
-Orden de evaluación de un comando nuevo: sobre del pedido, argumentos, capacidad del perfil,
-proyecto dueño, alcance y versión esperada. Todo lo que no termina en `ok` se registra igual
-(registro lógico + intento) y no tiene efectos. El efecto, la comprobación de versión y el
-registro `ok` van en una sola transacción SQLite.
+Orden de evaluación de un comando nuevo: `request_id`, comando, sobre del pedido, argumentos,
+capacidad del perfil, proyecto dueño, alcance y versión esperada. Todo pedido con un
+`request_id` válido deja su registro lógico y su intento, termine como termine; lo que no
+termina en `ok` no tiene efectos.
 
-Privacidad (I3): el registro guarda el compromiso de la entrada y del recibo, nunca los
-argumentos ni el resultado; el recibo solo lleva IDs, versión, conteos y códigos.
+Concurrencia: el reclamo del `request_id`, la comprobación de versión, el efecto y el registro
+`ok` van en una sola transacción `BEGIN IMMEDIATE`, que serializa también contra otros procesos
+(un servidor MCP, la CLI). Si el comando falla, el registro del fallo se escribe en otra
+transacción que vuelve a leer el `request_id` por si otro proceso lo registró mientras tanto.
+
+Privacidad (I3): el registro guarda compromisos de la entrada y del recibo, nunca argumentos,
+resultados ni el nombre de un comando desconocido; las respuestas solo llevan códigos, pistas
+fijas, IDs, versión y conteos. El detalle de un error queda en el log del servidor.
 """
 
 from __future__ import annotations
@@ -41,7 +47,9 @@ ENVELOPE_SCHEMA = {
     },
 }
 
-_TERMINAL = {"ok", "denied", "conflict", "error", "interrupted"}
+# Nombre y categoría con que se registra un comando que no está en el catálogo: su nombre real
+# viene del cliente y no se guarda en claro (va dentro del compromiso de la entrada).
+UNKNOWN_COMMAND = "_unknown"
 
 _HINTS = {
     "capability_denied": (
@@ -60,18 +68,25 @@ _HINTS = {
     "request_id_reused": (
         "Ese request_id ya se usó con otro comando o con otros argumentos. Generá uno nuevo."
     ),
+    "invalid_arguments": (
+        "El pedido no cumple el esquema del comando (GET /api/v1/commands lo publica). "
+        "Los comandos versionados exigen expected_version."
+    ),
+    "unknown_command": "El comando no existe en el catálogo (GET /api/v1/commands).",
+    "not_found": "El objeto indicado no existe. Volvé a leer la vista.",
+    "project_mismatch": "El proyecto declarado no es el dueño del objeto indicado.",
+    "execution_error": "La operación rechazó el pedido; el detalle quedó en el log del servidor.",
+    "internal_error": "Error interno; el detalle quedó en el log del servidor.",
 }
 
 
 class _Outcome(Exception):
-    """Fin anticipado de un comando sin efectos (denegado, conflicto o error de entrada)."""
+    """Fin anticipado de un comando sin efectos (denegado, conflicto o error)."""
 
-    def __init__(self, status: str, reason_code: str, error: Optional[str] = None,
-                 project: Optional[str] = None):
+    def __init__(self, status: str, reason_code: str, project: Optional[str] = None):
         super().__init__(reason_code)
         self.status = status
         self.reason_code = reason_code
-        self.error = error
         self.project = project
 
 
@@ -80,11 +95,11 @@ def _now() -> str:
 
 
 def _canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
 def _http_status(status: str, reason_code: Optional[str]) -> int:
-    if status == "ok":
+    if status in {"ok", "interrupted"}:
         return 200
     if status == "accepted":
         return 202
@@ -92,8 +107,6 @@ def _http_status(status: str, reason_code: Optional[str]) -> int:
         return 403
     if status in {"conflict", "busy"}:
         return 409
-    if status == "interrupted":
-        return 200
     if reason_code in {"not_found", "unknown_command"}:
         return 404
     if reason_code == "internal_error":
@@ -102,9 +115,8 @@ def _http_status(status: str, reason_code: Optional[str]) -> int:
 
 
 def _response(status: str, reason_code: Optional[str] = None, *, receipt: Optional[dict] = None,
-              version: Optional[int] = None, job_id: Optional[str] = None,
-              error: Optional[str] = None) -> tuple[int, dict]:
-    payload: dict[str, Any] = {
+              version: Optional[int] = None, job_id: Optional[str] = None) -> tuple[int, dict]:
+    return _http_status(status, reason_code), {
         "status": status,
         "reason_code": reason_code,
         "hint": _HINTS.get(reason_code or ""),
@@ -112,16 +124,27 @@ def _response(status: str, reason_code: Optional[str] = None, *, receipt: Option
         "job_id": job_id,
         "version": version,
     }
-    if error:
-        payload["error"] = error
-    return _http_status(status, reason_code), payload
 
 
-def _request_id(raw: str) -> str:
+def _request_id(body: Any) -> Optional[str]:
+    raw = body.get("request_id") if isinstance(body, dict) else None
+    if not isinstance(raw, str):
+        return None
     try:
         return str(uuid.UUID(raw))
-    except (ValueError, AttributeError, TypeError):
-        raise ArgumentValidationError("request_id must be a UUID") from None
+    except ValueError:
+        return None
+
+
+def input_commitment(name: str, body: dict) -> str:
+    """Compromiso de todo lo que define el pedido: comando, sobre y argumentos."""
+    return _commitment(_canonical({
+        "command": name,
+        "project": body.get("project"),
+        "expected_version": body.get("expected_version"),
+        "confirmation": body.get("confirmation"),
+        "args": body.get("args"),
+    }))
 
 
 def _owner_row(conn, command: catalog.Command, args: dict):
@@ -158,7 +181,7 @@ def _receipt(request_id: str, command: str, status: str, reason_code: Optional[s
     return receipt
 
 
-def _write_record(conn, *, exists: bool, request_id: str, command: catalog.Command,
+def _write_record(conn, *, exists: bool, request_id: str, name: str, category: str,
                   identity: ExecutionIdentity, project: Optional[str], input_hash: str,
                   status: str, reason_code: Optional[str], receipt_hash: Optional[str],
                   version: Optional[int]) -> None:
@@ -175,17 +198,33 @@ def _write_record(conn, *, exists: bool, request_id: str, command: catalog.Comma
         "INSERT INTO ui_commands (request_id, command, category, project, capability_profile, "
         "input_hash, status, reason_code, receipt_hash, result_version, created_at, updated_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (request_id, command.name, command.category, project, identity.capability_profile,
+        (request_id, name, category, project, identity.capability_profile,
          input_hash, status, reason_code, receipt_hash, version, now, now),
     )
 
 
-def _replay(conn, row, request_id: str) -> tuple[int, dict]:
+def _existing(conn, request_id: str, name: str, input_hash: str):
+    """Respuesta para un `request_id` ya registrado, o `None` si se puede (re)evaluar.
+
+    Corre dentro de la transacción del llamador: así el reclamo es atómico entre procesos.
+    """
+    row = conn.execute(
+        "SELECT command, input_hash, status, reason_code, receipt_hash, result_version "
+        "FROM ui_commands WHERE request_id = ?",
+        (request_id,),
+    ).fetchone()
+    if row is None:
+        return None, False
+    if row["command"] != name or row["input_hash"] != input_hash:
+        _attempt(conn, request_id, "conflict", "request_id_reused")
+        return _response("conflict", "request_id_reused"), True
     status, reason_code = row["status"], row["reason_code"]
+    if status == "not_admitted":
+        return None, True
     if status in {"queued", "running"}:
         job = conn.execute("SELECT id FROM jobs WHERE request_id = ?", (request_id,)).fetchone()
         _attempt(conn, request_id, "accepted", None)
-        return _response("accepted", job_id=job["id"] if job else None)
+        return _response("accepted", job_id=job["id"] if job else None), True
     _attempt(conn, request_id, status, reason_code)
     receipt = {
         "request_id": request_id,
@@ -196,105 +235,98 @@ def _replay(conn, row, request_id: str) -> tuple[int, dict]:
         "receipt_hash": row["receipt_hash"],
         "replayed": True,
     }
-    return _response(status, reason_code, receipt=receipt, version=row["result_version"])
+    return _response(status, reason_code, receipt=receipt, version=row["result_version"]), True
 
 
 def execute(name: str, body: Any, identity: Optional[ExecutionIdentity] = None) -> tuple[int, dict]:
     """Ejecuta un comando de la UI y devuelve `(status HTTP, respuesta)` (RFC-010 §3.1)."""
     from orchestrator.db import _conn, _write_lock, atomic_mutation
 
-    command = catalog.get(name)
-    if command is None:
-        return _response("error", "unknown_command", error=f"unknown command: {name}")
-    try:
-        validate_arguments(ENVELOPE_SCHEMA, body)
-        request_id = _request_id(body["request_id"])
-    except ArgumentValidationError as exc:
-        return _response("error", "invalid_arguments", error=str(exc))
+    request_id = _request_id(body)
+    if request_id is None:
+        # Sin un request_id válido no hay registro al que asociar el intento (I3).
+        return _response("error", "invalid_arguments")
 
+    command = catalog.get(name)
+    record_name = command.name if command else UNKNOWN_COMMAND
+    category = command.category if command else "none"
     identity = identity or ui_identity()
-    args = body["args"]
-    input_hash = _commitment(_canonical({
-        "command": name,
-        "project": body.get("project"),
-        "expected_version": body.get("expected_version"),
-        "confirmation": body.get("confirmation"),
-        "args": args,
-    }))
+    input_hash = input_commitment(name, body)
+    project = body.get("project") if isinstance(body.get("project"), str) else None
 
     with _write_lock:
         conn = _conn()
-        existing = conn.execute(
-            "SELECT command, input_hash, status, reason_code, receipt_hash, result_version "
-            "FROM ui_commands WHERE request_id = ?",
-            (request_id,),
-        ).fetchone()
-        if existing is not None:
-            if existing["command"] != name or existing["input_hash"] != input_hash:
-                with atomic_mutation():
-                    _attempt(conn, request_id, "conflict", "request_id_reused")
-                return _response("conflict", "request_id_reused")
-            if existing["status"] != "not_admitted":
-                with atomic_mutation():
-                    return _replay(conn, existing, request_id)
-
-        project = body.get("project")
+        exists = False
         try:
             with atomic_mutation():
+                answer, exists = _existing(conn, request_id, record_name, input_hash)
+                if answer is not None:
+                    return answer
+                if command is None:
+                    raise _Outcome("error", "unknown_command")
+                args = _validated(command, body)
                 project = _admit(conn, command, identity, args, body)
-                if command.versioned:
-                    current = _owner_row(conn, command, args)["version"]
-                    if current != body["expected_version"]:
-                        raise _Outcome("conflict", "version_conflict")
+                if command.versioned and _owner_row(conn, command, args)["version"] != body["expected_version"]:
+                    raise _Outcome("conflict", "version_conflict", project)
                 result = catalog.domain_handler(command)(command.to_domain(args))
                 row = _owner_row(conn, command, args)
                 version = row["version"] if row is not None else None
                 receipt = _receipt(request_id, name, "ok", None, version, command.receipt(args, result))
-                _write_record(conn, exists=existing is not None, request_id=request_id,
-                              command=command, identity=identity, project=project,
+                _write_record(conn, exists=exists, request_id=request_id, name=record_name,
+                              category=category, identity=identity, project=project,
                               input_hash=input_hash, status="ok", reason_code=None,
                               receipt_hash=receipt["receipt_hash"], version=version)
                 _attempt(conn, request_id, "ok", None)
             return _response("ok", receipt=receipt, version=version)
         except _Outcome as outcome:
-            status, reason_code, error = outcome.status, outcome.reason_code, outcome.error
+            status, reason_code = outcome.status, outcome.reason_code
             project = outcome.project or project
         except ValueError as exc:
-            reason_code = getattr(exc, "reason_code", "execution_error")
-            status, error = "error", str(exc)
+            _log.info("commands: %s rechazado por la operación: %s", record_name, exc)
+            status, reason_code = "error", getattr(exc, "reason_code", "execution_error")
         except Exception:
-            _log.exception("commands: error en %s", name)
-            status, reason_code, error = "error", "internal_error", None
+            _log.exception("commands: error en %s", record_name)
+            status, reason_code = "error", "internal_error"
 
-        receipt = _receipt(request_id, name, status, reason_code, None)
         with atomic_mutation():
-            _write_record(conn, exists=existing is not None, request_id=request_id,
-                          command=command, identity=identity, project=project,
+            # Otro proceso pudo registrar el mismo request_id mientras este fallaba.
+            answer, exists = _existing(conn, request_id, record_name, input_hash)
+            if answer is not None:
+                return answer
+            receipt = _receipt(request_id, record_name, status, reason_code, None)
+            _write_record(conn, exists=exists, request_id=request_id, name=record_name,
+                          category=category, identity=identity, project=project,
                           input_hash=input_hash, status=status, reason_code=reason_code,
                           receipt_hash=receipt["receipt_hash"], version=None)
             _attempt(conn, request_id, status, reason_code)
-        return _response(status, reason_code, receipt=receipt, error=error)
+        return _response(status, reason_code, receipt=receipt)
+
+
+def _validated(command: catalog.Command, body: dict) -> dict:
+    try:
+        validate_arguments(ENVELOPE_SCHEMA, body)
+        validate_arguments(command.schema, body["args"])
+    except ArgumentValidationError as exc:
+        _log.info("commands: argumentos inválidos para %s: %s", command.name, exc)
+        raise _Outcome("error", "invalid_arguments") from None
+    return body["args"]
 
 
 def _admit(conn, command: catalog.Command, identity: ExecutionIdentity, args: dict, body: dict) -> str:
-    """Valida y autoriza sin efectos; devuelve el proyecto dueño o lanza `_Outcome`."""
-    try:
-        validate_arguments(command.schema, args)
-    except ArgumentValidationError as exc:
-        raise _Outcome("error", "invalid_arguments", str(exc)) from None
+    """Autoriza sin efectos; devuelve el proyecto dueño o lanza `_Outcome`."""
     if command.category not in PROFILE_CAPABILITIES[identity.capability_profile]:
         raise _Outcome("denied", "capability_denied")
     row = _owner_row(conn, command, args)
     if row is None:
-        raise _Outcome("error", "not_found", f"{command.owner[0]} {args[command.owner[1]]} not found")
+        raise _Outcome("error", "not_found")
     project = row["project"]
     declared = body.get("project")
     if declared is not None and declared != project:
-        raise _Outcome("error", "project_mismatch", "project does not own the target object", project)
+        raise _Outcome("error", "project_mismatch", project)
     if project not in identity.project_scope:
-        raise _Outcome("denied", "project_out_of_scope", project=project)
+        raise _Outcome("denied", "project_out_of_scope", project)
     if command.versioned and "expected_version" not in body:
-        raise _Outcome("error", "invalid_arguments", "expected_version is required for this command", project)
+        raise _Outcome("error", "invalid_arguments", project)
     return project
 
 
@@ -304,7 +336,6 @@ def catalog_view(identity: Optional[ExecutionIdentity] = None) -> dict:
     granted = PROFILE_CAPABILITIES[identity.capability_profile]
     commands = []
     for command in catalog.CATALOG.values():
-        enabled = command.category in granted and bool(identity.project_scope)
         reason = None
         if command.category not in granted:
             reason = "capability_denied"
@@ -313,7 +344,7 @@ def catalog_view(identity: Optional[ExecutionIdentity] = None) -> dict:
         commands.append({
             "name": command.name,
             "category": command.category,
-            "enabled": enabled,
+            "enabled": reason is None,
             "reason_code": reason,
             "versioned": command.versioned,
             "destructive": command.destructive,
