@@ -33,12 +33,16 @@ TOOL_CATEGORIES = {
     "import_agent_context": "memory_ingest",
 }
 
+# Enmienda de RFC-010 §3.1 a RFC-008: categorías sin herramienta MCP todavía, solo para `admin`.
+ADMIN_ONLY_CATEGORIES = frozenset({"project_admin", "maintenance"})
+CATEGORIES = frozenset(TOOL_CATEGORIES.values()) | ADMIN_ONLY_CATEGORIES
+
 PROFILE_CAPABILITIES = {
     "readonly": frozenset({"read"}),
     "observability": frozenset({"read", "append"}),
     "workflow_operator": frozenset({"read", "append", "workflow_mutation", "workflow_transition"}),
     "memory_curator": frozenset({"read", "memory_ingest"}),
-    "admin": frozenset(TOOL_CATEGORIES.values()),
+    "admin": CATEGORIES,
 }
 _SURFACES = frozenset({"chatgpt_desktop", "codex_cli", "codex_ide", "claude_code", "ssh_client", "other"})
 _TRANSPORTS = frozenset({"stdio", "ssh_stdio"})
@@ -227,6 +231,8 @@ def _validate_value(schema: dict[str, Any], value: Any, path: str) -> None:
         raise ValueError(f"{path} must be at least {schema['minimum']}")
     if "maximum" in schema and value > schema["maximum"]:
         raise ValueError(f"{path} must be at most {schema['maximum']}")
+    if "minLength" in schema and isinstance(value, str) and len(value.strip()) < schema["minLength"]:
+        raise ValueError(f"{path} must contain at least {schema['minLength']} non-blank character(s)")
     if "minItems" in schema and isinstance(value, list) and len(value) < schema["minItems"]:
         raise ValueError(f"{path} must contain at least {schema['minItems']} item(s)")
     if "array" in expected_types and isinstance(value, list):

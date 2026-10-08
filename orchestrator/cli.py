@@ -1180,6 +1180,16 @@ def doctor(
             ok(f"{label}: perfil {env['ORCHESTRATOR_MCP_PROFILE']}, "
                f"{len([p for p in env['ORCHESTRATOR_MCP_PROJECTS'].split(',') if p.strip()])} proyecto(s) en alcance")
 
+    console.print("\n[bold cyan]Gobernanza de la UI (comandos)[/bold cyan]")
+    from orchestrator.commands.policy import ui_config_issues, ui_identity
+    ui_issues = ui_config_issues(set(projects))
+    if ui_issues:
+        warn("UI: " + "; ".join(ui_issues),
+             "Para habilitar escrituras: ai-orchestrator fix --ui-profile <perfil> --ui-projects <alias,...>")
+    else:
+        ui = ui_identity()
+        ok(f"UI: perfil {ui.capability_profile}, {len(ui.project_scope)} proyecto(s) en alcance")
+
     # ── 4. Proyectos ──────────────────────────────────────────────────────
     console.print("\n[bold cyan]Proyectos registrados[/bold cyan]")
     if not projects:
@@ -1707,6 +1717,8 @@ def fix_command(
     all_fixes: bool = typer.Option(False, "--all", help="Aplicar todas las mejoras automáticas disponibles."),
     mcp_profile: str = typer.Option("readonly", "--mcp-profile", help="Perfil MCP a declarar en las configs de cliente (readonly, observability, workflow_operator, memory_curator, admin)."),
     mcp_projects: Optional[str] = typer.Option(None, "--mcp-projects", help="Alias permitidos, separados por coma. Por defecto: el alias registrado para este repo."),
+    ui_profile: Optional[str] = typer.Option(None, "--ui-profile", help="Perfil de los comandos de la UI (RFC-010). Sin esta opción no se toca la configuración de la UI."),
+    ui_projects: Optional[str] = typer.Option(None, "--ui-projects", help="Alias en alcance de la UI, separados por coma. Por defecto: el alias registrado para este repo."),
 ):
     """Aplica mejoras automáticas detectadas por 'doctor'."""
     _ensure_db()
@@ -1751,6 +1763,21 @@ def fix_command(
         _mcp_entry(project_root, mcp_profile, scope, "codex_cli"), did, skip, fail,
         project_root=project_root,
     )
+
+    if ui_profile is not None:
+        console.print("\n[bold cyan]UI (comandos gobernados)[/bold cyan]")
+        from orchestrator.commands.policy import write_ui_config
+        if ui_profile not in PROFILE_CAPABILITIES:
+            fail(f"--ui-profile inválido: {ui_profile}")
+            raise typer.Exit(code=1)
+        ui_scope = _mcp_default_scope(project_root) if ui_projects is None else [
+            p.strip() for p in ui_projects.split(",") if p.strip()
+        ]
+        if not ui_scope:
+            fail("Sin alias para el alcance de la UI: registrá el repo o pasá --ui-projects")
+            raise typer.Exit(code=1)
+        write_ui_config(ui_profile, ui_scope)
+        did(f"UI: perfil {ui_profile}, {len(set(ui_scope))} proyecto(s) en alcance")
 
     # ── 2. MCP global en ~/.claude/settings.json ──────────────────────────
     console.print("\n[bold cyan]MCP global[/bold cyan]")
