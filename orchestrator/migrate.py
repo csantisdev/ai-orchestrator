@@ -364,6 +364,13 @@ def apply_rfc010_schema(conn: sqlite3.Connection) -> None:
     _run_script(conn, RFC010_TABLES)
 
 
+def apply_rfc010_jobs_run_id(conn: sqlite3.Connection) -> None:
+    """RFC-010 PR 4: el run que creó un trabajo `run_task`, para marcarlo interrumpido al
+    reconciliar (§3.3). Idempotente."""
+    if "run_id" not in _table_columns(conn, "jobs"):
+        conn.execute("ALTER TABLE jobs ADD COLUMN run_id INTEGER REFERENCES runs(id)")
+
+
 def _with_lock_retry(apply, attempts: int = 3, wait: float = 1.0) -> None:
     """Reintenta una migración si otro proceso (un servidor MCP, la CLI) retiene la escritura
     más allá de `busy_timeout`; si no se libera, falla con un mensaje que dice qué pasa."""
@@ -757,3 +764,17 @@ def run_migrations() -> None:
                         raise
 
                 _with_lock_retry(apply)
+
+        with _write_lock:
+            if not _already_applied(conn, "rfc010_jobs_run_id"):
+                def apply_run_id() -> None:
+                    try:
+                        conn.execute("BEGIN IMMEDIATE")
+                        apply_rfc010_jobs_run_id(conn)
+                        _mark_applied(conn, "rfc010_jobs_run_id")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        raise
+
+                _with_lock_retry(apply_run_id)

@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from orchestrator.commands import catalog
+from orchestrator.commands import budget, catalog, jobs
 from orchestrator.commands.policy import ui_identity
 from orchestrator.mcp_governance import (
     PROFILE_CAPABILITIES,
@@ -77,17 +77,32 @@ _HINTS = {
     "project_mismatch": "El proyecto declarado no es el dueño del objeto indicado.",
     "execution_error": "La operación rechazó el pedido; el detalle quedó en el log del servidor.",
     "internal_error": "Error interno; el detalle quedó en el log del servidor.",
+    "resource_busy": (
+        "Otro trabajo tiene el recurso (job_id). Reenviá el mismo pedido, con el mismo request_id, "
+        "cuando termine."
+    ),
+    "budget_exceeded": (
+        "La reserva de costo de este comando excede el presupuesto diario del proyecto. Subí "
+        "daily_budget_usd en el context.yaml o budgets.default_daily_budget_usd en config.yaml."
+    ),
+    "scope_changed": "El perfil, el alcance o el objeto cambiaron entre encolar y ejecutar.",
+    "server_restart": (
+        "El servidor se reinició con el trabajo en curso. Revisá el estado antes de reintentar "
+        "con un request_id nuevo; un run interrumpido no se reintenta solo."
+    ),
 }
 
 
 class _Outcome(Exception):
     """Fin anticipado de un comando sin efectos (denegado, conflicto o error)."""
 
-    def __init__(self, status: str, reason_code: str, project: Optional[str] = None):
+    def __init__(self, status: str, reason_code: str, project: Optional[str] = None,
+                 job_id: Optional[str] = None):
         super().__init__(reason_code)
         self.status = status
         self.reason_code = reason_code
         self.project = project
+        self.job_id = job_id
 
 
 def _now() -> str:
@@ -147,19 +162,6 @@ def input_commitment(name: str, body: dict) -> str:
     }))
 
 
-def _owner_row(conn, command: catalog.Command, args: dict):
-    kind, argument = command.owner
-    if kind == "step":
-        return conn.execute(
-            "SELECT c.project AS project, s.version AS version FROM steps s "
-            "JOIN contexts c ON c.id = s.context_id WHERE s.id = ?",
-            (args[argument],),
-        ).fetchone()
-    return conn.execute(
-        "SELECT project, version FROM contexts WHERE id = ?", (args[argument],)
-    ).fetchone()
-
-
 def _attempt(conn, request_id: str, status: str, reason_code: Optional[str]) -> None:
     conn.execute(
         "INSERT INTO ui_command_attempts (request_id, ts, status, reason_code) VALUES (?, ?, ?, ?)",
@@ -167,7 +169,7 @@ def _attempt(conn, request_id: str, status: str, reason_code: Optional[str]) -> 
     )
 
 
-def _receipt(request_id: str, command: str, status: str, reason_code: Optional[str],
+def make_receipt(request_id: str, command: str, status: str, reason_code: Optional[str],
              version: Optional[int], extra: Optional[dict] = None) -> dict:
     receipt = {
         "request_id": request_id,
@@ -253,6 +255,7 @@ def execute(name: str, body: Any, identity: Optional[ExecutionIdentity] = None) 
     identity = identity or ui_identity()
     input_hash = input_commitment(name, body)
     project = None
+    holder = None
 
     with _write_lock:
         conn = _conn()
@@ -266,21 +269,29 @@ def execute(name: str, body: Any, identity: Optional[ExecutionIdentity] = None) 
                     raise _Outcome("error", "unknown_command")
                 args = _validated(command, body)
                 project = _admit(conn, command, identity, args, body)
-                if command.versioned and _owner_row(conn, command, args)["version"] != body["expected_version"]:
+                if command.versioned and catalog.owner_row(conn, command, args)["version"] != body["expected_version"]:
                     raise _Outcome("conflict", "version_conflict", project)
-                result = catalog.domain_handler(command)(command.to_domain(args))
-                row = _owner_row(conn, command, args)
-                version = row["version"] if row is not None else None
-                receipt = _receipt(request_id, name, "ok", None, version, command.receipt(args, result))
-                _write_record(conn, exists=exists, request_id=request_id, name=record_name,
-                              category=category, identity=identity, project=project,
-                              input_hash=input_hash, status="ok", reason_code=None,
-                              receipt_hash=receipt["receipt_hash"], version=version)
-                _attempt(conn, request_id, "ok", None)
+                record = dict(conn=conn, exists=exists, request_id=request_id, name=record_name,
+                              category=category, identity=identity, project=project, input_hash=input_hash)
+                if command.is_job:
+                    job_id = _enqueue(command, args, record)
+                else:
+                    job_id = None
+                    result = catalog.domain_handler(command)(command.to_domain(args))
+                    row = catalog.owner_row(conn, command, args)
+                    version = row["version"] if row is not None else None
+                    receipt = make_receipt(request_id, name, "ok", None, version, command.receipt(args, result))
+                    _write_record(**record, status="ok", reason_code=None,
+                                  receipt_hash=receipt["receipt_hash"], version=version)
+                    _attempt(conn, request_id, "ok", None)
+            if job_id is not None:
+                jobs.start(job_id, command, args, body)
+                return _response("accepted", job_id=job_id)
             return _response("ok", receipt=receipt, version=version)
         except _Outcome as outcome:
             status, reason_code = outcome.status, outcome.reason_code
             project = outcome.project or project
+            holder = outcome.job_id
         except ValueError as exc:
             _log.info("commands: %s rechazado por la operación: %s", record_name, exc)
             status, reason_code = "error", getattr(exc, "reason_code", "execution_error")
@@ -288,18 +299,42 @@ def execute(name: str, body: Any, identity: Optional[ExecutionIdentity] = None) 
             _log.exception("commands: error en %s", record_name)
             status, reason_code = "error", "internal_error"
 
+        # `busy` no es terminal: el registro queda `not_admitted` y el mismo request_id se
+        # vuelve a evaluar al reenviarlo (§3.2, I14).
+        record_status = "not_admitted" if status == "busy" else status
         with atomic_mutation():
             # Otro proceso pudo registrar el mismo request_id mientras este fallaba.
             answer, exists = _existing(conn, request_id, record_name, input_hash)
             if answer is not None:
                 return answer
-            receipt = _receipt(request_id, record_name, status, reason_code, None)
+            receipt = make_receipt(request_id, record_name, status, reason_code, None)
             _write_record(conn, exists=exists, request_id=request_id, name=record_name,
                           category=category, identity=identity, project=project,
-                          input_hash=input_hash, status=status, reason_code=reason_code,
+                          input_hash=input_hash, status=record_status, reason_code=reason_code,
                           receipt_hash=receipt["receipt_hash"], version=None)
             _attempt(conn, request_id, status, reason_code)
-        return _response(status, reason_code, receipt=receipt)
+        return _response(status, reason_code, receipt=receipt, job_id=holder)
+
+
+def _enqueue(command: catalog.Command, args: dict, record: dict) -> str:
+    """Admite y encola un trabajo dentro de la transacción del comando (§3.3, §3.5)."""
+    conn, project, request_id = record["conn"], record["project"], record["request_id"]
+    resources = command.resources(args, project) if command.resources else []
+    holder = jobs.busy_holder(conn, resources)
+    if holder is not None:
+        raise _Outcome("busy", "resource_busy", project, job_id=holder)
+    estimate = None
+    if command.calls_provider:
+        estimate = command.estimate_usd(args)
+        limit = budget.daily_limit(project, catalog._config())
+        if budget.committed_usd(conn, project) + estimate > limit:
+            raise _Outcome("denied", "budget_exceeded", project)
+    _write_record(**record, status="queued", reason_code=None, receipt_hash=None, version=None)
+    if estimate is not None:
+        budget.reserve(conn, request_id, project, estimate)
+    job_id = jobs.enqueue(conn, request_id, command.name, resources)
+    _attempt(conn, request_id, "accepted", None)
+    return job_id
 
 
 def _validated(command: catalog.Command, body: dict) -> dict:
@@ -312,18 +347,18 @@ def _validated(command: catalog.Command, body: dict) -> dict:
     return body["args"]
 
 
-def _admit(conn, command: catalog.Command, identity: ExecutionIdentity, args: dict, body: dict) -> str:
+def _admit(conn, command: catalog.Command, identity: ExecutionIdentity, args: dict, body: dict) -> Optional[str]:
     """Autoriza sin efectos; devuelve el proyecto dueño o lanza `_Outcome`."""
     if command.category not in PROFILE_CAPABILITIES[identity.capability_profile]:
         raise _Outcome("denied", "capability_denied")
-    row = _owner_row(conn, command, args)
+    row = catalog.owner_row(conn, command, args)
     if row is None:
         raise _Outcome("error", "not_found")
     project = row["project"]
     declared = body.get("project")
     if declared is not None and declared != project:
         raise _Outcome("error", "project_mismatch", project)
-    if project not in identity.project_scope:
+    if project is not None and project not in identity.project_scope:
         raise _Outcome("denied", "project_out_of_scope", project)
     if command.versioned and "expected_version" not in body:
         raise _Outcome("error", "invalid_arguments", project)
@@ -339,7 +374,7 @@ def catalog_view(identity: Optional[ExecutionIdentity] = None) -> dict:
         reason = None
         if command.category not in granted:
             reason = "capability_denied"
-        elif not identity.project_scope:
+        elif command.owner is not None and not identity.project_scope:
             reason = "project_out_of_scope"
         commands.append({
             "name": command.name,

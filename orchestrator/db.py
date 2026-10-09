@@ -182,7 +182,7 @@ def insert_run(
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (ts, project, provider, model, status, task, preview, parent_run_id, step_id),
         )
-        conn.commit()
+        commit_if_not_atomic(conn)
         return cur.lastrowid  # type: ignore[return-value]
 
 

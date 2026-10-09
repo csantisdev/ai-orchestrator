@@ -21,13 +21,9 @@ _MAX_PARALLEL = 4
 _semaphore = threading.Semaphore(_MAX_PARALLEL)
 
 
-def submit_run(
-    project: str,
-    task: str,
-    config: dict,
-    model: Optional[str] = None,
-    ctx=None,
-) -> int:
+def create_pending_run(project: str, task: str, announce: bool = True) -> tuple[int, Optional[int]]:
+    """Crea el run pendiente vinculado al paso activo y, salvo `announce=False` (quien lo crea
+    dentro de una transacción lo anuncia tras el commit), lo anuncia por SSE."""
     from orchestrator.router import _fetch_active_context
     active = _fetch_active_context(project)
     step_id = active["active_step"]["id"] if active and active.get("active_step") else None
@@ -40,8 +36,23 @@ def submit_run(
         status="pending",
         step_id=step_id,
     )
+    if announce:
+        announce_run(run_id, project)
+    return run_id, step_id
+
+
+def announce_run(run_id: int, project: str) -> None:
     BUS.publish("run_started", json.dumps({"run_id": run_id, "project": project}))
 
+
+def submit_run(
+    project: str,
+    task: str,
+    config: dict,
+    model: Optional[str] = None,
+    ctx=None,
+) -> int:
+    run_id, step_id = create_pending_run(project, task)
     thread = threading.Thread(
         target=_worker,
         args=(run_id, project, task, config, model, ctx, step_id),
