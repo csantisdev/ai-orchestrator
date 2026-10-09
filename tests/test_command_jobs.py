@@ -33,12 +33,28 @@ def env(tmp_path, monkeypatch):
     write_ui_config("admin", [PROJECT])
     pending = []
     monkeypatch.setattr(jobs, "_spawn", pending.append)
+    monkeypatch.setattr(jobs, "start_heartbeat", lambda: None)
     events = []
     from orchestrator.sse import BUS
     monkeypatch.setattr(BUS, "publish", lambda kind, data: events.append((kind, json.loads(data))))
-    jobs.reconcile()
+    _orphan_all()
     yield {"pending": pending, "events": events, "monkeypatch": monkeypatch}
+    _orphan_all()
+
+
+def _orphan_all():
+    """Deja los trabajos activos de otros tests como de un ejecutor muerto y los reconcilia."""
+    _conn().execute("UPDATE jobs SET executor='muerto', heartbeat_at='2000-01-01T00:00:00+00:00' "
+                    "WHERE status IN ('queued', 'running')")
+    _conn().commit()
     jobs.reconcile()
+
+
+def _as_dead_executor(*job_ids):
+    for job_id in job_ids:
+        _conn().execute("UPDATE jobs SET executor='servidor-muerto', heartbeat_at='2000-01-01T00:00:00+00:00' "
+                        "WHERE id=?", (job_id,))
+    _conn().commit()
 
 
 def _fake_job(monkeypatch, name="fake_job", resources=("shared",), calls=None, fail=False, **extra):
@@ -216,6 +232,8 @@ def test_reconcile_leaves_no_job_running_and_does_not_retry_runs(env):
     _conn().commit()
     env["pending"].clear()
 
+    assert jobs.reconcile() == 0, "los trabajos de este proceso están vivos"
+    _as_dead_executor(queued, running)
     assert jobs.reconcile() == 2
     assert _conn().execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued', 'running')").fetchone()[0] == 0
     for job_id, body in ((queued, queued_body), (running, running_body)):
@@ -228,11 +246,66 @@ def test_reconcile_leaves_no_job_running_and_does_not_retry_runs(env):
     assert jobs.reconcile() == 0
 
 
-def test_server_startup_reconciles():
+def test_jobs_of_a_live_executor_are_not_interrupted(env):
+    _fake_job(env["monkeypatch"])
+    body = _body({})
+    job_id = commands.execute("fake_job", body, _identity())[1]["job_id"]
+    _conn().execute("UPDATE jobs SET executor='otro-servidor-vivo', heartbeat_at=? WHERE id=?",
+                    (jobs._now(), job_id))
+    _conn().commit()
+    assert jobs.reconcile() == 0
+    assert _job(job_id)["status"] == "queued"
+    _as_dead_executor(job_id)
+
+
+def test_a_reconciled_job_is_not_overwritten_when_its_thread_finishes(env):
+    """Si otro proceso lo dio por muerto, el hilo original no lo pisa al terminar."""
+    reconciled = []
+
+    def work(job, args, project):
+        _as_dead_executor(job.job_id)
+        reconciled.append(jobs.reconcile())
+        return {}
+
+    env["monkeypatch"].setitem(catalog.CATALOG, "slow_job", Command(
+        name="slow_job", category="maintenance", schema={"type": "object"}, owner=None, job=work))
+    body = _body({})
+    job_id = commands.execute("slow_job", body, _identity())[1]["job_id"]
+    _drain(env["pending"])
+    assert reconciled == [1]
+    assert _job(job_id)["status"] == "interrupted"
+    assert _record(body["request_id"])["status"] == "interrupted"
+
+
+def test_a_job_owned_by_another_executor_is_not_started_here(env):
+    calls = _fake_job(env["monkeypatch"])
+    job_id = commands.execute("fake_job", _body({}), _identity())[1]["job_id"]
+    _conn().execute("UPDATE jobs SET executor='otro' WHERE id=?", (job_id,))
+    _conn().commit()
+    _drain(env["pending"])
+    assert calls == [] and _job(job_id)["status"] == "queued"
+    _as_dead_executor(job_id)
+
+
+def test_heartbeat_renews_only_this_executors_lease(env):
+    _fake_job(env["monkeypatch"], "job_a", resources=("a",))
+    _fake_job(env["monkeypatch"], "job_b", resources=("b",))
+    mine = commands.execute("job_a", _body({}), _identity())[1]["job_id"]
+    other = commands.execute("job_b", _body({}), _identity())[1]["job_id"]
+    old = "2000-01-01T00:00:00+00:00"
+    _conn().execute("UPDATE jobs SET heartbeat_at=? WHERE id IN (?, ?)", (old, mine, other))
+    _conn().execute("UPDATE jobs SET executor='otro' WHERE id=?", (other,))
+    _conn().commit()
+    jobs.heartbeat()
+    assert _job(mine)["heartbeat_at"] != old and _job(other)["heartbeat_at"] == old
+
+
+def test_server_startup_reconciles_and_keeps_its_lease():
     import inspect
 
     from orchestrator import server
-    assert "_jobs.reconcile()" in inspect.getsource(server.serve)
+    source = inspect.getsource(server.serve)
+    assert "_jobs.reconcile()" in source and "_jobs.start_heartbeat()" in source
 
 
 # ── I15: presupuesto y proveedor ─────────────────────────────────────────────
@@ -323,10 +396,12 @@ def test_run_task_goes_through_the_egress_gated_worker(env, monkeypatch):
     assert seen == [PROJECT]
 
 
-def test_estimate_uses_the_most_expensive_candidate():
+def test_estimate_uses_the_most_expensive_candidate_plus_the_router():
     config = {"providers": {"cheap": {"model": "deepseek-chat"}, "pricey": {"model": "claude-opus-4-8"}},
-              "budgets": {"reservation_input_tokens": 1_000_000, "reservation_output_tokens": 0}}
-    assert budget.estimate_run_usd(config, None) == pytest.approx(5.0)
+              "router": {"provider": "cheap"},
+              "budgets": {"reservation_input_tokens": 1_000_000, "reservation_output_tokens": 0,
+                          "reservation_router_input_tokens": 1_000_000, "reservation_router_output_tokens": 0}}
+    assert budget.estimate_run_usd(config, None) == pytest.approx(5.0 + 0.14)
     assert budget.estimate_run_usd(config, "cheap") == pytest.approx(0.14)
     unknown = {"providers": {"x": {"model": "modelo-sin-precio"}},
                "budgets": {"reservation_input_tokens": 1_000_000, "reservation_output_tokens": 0}}
@@ -360,14 +435,31 @@ def test_index_project_docs_takes_the_project_rag_resource(env, monkeypatch):
     assert unknown[0] == 404 and unknown[1]["reason_code"] == "not_found"
 
 
-def test_jobs_run_id_migration_is_idempotent():
+def test_jobs_execution_migration_is_idempotent():
     import sqlite3
 
-    from orchestrator.migrate import RFC010_TABLES, _run_script, _table_columns, apply_rfc010_jobs_run_id
+    from orchestrator.migrate import RFC010_TABLES, _run_script, _table_columns, apply_rfc010_jobs_execution
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE runs (id INTEGER PRIMARY KEY)")
     _run_script(conn, RFC010_TABLES)
     assert "run_id" not in _table_columns(conn, "jobs")
-    apply_rfc010_jobs_run_id(conn)
-    apply_rfc010_jobs_run_id(conn)
-    assert "run_id" in _table_columns(conn, "jobs")
+    apply_rfc010_jobs_execution(conn)
+    apply_rfc010_jobs_execution(conn)
+    assert {"run_id", "executor", "heartbeat_at"} <= _table_columns(conn, "jobs")
+
+
+def test_daily_cost_counts_the_router(env):
+    from orchestrator.db import daily_cost
+    project = "proyecto-con-router"
+    _conn().execute(
+        "INSERT INTO runs (ts, project, provider, model, status, task, cost_usd, router_cost_usd) "
+        "VALUES (?, ?, 'p', 'm', 'done', 't', 0.5, 0.25)",
+        (jobs._now(), project),
+    )
+    _conn().execute(
+        "INSERT INTO runs (ts, project, provider, model, status, task, router_cost_usd) "
+        "VALUES (?, ?, 'p', 'm', 'failed', 't', 0.125)",
+        (jobs._now(), project),
+    )
+    _conn().commit()
+    assert daily_cost(project) == pytest.approx(0.875)

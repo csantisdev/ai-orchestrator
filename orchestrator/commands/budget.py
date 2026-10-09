@@ -3,7 +3,8 @@
 Antes de encolar, el costo estimado se reserva contra el presupuesto diario del proyecto. La
 estimación es conservadora: los tokens previstos (configurables en `budgets`) al precio del
 modelo más caro que el comando podría usar. Al terminar, la reserva se concilia con el costo
-real del run (que ya cuenta en `daily_cost`) o se libera si el trabajo no llegó a gastarlo.
+real del run, proveedor más router (`daily_cost` cuenta ambos), o se libera si el trabajo no
+llegó a gastarlo.
 """
 
 from __future__ import annotations
@@ -13,6 +14,9 @@ from typing import Optional
 
 DEFAULT_RESERVATION_INPUT_TOKENS = 16_000
 DEFAULT_RESERVATION_OUTPUT_TOKENS = 8_000
+# El router LLM solo clasifica la tarea: prompt corto y respuesta de una línea.
+DEFAULT_ROUTER_INPUT_TOKENS = 4_000
+DEFAULT_ROUTER_OUTPUT_TOKENS = 500
 
 
 def period() -> str:
@@ -24,25 +28,35 @@ def _price(table: dict, input_tokens: int, output_tokens: int) -> float:
     return (input_tokens * float(table.get("input", 0)) + output_tokens * float(table.get("output", 0))) / 1_000_000
 
 
+def _model_cost(config: dict, pricing: dict, provider: str, input_tokens: int, output_tokens: int) -> float:
+    """Costo de `provider` con su modelo configurado; sin precio conocido, el más alto del catálogo."""
+    model = (config.get("providers", {}).get(provider) or {}).get("model")
+    table = pricing.get(model) if model else None
+    if table:
+        return _price(table, input_tokens, output_tokens)
+    return max((_price(t, input_tokens, output_tokens) for t in pricing.values()), default=0.0)
+
+
 def estimate_run_usd(config: dict, provider: Optional[str]) -> float:
-    """Costo máximo previsto de un run: con `provider` forzado, su modelo; si no, el más caro
-    de los proveedores configurados (el router puede elegir cualquiera). Un modelo sin precio
-    conocido se estima con el precio más alto del catálogo."""
-    from orchestrator.config import get_pricing_table
+    """Costo máximo previsto de un run. Con `provider` forzado, su modelo. Si no, el más caro
+    de los proveedores configurados (el router puede elegir cualquiera) más la llamada al router
+    LLM, que también se cobra (`router_cost_usd`)."""
+    from orchestrator.config import get_pricing_table, get_router_config
 
     budgets = config.get("budgets", {})
     input_tokens = int(budgets.get("reservation_input_tokens", DEFAULT_RESERVATION_INPUT_TOKENS))
     output_tokens = int(budgets.get("reservation_output_tokens", DEFAULT_RESERVATION_OUTPUT_TOKENS))
     pricing = get_pricing_table(config)
-    ceiling = max((_price(table, input_tokens, output_tokens) for table in pricing.values()), default=0.0)
-    providers = config.get("providers", {})
-    names = [provider] if provider else list(providers)
-    estimates = []
-    for name in names:
-        model = (providers.get(name) or {}).get("model")
-        table = pricing.get(model) if model else None
-        estimates.append(_price(table, input_tokens, output_tokens) if table else ceiling)
-    return round(max(estimates, default=ceiling), 6)
+    names = [provider] if provider else list(config.get("providers", {})) or [""]
+    estimate = max(_model_cost(config, pricing, name, input_tokens, output_tokens) for name in names)
+    if not provider:
+        router_provider = get_router_config(config).get("provider", "")
+        estimate += _model_cost(
+            config, pricing, router_provider,
+            int(budgets.get("reservation_router_input_tokens", DEFAULT_ROUTER_INPUT_TOKENS)),
+            int(budgets.get("reservation_router_output_tokens", DEFAULT_ROUTER_OUTPUT_TOKENS)),
+        )
+    return round(estimate, 6)
 
 
 def daily_limit(project: str, config: dict) -> float:

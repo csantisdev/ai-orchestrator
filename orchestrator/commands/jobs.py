@@ -6,8 +6,14 @@
 - **Empezar:** en una transacción nueva se vuelven a comprobar perfil, alcance, dueño y versión
   (TOCTOU); si cambiaron, el trabajo termina en `conflict` sin efectos.
 - **Etapas:** cada cambio se guarda en `jobs.stage` y se publica por SSE (`job_stage`).
-- **Reinicio:** `reconcile()` corre al arrancar el servidor y deja `interrupted` todo trabajo
-  `queued` o `running`; un `run_task` interrumpido marca su run como fallido y no se reintenta.
+- **Lease:** cada trabajo guarda el proceso que lo ejecuta (`executor`) y un latido
+  (`heartbeat_at`) que ese proceso renueva mientras vive. Un trabajo solo se cierra si sigue
+  `queued`/`running` y con el mismo `executor`: lo que otro proceso ya reconcilió no se
+  sobrescribe.
+- **Reinicio:** `reconcile()` corre al arrancar el servidor y después con cada latido, y deja
+  `interrupted` todo trabajo `queued` o `running` cuyo ejecutor dejó de latir (un servidor
+  muerto); los de un servidor vivo no se tocan. Un `run_task` interrumpido marca su run como
+  fallido y no se reintenta.
 
 Los argumentos del comando viven solo en memoria del hilo del trabajo (I3): tras un reinicio no
 hay con qué reanudarlo, y por eso queda `interrupted`.
@@ -28,6 +34,11 @@ from orchestrator.commands import budget, catalog
 _log = logging.getLogger(__name__)
 
 ACTIVE = ("queued", "running")
+EXECUTOR_ID = str(uuid.uuid4())
+LEASE_SECONDS = 60
+HEARTBEAT_SECONDS = 15
+_heartbeat_lock = threading.Lock()
+_heartbeat_started = False
 # Estado del trabajo → estado del registro del comando.
 _COMMAND_STATUS = {"done": "ok", "failed": "error", "conflict": "conflict", "interrupted": "interrupted"}
 
@@ -83,14 +94,17 @@ def busy_holder(conn, resources: list[str]) -> Optional[str]:
 
 def enqueue(conn, request_id: str, kind: str, resources: list[str]) -> str:
     job_id = str(uuid.uuid4())
+    now = _now()
     conn.execute(
-        "INSERT INTO jobs (id, request_id, kind, resources, status, created_at) VALUES (?, ?, ?, ?, 'queued', ?)",
-        (job_id, request_id, kind, json.dumps(sorted(set(resources))), _now()),
+        "INSERT INTO jobs (id, request_id, kind, resources, status, created_at, executor, heartbeat_at) "
+        "VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)",
+        (job_id, request_id, kind, json.dumps(sorted(set(resources))), now, EXECUTOR_ID, now),
     )
     return job_id
 
 
 def start(job_id: str, command: catalog.Command, args: dict, body: dict) -> None:
+    start_heartbeat()
     _publish(job_id, "queued", None)
     _spawn(lambda: run(job_id, command, args, body))
 
@@ -113,8 +127,9 @@ def _recheck(conn, command: catalog.Command, args: dict, body: dict, project: Op
     return None
 
 
-def _finish(conn, job_id: str, request_id: str, name: str, status: str,
-            reason_code: Optional[str], extra: Optional[dict]) -> None:
+def _finish(conn, job_id: str, executor: Optional[str], request_id: str, name: str, status: str,
+            reason_code: Optional[str], extra: Optional[dict]) -> bool:
+    """Cierra el trabajo si sigue activo y en manos de `executor`; si no, no toca nada."""
     from orchestrator.commands.core import make_receipt
 
     extra = dict(extra or {})
@@ -122,15 +137,19 @@ def _finish(conn, job_id: str, request_id: str, name: str, status: str,
     command_status = _COMMAND_STATUS[status]
     receipt = make_receipt(request_id, name, command_status, reason_code, None, extra)
     now = _now()
-    conn.execute(
-        "UPDATE jobs SET status = ?, receipt_hash = ?, finished_at = ? WHERE id = ?",
-        (status, receipt["receipt_hash"], now, job_id),
-    )
+    closed = conn.execute(
+        "UPDATE jobs SET status = ?, receipt_hash = ?, finished_at = ? "
+        "WHERE id = ? AND executor IS ? AND status IN ('queued', 'running')",
+        (status, receipt["receipt_hash"], now, job_id, executor),
+    ).rowcount
+    if not closed:
+        return False
     conn.execute(
         "UPDATE ui_commands SET status = ?, reason_code = ?, receipt_hash = ?, updated_at = ? WHERE request_id = ?",
         (command_status, reason_code, receipt["receipt_hash"], now, request_id),
     )
     budget.close(conn, request_id, float(actual) if status == "done" and actual is not None else None)
+    return True
 
 
 def run(job_id: str, command: catalog.Command, args: dict, body: dict) -> None:
@@ -140,19 +159,22 @@ def run(job_id: str, command: catalog.Command, args: dict, body: dict) -> None:
         conn = _conn()
         with atomic_mutation():
             row = conn.execute(
-                "SELECT j.status, j.request_id, c.project FROM jobs j "
+                "SELECT j.status, j.executor, j.request_id, c.project FROM jobs j "
                 "JOIN ui_commands c ON c.request_id = j.request_id WHERE j.id = ?",
                 (job_id,),
             ).fetchone()
-            if row is None or row["status"] != "queued":
+            if row is None or row["status"] != "queued" or row["executor"] != EXECUTOR_ID:
                 return
             request_id, project = row["request_id"], row["project"]
             reason = _recheck(conn, command, args, body, project)
             if reason is not None:
-                _finish(conn, job_id, request_id, command.name, "conflict", reason, None)
+                _finish(conn, job_id, EXECUTOR_ID, request_id, command.name, "conflict", reason, None)
             else:
                 now = _now()
-                conn.execute("UPDATE jobs SET status = 'running', started_at = ? WHERE id = ?", (now, job_id))
+                conn.execute(
+                    "UPDATE jobs SET status = 'running', started_at = ?, heartbeat_at = ? WHERE id = ?",
+                    (now, now, job_id),
+                )
                 conn.execute(
                     "UPDATE ui_commands SET status = 'running', updated_at = ? WHERE request_id = ?",
                     (now, request_id),
@@ -171,26 +193,71 @@ def run(job_id: str, command: catalog.Command, args: dict, body: dict) -> None:
 
     with _write_lock:
         with atomic_mutation():
-            _finish(_conn(), job_id, request_id, command.name, status, reason, extra)
+            closed = _finish(_conn(), job_id, EXECUTOR_ID, request_id, command.name, status, reason, extra)
+    if not closed:
+        _log.warning("jobs: %s ya fue reconciliado por otro proceso; no se sobrescribe", job_id)
+        return
     _publish(job_id, status, None)
 
 
 def reconcile() -> int:
-    """Al arrancar: ningún trabajo queda `queued` ni `running` (I7). Devuelve cuántos cerró."""
+    """Ningún trabajo de un ejecutor muerto queda `queued` ni `running` (I7). Un ejecutor está
+    muerto si no es este proceso y su latido tiene más de `LEASE_SECONDS`. Devuelve cuántos cerró."""
     from orchestrator.db import _conn, _write_lock, atomic_mutation
 
     with _write_lock:
         conn = _conn()
         with atomic_mutation():
             rows = conn.execute(
-                "SELECT j.id, j.request_id, j.run_id, c.command FROM jobs j "
-                "JOIN ui_commands c ON c.request_id = j.request_id WHERE j.status IN ('queued', 'running')"
+                "SELECT j.id, j.executor, j.request_id, j.run_id, c.command FROM jobs j "
+                "JOIN ui_commands c ON c.request_id = j.request_id "
+                "WHERE j.status IN ('queued', 'running') AND (j.executor IS NULL OR (j.executor <> ? "
+                "AND (j.heartbeat_at IS NULL OR julianday(j.heartbeat_at) < julianday(?) - ? / 86400.0)))",
+                (EXECUTOR_ID, _now(), LEASE_SECONDS),
             ).fetchall()
+            closed = 0
             for row in rows:
-                _finish(conn, row["id"], row["request_id"], row["command"], "interrupted", "server_restart", None)
+                if not _finish(conn, row["id"], row["executor"], row["request_id"], row["command"],
+                               "interrupted", "server_restart", None):
+                    continue
+                closed += 1
                 if row["run_id"] is not None:
                     conn.execute(
                         "UPDATE runs SET status = 'failed', response = ? WHERE id = ? AND status = 'pending'",
                         ("interrupted: el servidor se reinició durante el run", row["run_id"]),
                     )
-    return len(rows)
+    return closed
+
+
+def heartbeat() -> None:
+    """Renueva el lease de los trabajos activos de este proceso."""
+    from orchestrator.db import _conn, _write_lock
+
+    with _write_lock:
+        conn = _conn()
+        conn.execute(
+            "UPDATE jobs SET heartbeat_at = ? WHERE executor = ? AND status IN ('queued', 'running')",
+            (_now(), EXECUTOR_ID),
+        )
+        conn.commit()
+
+
+def start_heartbeat() -> None:
+    """Hilo del proceso que late y reconcilia los trabajos de ejecutores muertos (una vez)."""
+    global _heartbeat_started
+    with _heartbeat_lock:
+        if _heartbeat_started:
+            return
+        _heartbeat_started = True
+
+    def loop() -> None:
+        import time
+        while True:
+            time.sleep(HEARTBEAT_SECONDS)
+            try:
+                heartbeat()
+                reconcile()
+            except Exception:
+                _log.exception("jobs: falló el latido")
+
+    threading.Thread(target=loop, daemon=True).start()

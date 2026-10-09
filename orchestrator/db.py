@@ -413,7 +413,7 @@ def fts_search(query: str, limit: int = 10) -> list[sqlite3.Row]:
 
 
 def daily_cost(project: str) -> float:
-    """Costo acumulado del dia LOCAL para `project`.
+    """Costo acumulado del dia LOCAL para `project`, incluido el del router LLM.
 
     `ts` se guarda en UTC; convertir cada `ts` a fecha local con
     `local_date_from_ts` (en vez de comparar el string UTC directamente)
@@ -427,7 +427,9 @@ def daily_cost(project: str) -> float:
     # Ventana de 2 dias UTC alcanza cualquier offset de zona horaria real.
     window_start = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
     rows = conn.execute(
-        "SELECT ts, cost_usd FROM runs WHERE project=? AND julianday(ts) >= julianday(?) AND cost_usd IS NOT NULL",
+        "SELECT ts, COALESCE(cost_usd, 0) + COALESCE(router_cost_usd, 0) AS cost_usd FROM runs "
+        "WHERE project=? AND julianday(ts) >= julianday(?) "
+        "AND (cost_usd IS NOT NULL OR router_cost_usd IS NOT NULL)",
         (project, window_start),
     ).fetchall()
     total = 0.0

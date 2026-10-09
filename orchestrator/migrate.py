@@ -364,11 +364,17 @@ def apply_rfc010_schema(conn: sqlite3.Connection) -> None:
     _run_script(conn, RFC010_TABLES)
 
 
-def apply_rfc010_jobs_run_id(conn: sqlite3.Connection) -> None:
-    """RFC-010 PR 4: el run que creó un trabajo `run_task`, para marcarlo interrumpido al
-    reconciliar (§3.3). Idempotente."""
-    if "run_id" not in _table_columns(conn, "jobs"):
+def apply_rfc010_jobs_execution(conn: sqlite3.Connection) -> None:
+    """RFC-010 PR 4 (§3.3): el run que creó un trabajo `run_task`, para marcarlo interrumpido al
+    reconciliar, y el lease del proceso que ejecuta el trabajo (`executor` + `heartbeat_at`), para
+    no interrumpir trabajos vivos de otro servidor. Idempotente."""
+    columns = _table_columns(conn, "jobs")
+    if "run_id" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN run_id INTEGER REFERENCES runs(id)")
+    if "executor" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN executor TEXT")
+    if "heartbeat_at" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN heartbeat_at TEXT")
 
 
 def _with_lock_retry(apply, attempts: int = 3, wait: float = 1.0) -> None:
@@ -766,15 +772,15 @@ def run_migrations() -> None:
                 _with_lock_retry(apply)
 
         with _write_lock:
-            if not _already_applied(conn, "rfc010_jobs_run_id"):
-                def apply_run_id() -> None:
+            if not _already_applied(conn, "rfc010_jobs_execution"):
+                def apply_jobs_execution() -> None:
                     try:
                         conn.execute("BEGIN IMMEDIATE")
-                        apply_rfc010_jobs_run_id(conn)
-                        _mark_applied(conn, "rfc010_jobs_run_id")
+                        apply_rfc010_jobs_execution(conn)
+                        _mark_applied(conn, "rfc010_jobs_execution")
                         conn.commit()
                     except Exception:
                         conn.rollback()
                         raise
 
-                _with_lock_retry(apply_run_id)
+                _with_lock_retry(apply_jobs_execution)

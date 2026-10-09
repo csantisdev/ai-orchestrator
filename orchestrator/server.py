@@ -140,6 +140,7 @@ def serve(
     _interrupted = _jobs.reconcile()
     if _interrupted:
         _console.print(f"[yellow]{_interrupted} trabajo(s) de una ejecución anterior quedaron interrupted[/yellow]")
+    _jobs.start_heartbeat()
 
     def _store_chroma_stats() -> bool:
         """Calcula las estadísticas de ChromaDB y solo las guarda si el cálculo funcionó.
