@@ -68,6 +68,12 @@ class JobContext:
             conn.commit()
         _publish(self.job_id, "running", name, **extra)
 
+    def owned(self) -> bool:
+        """El trabajo sigue `running` en manos de este proceso (no lo reconcilió otro)."""
+        from orchestrator.db import _conn
+        row = _conn().execute("SELECT status, executor FROM jobs WHERE id = ?", (self.job_id,)).fetchone()
+        return row is not None and row["status"] == "running" and row["executor"] == EXECUTOR_ID
+
     def create_run(self, project: str, task: str) -> tuple[int, Optional[int]]:
         """Crea el run pendiente y lo vincula al trabajo en una sola transacción."""
         from orchestrator import background

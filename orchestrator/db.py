@@ -206,18 +206,22 @@ def update_run(
     router_cost_usd: Optional[float] = None,
     routing_source: str = "unknown",
     cost_pricing_key: Optional[str] = None,
-) -> None:
+    only_if_pending: bool = False,
+) -> bool:
+    """Guarda el resultado del run. Con `only_if_pending`, solo si el run sigue pendiente (un
+    trabajo reconciliado ya lo cerró): en ese caso guarda solo el costo, que sí se gastó, y
+    devuelve False."""
     conn = _conn()
     in_tok, out_tok = _extract_tokens(result)
     with _write_lock:
-        conn.execute(
+        updated = conn.execute(
             """UPDATE runs SET
                provider=?, model=?, status='done', response=?,
                duration_ms=?, input_tokens=?, output_tokens=?,
                cache_creation_tokens=?, cache_read_tokens=?,
                cost_usd=?, routing_reason=?, router_cost_usd=?, routing_source=?,
                cost_pricing_key=?
-               WHERE id=?""",
+               WHERE id=?""" + (" AND status='pending'" if only_if_pending else ""),
             (
                 result.provider, result.model, result.text,
                 duration_ms, in_tok, out_tok,
@@ -226,8 +230,14 @@ def update_run(
                 cost_usd, routing_reason, router_cost_usd, routing_source,
                 cost_pricing_key, run_id,
             ),
-        )
+        ).rowcount
+        if not updated and only_if_pending:
+            conn.execute(
+                "UPDATE runs SET cost_usd=?, router_cost_usd=?, cost_pricing_key=? WHERE id=?",
+                (cost_usd, router_cost_usd, cost_pricing_key, run_id),
+            )
         conn.commit()
+    return bool(updated)
 
 
 VALID_TASK_CLASSES = frozenset({

@@ -157,7 +157,8 @@ def _run_task(job: "JobContext", args: dict, project: Optional[str]) -> dict:
 
     run_id, step_id = job.create_run(project, args["task"])
     job.stage("provider", run_id=run_id)
-    background._worker(run_id, project, args["task"], _config(), args.get("provider"), None, step_id)
+    background._worker(run_id, project, args["task"], _config(), args.get("provider"), None, step_id,
+                       still_owned=job.owned)
     row = _conn().execute(
         "SELECT status, cost_usd, router_cost_usd FROM runs WHERE id = ?", (run_id,)
     ).fetchone()

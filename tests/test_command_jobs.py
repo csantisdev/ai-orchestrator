@@ -316,8 +316,8 @@ def provider_calls(env):
     from orchestrator import background
     calls = []
 
-    def worker(run_id, project, task, config, model, ctx, step_id=None):
-        calls.append({"run_id": run_id, "model": model})
+    def worker(run_id, project, task, config, model, ctx, step_id=None, still_owned=None):
+        calls.append({"run_id": run_id, "model": model, "owned": still_owned()})
         _conn().execute("UPDATE runs SET status='done', cost_usd=0.25 WHERE id=?", (run_id,))
         _conn().commit()
 
@@ -360,6 +360,7 @@ def test_run_reserves_then_settles_with_the_real_cost(env, provider_calls):
 
     _drain(env["pending"])
     assert len(provider_calls) == 1 and provider_calls[0]["model"] == "deepseek"
+    assert provider_calls[0]["owned"] is True
     run_id = _job(job_id)["run_id"]
     assert run_id == provider_calls[0]["run_id"]
     reservation = _reservation(body["request_id"])
@@ -463,3 +464,62 @@ def test_daily_cost_counts_the_router(env):
     )
     _conn().commit()
     assert daily_cost(project) == pytest.approx(0.875)
+
+
+def _pending_run(project=PROJECT):
+    run_id = _conn().execute(
+        "INSERT INTO runs (ts, project, provider, model, status, task) VALUES (?, ?, '?', '?', 'pending', 't')",
+        (jobs._now(), project),
+    ).lastrowid
+    _conn().commit()
+    return run_id
+
+
+def test_fenced_update_keeps_a_reconciled_run_failed_but_records_its_cost():
+    from orchestrator.db import update_run
+    from orchestrator.providers.base import CompletionResult
+    run_id = _pending_run()
+    _conn().execute("UPDATE runs SET status='failed', response='interrupted' WHERE id=?", (run_id,))
+    _conn().commit()
+    result = CompletionResult(text="respuesta tardía", provider="p", model="m")
+    assert update_run(run_id, result, 10, "r", cost_usd=0.5, router_cost_usd=0.1, only_if_pending=True) is False
+    row = _conn().execute("SELECT status, response, cost_usd, router_cost_usd FROM runs WHERE id=?", (run_id,)).fetchone()
+    assert tuple(row) == ("failed", "interrupted", 0.5, 0.1)
+
+    other = _pending_run()
+    assert update_run(other, result, 10, "r", cost_usd=0.5, only_if_pending=True) is True
+    assert _conn().execute("SELECT status FROM runs WHERE id=?", (other,)).fetchone()[0] == "done"
+
+
+def test_worker_does_not_route_or_call_a_provider_once_the_job_is_lost(monkeypatch, tmp_path):
+    from orchestrator import background
+    import orchestrator.index as index_module
+    monkeypatch.setattr(index_module, "get_project_path", lambda alias: tmp_path)
+    import orchestrator.providers.factory as factory
+    import orchestrator.router as router
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("no debe llamarse")
+
+    monkeypatch.setattr(router, "decide_provider", forbidden)
+    monkeypatch.setattr(router, "force_provider", forbidden)
+    monkeypatch.setattr(factory, "build_provider", forbidden)
+    run_id = _pending_run()
+    background._worker(run_id, PROJECT, "t", {}, "deepseek", None, None, still_owned=lambda: False)
+    assert _conn().execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()[0] == "pending"
+
+
+def test_job_owned_reflects_reconciliation(env):
+    seen = []
+
+    def work(job, args, project):
+        seen.append(job.owned())
+        _as_dead_executor(job.job_id)
+        seen.append(job.owned())
+        return {}
+
+    env["monkeypatch"].setitem(catalog.CATALOG, "probe_job", Command(
+        name="probe_job", category="maintenance", schema={"type": "object"}, owner=None, job=work))
+    commands.execute("probe_job", _body({}), _identity())
+    _drain(env["pending"])
+    assert seen == [True, False]

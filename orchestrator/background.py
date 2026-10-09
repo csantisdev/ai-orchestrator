@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from orchestrator import egress
 from orchestrator.db import fail_run, insert_run, update_run
@@ -70,7 +70,10 @@ def _worker(
     forced_model: Optional[str],
     ctx,
     step_id: Optional[int] = None,
+    still_owned: Optional[Callable[[], bool]] = None,
 ) -> None:
+    """Ejecuta el run. `still_owned` (trabajos de RFC-010) se consulta antes de llamar al
+    proveedor; con él, el resultado solo se guarda si el run sigue pendiente."""
     policy_token = None
     try:
         from orchestrator import context as context_module
@@ -93,6 +96,10 @@ def _worker(
             policy = egress.policy_for_project(ctx, config)
 
         policy_token = egress.set_policy(policy)
+        # El router puede llamar a un LLM: tampoco se le llama si el trabajo ya no es nuestro.
+        if still_owned is not None and not still_owned():
+            _log.warning("Run %d: el trabajo ya no es de este proceso; no se enruta", run_id)
+            return
 
         from orchestrator.tracer import span as _span
 
@@ -145,6 +152,9 @@ def _worker(
 
         t0 = time.monotonic()
         _last_exc: Exception | None = None
+        if still_owned is not None and not still_owned():
+            _log.warning("Run %d: el trabajo ya no es de este proceso; no se llama al proveedor", run_id)
+            return
         with _semaphore:
             for _attempt in range(_MAX_RETRIES):
                 try:
@@ -181,7 +191,7 @@ def _worker(
         pricing = get_pricing_table(config)
         cost_usd, cost_pricing_key = calculate_cost_with_key(result, pricing)
 
-        update_run(
+        saved = update_run(
             run_id=run_id,
             result=result,
             duration_ms=duration_ms,
@@ -190,7 +200,11 @@ def _worker(
             router_cost_usd=decision.router_cost_usd,
             routing_source=decision.routing_source,
             cost_pricing_key=cost_pricing_key,
+            only_if_pending=still_owned is not None,
         )
+        if not saved and still_owned is not None:
+            _log.warning("Run %d: ya estaba cerrado como interrumpido; se guardó solo el costo", run_id)
+            return
 
         if _rag_chunks:
             try:
