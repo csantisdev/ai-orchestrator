@@ -1474,6 +1474,12 @@ orchestrator/
 - **Sesiones locales** con datos reales, sin telemetría (§12), registrando los resultados como
   evidencia en el tracking.
 - Las funciones de Labs pasan a la navegación normal solo si cumplen su criterio de permanencia.
+- **Kit de medición de Labs** (`scripts/labs_sessions.py`): arma las tareas de §21.6 y §22.5
+  con los datos locales (solo contextos elegibles), alterna la condición por sesión (grafo o
+  Contextos + Trace), abre la URL, cronometra, corrige el acierto y guarda el resultado en
+  `~/.ai-orchestrator/labs-sessions.jsonl`, sin el texto de las respuestas. `summary` calcula
+  las medianas, el acierto y el veredicto, y da la línea para registrar como evidencia en el
+  tracking.
 
 ### 23.9 Ajuste del plan
 
