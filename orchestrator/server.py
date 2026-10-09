@@ -113,6 +113,7 @@ def serve(
     from orchestrator.dashboard import build_html
     from orchestrator.index import ProjectNotFoundError
     from orchestrator.sse import BUS
+    from orchestrator.legacy_routes import CONTEXT_DELETE_ROUTE, LEGACY_POST_HANDLERS
     from orchestrator.change_watch import ChangeWatcher, activity_fingerprint, set_current_watcher
     from orchestrator.paths import DB_PATH
 
@@ -850,36 +851,12 @@ def serve(
             if self.path.startswith("/context/") and self.path.endswith("/delete"):
                 if not self._require_json_ct():
                     return
-                self._post_context_delete()
+                getattr(self, LEGACY_POST_HANDLERS[CONTEXT_DELETE_ROUTE])()
                 return
-            handler = {
-                "/clean/unmapped":          self._post_clean_unmapped,
-                "/purge-chroma-docs":       self._post_purge_chroma_docs,
-                "/purge-chroma-responses":  self._post_purge_chroma_responses,
-                "/delete-contexts":         self._post_delete_contexts,
-                "/clear-imports":           self._post_clear_imports,
-                "/rate-run":                self._post_rate_run,
-                "/evaluate-run":            self._post_evaluate_run,
-                "/import-context":          self._post_import_context,
-                "/sync-cc":                 self._post_sync_cc,
-                "/sync-git":                self._post_sync_git,
-                "/sync-codex":              self._post_sync_codex,
-                "/rates/refresh":           self._post_rates_refresh,
-                "/pick-folder":             self._post_pick_folder,
-                "/chroma-stats/refresh":    self._post_chroma_stats_refresh,
-                "/pricing/refresh":         self._post_pricing_refresh,
-                "/models/refresh":          self._post_models_refresh,
-                "/config/bcentral":         self._post_config_bcentral,
-                "/add-project":             self._post_add_project,
-                "/project/rename":          self._post_project_rename,
-                "/index-docs":              self._post_index_docs,
-                "/create-context":          self._post_create_context,
-                "/advance-step":            self._post_advance_step,
-                "/skip-step":               self._post_skip_step,
-                "/run-doctor":              self._post_run_doctor,
-                "/run-fix":                 self._post_run_fix,
-                "/run":                     self._post_run,
-            }.get(self.path)
+            # Rutas heredadas: solo las del inventario (orchestrator/legacy_routes.py, RFC-010
+            # I1); una ruta nueva fuera de /api/v1/ tiene que entrar ahí para existir.
+            handler_name = LEGACY_POST_HANDLERS.get(self.path)
+            handler = getattr(self, handler_name) if handler_name else None
             if handler is None:
                 self._reject({"error": "not found"}, 404)
                 return
