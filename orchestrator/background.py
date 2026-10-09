@@ -152,11 +152,13 @@ def _worker(
 
         t0 = time.monotonic()
         _last_exc: Exception | None = None
-        if still_owned is not None and not still_owned():
-            _log.warning("Run %d: el trabajo ya no es de este proceso; no se llama al proveedor", run_id)
-            return
         with _semaphore:
             for _attempt in range(_MAX_RETRIES):
+                # Antes de cada intento (tras esperar el semáforo o un reintento): un trabajo que
+                # otro proceso dio por interrumpido no gasta más.
+                if still_owned is not None and not still_owned():
+                    _log.warning("Run %d: el trabajo ya no es de este proceso; no se llama al proveedor", run_id)
+                    return
                 try:
                     with _span(f"{decision.provider} · API", run_id=run_id):
                         _gen = provider.complete_stream(prompt=task, system=system_prompt)

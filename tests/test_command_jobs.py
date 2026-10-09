@@ -523,3 +523,32 @@ def test_job_owned_reflects_reconciliation(env):
     commands.execute("probe_job", _body({}), _identity())
     _drain(env["pending"])
     assert seen == [True, False]
+
+
+def test_worker_rechecks_ownership_before_each_retry(monkeypatch, tmp_path):
+    from orchestrator import background
+    import orchestrator.index as index_module
+    import orchestrator.providers.factory as factory
+    import orchestrator.router as router
+    from orchestrator.router import RoutingDecision
+
+    monkeypatch.setattr(index_module, "get_project_path", lambda alias: tmp_path)
+    monkeypatch.setattr(router, "force_provider", lambda name: RoutingDecision(
+        provider=name, reason="r", used_fallback=False, routing_source="forced_cli"))
+    monkeypatch.setattr(background, "_RETRY_BASE", 0.0)
+    calls = []
+
+    class Flaky:
+        model = "m"
+
+        def complete_stream(self, prompt, system):
+            calls.append(1)
+            raise RuntimeError("caída del proveedor")
+            yield
+
+    monkeypatch.setattr(factory, "build_provider", lambda config, name: Flaky())
+    owned = iter([True, True, False])
+    run_id = _pending_run()
+    background._worker(run_id, PROJECT, "t", {}, "deepseek", None, None, still_owned=lambda: next(owned))
+    assert calls == [1]
+    assert _conn().execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()[0] == "pending"
