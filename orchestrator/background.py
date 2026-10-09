@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from orchestrator import egress
 from orchestrator.db import fail_run, insert_run, update_run
@@ -21,13 +21,9 @@ _MAX_PARALLEL = 4
 _semaphore = threading.Semaphore(_MAX_PARALLEL)
 
 
-def submit_run(
-    project: str,
-    task: str,
-    config: dict,
-    model: Optional[str] = None,
-    ctx=None,
-) -> int:
+def create_pending_run(project: str, task: str, announce: bool = True) -> tuple[int, Optional[int]]:
+    """Crea el run pendiente vinculado al paso activo y, salvo `announce=False` (quien lo crea
+    dentro de una transacción lo anuncia tras el commit), lo anuncia por SSE."""
     from orchestrator.router import _fetch_active_context
     active = _fetch_active_context(project)
     step_id = active["active_step"]["id"] if active and active.get("active_step") else None
@@ -40,8 +36,23 @@ def submit_run(
         status="pending",
         step_id=step_id,
     )
+    if announce:
+        announce_run(run_id, project)
+    return run_id, step_id
+
+
+def announce_run(run_id: int, project: str) -> None:
     BUS.publish("run_started", json.dumps({"run_id": run_id, "project": project}))
 
+
+def submit_run(
+    project: str,
+    task: str,
+    config: dict,
+    model: Optional[str] = None,
+    ctx=None,
+) -> int:
+    run_id, step_id = create_pending_run(project, task)
     thread = threading.Thread(
         target=_worker,
         args=(run_id, project, task, config, model, ctx, step_id),
@@ -59,7 +70,10 @@ def _worker(
     forced_model: Optional[str],
     ctx,
     step_id: Optional[int] = None,
+    still_owned: Optional[Callable[[], bool]] = None,
 ) -> None:
+    """Ejecuta el run. `still_owned` (trabajos de RFC-010) se consulta antes de llamar al
+    proveedor; con él, el resultado solo se guarda si el run sigue pendiente."""
     policy_token = None
     try:
         from orchestrator import context as context_module
@@ -82,6 +96,10 @@ def _worker(
             policy = egress.policy_for_project(ctx, config)
 
         policy_token = egress.set_policy(policy)
+        # El router puede llamar a un LLM: tampoco se le llama si el trabajo ya no es nuestro.
+        if still_owned is not None and not still_owned():
+            _log.warning("Run %d: el trabajo ya no es de este proceso; no se enruta", run_id)
+            return
 
         from orchestrator.tracer import span as _span
 
@@ -136,6 +154,11 @@ def _worker(
         _last_exc: Exception | None = None
         with _semaphore:
             for _attempt in range(_MAX_RETRIES):
+                # Antes de cada intento (tras esperar el semáforo o un reintento): un trabajo que
+                # otro proceso dio por interrumpido no gasta más.
+                if still_owned is not None and not still_owned():
+                    _log.warning("Run %d: el trabajo ya no es de este proceso; no se llama al proveedor", run_id)
+                    return
                 try:
                     with _span(f"{decision.provider} · API", run_id=run_id):
                         _gen = provider.complete_stream(prompt=task, system=system_prompt)
@@ -170,7 +193,7 @@ def _worker(
         pricing = get_pricing_table(config)
         cost_usd, cost_pricing_key = calculate_cost_with_key(result, pricing)
 
-        update_run(
+        saved = update_run(
             run_id=run_id,
             result=result,
             duration_ms=duration_ms,
@@ -179,7 +202,11 @@ def _worker(
             router_cost_usd=decision.router_cost_usd,
             routing_source=decision.routing_source,
             cost_pricing_key=cost_pricing_key,
+            only_if_pending=still_owned is not None,
         )
+        if not saved and still_owned is not None:
+            _log.warning("Run %d: ya estaba cerrado como interrumpido; se guardó solo el costo", run_id)
+            return
 
         if _rag_chunks:
             try:

@@ -254,7 +254,7 @@ def test_without_ui_config_every_non_read_command_is_denied(ctx, tmp_path, monke
     for name, command in catalog.CATALOG.items():
         assert command.category != "read"
         args = {"step_id": ctx["step_id"], "context_id": ctx["context_id"], "checkpoint": "c",
-                "notes": "n", "status": "abandoned"}
+                "notes": "n", "status": "abandoned", "source": "git", "project": PROJECT, "task": "t"}
         args = {key: value for key, value in args.items() if key in command.schema["properties"]}
         status, payload = commands.execute(name, _body(args, expected_version=1))
         assert status == 403 and payload["reason_code"] == "capability_denied", name
@@ -383,6 +383,8 @@ def test_mcp_mutation_also_bumps_the_version(ctx):
 def test_every_command_adapts_an_mcp_domain_function():
     from orchestrator.mcp_governance import TOOL_CATEGORIES
     for command in catalog.CATALOG.values():
+        if command.is_job:
+            continue
         assert command.domain_tool in TOOL_CATEGORIES
         assert catalog.domain_handler(command) is mcp._HANDLERS[command.domain_tool]
 
@@ -414,7 +416,7 @@ def test_api_routes(ctx, tmp_path, monkeypatch):
     write_ui_config("observability", [PROJECT])
     status, listing = api_v1.dispatch(Request("GET", "/api/v1/commands"))
     enabled = {item["name"] for item in listing["commands"] if item["enabled"]}
-    assert enabled == {"confirm_alignment"}
+    assert enabled == {"confirm_alignment", "run_task"}
 
     body = _body({"step_id": ctx["step_id"], "context_id": ctx["context_id"], "checkpoint": "c"})
     status, payload = api_v1.dispatch(Request("POST", "/api/v1/commands/confirm_alignment", body=body))

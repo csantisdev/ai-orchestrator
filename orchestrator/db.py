@@ -182,7 +182,7 @@ def insert_run(
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (ts, project, provider, model, status, task, preview, parent_run_id, step_id),
         )
-        conn.commit()
+        commit_if_not_atomic(conn)
         return cur.lastrowid  # type: ignore[return-value]
 
 
@@ -206,18 +206,22 @@ def update_run(
     router_cost_usd: Optional[float] = None,
     routing_source: str = "unknown",
     cost_pricing_key: Optional[str] = None,
-) -> None:
+    only_if_pending: bool = False,
+) -> bool:
+    """Guarda el resultado del run. Con `only_if_pending`, solo si el run sigue pendiente (un
+    trabajo reconciliado ya lo cerró): en ese caso guarda solo el costo, que sí se gastó, y
+    devuelve False."""
     conn = _conn()
     in_tok, out_tok = _extract_tokens(result)
     with _write_lock:
-        conn.execute(
+        updated = conn.execute(
             """UPDATE runs SET
                provider=?, model=?, status='done', response=?,
                duration_ms=?, input_tokens=?, output_tokens=?,
                cache_creation_tokens=?, cache_read_tokens=?,
                cost_usd=?, routing_reason=?, router_cost_usd=?, routing_source=?,
                cost_pricing_key=?
-               WHERE id=?""",
+               WHERE id=?""" + (" AND status='pending'" if only_if_pending else ""),
             (
                 result.provider, result.model, result.text,
                 duration_ms, in_tok, out_tok,
@@ -226,8 +230,14 @@ def update_run(
                 cost_usd, routing_reason, router_cost_usd, routing_source,
                 cost_pricing_key, run_id,
             ),
-        )
+        ).rowcount
+        if not updated and only_if_pending:
+            conn.execute(
+                "UPDATE runs SET cost_usd=?, router_cost_usd=?, cost_pricing_key=? WHERE id=?",
+                (cost_usd, router_cost_usd, cost_pricing_key, run_id),
+            )
         conn.commit()
+    return bool(updated)
 
 
 VALID_TASK_CLASSES = frozenset({
@@ -413,7 +423,7 @@ def fts_search(query: str, limit: int = 10) -> list[sqlite3.Row]:
 
 
 def daily_cost(project: str) -> float:
-    """Costo acumulado del dia LOCAL para `project`.
+    """Costo acumulado del dia LOCAL para `project`, incluido el del router LLM.
 
     `ts` se guarda en UTC; convertir cada `ts` a fecha local con
     `local_date_from_ts` (en vez de comparar el string UTC directamente)
@@ -427,7 +437,9 @@ def daily_cost(project: str) -> float:
     # Ventana de 2 dias UTC alcanza cualquier offset de zona horaria real.
     window_start = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
     rows = conn.execute(
-        "SELECT ts, cost_usd FROM runs WHERE project=? AND julianday(ts) >= julianday(?) AND cost_usd IS NOT NULL",
+        "SELECT ts, COALESCE(cost_usd, 0) + COALESCE(router_cost_usd, 0) AS cost_usd FROM runs "
+        "WHERE project=? AND julianday(ts) >= julianday(?) "
+        "AND (cost_usd IS NOT NULL OR router_cost_usd IS NOT NULL)",
         (project, window_start),
     ).fetchall()
     total = 0.0
