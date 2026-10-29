@@ -370,6 +370,7 @@ const refreshVisible = () => Promise.all([views.refresh(), activity?.refresh(), 
 watchConnection({ onReconnect: refreshVisible });
 loadHeaderCounts();
 loadHealth();
+window.addEventListener("orchestrator:health-changed", loadHealth);
 activity?.refresh();
 // Cambios hechos desde otro proceso (agentes vía MCP, §19.4 O4–O5): se refresca lo visible.
 watchChanges({

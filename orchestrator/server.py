@@ -151,7 +151,7 @@ def serve(
         from datetime import datetime, timezone
         from orchestrator import health
         from orchestrator.rag import chroma_stats_isolated
-        stats = chroma_stats_isolated()
+        stats = chroma_stats_isolated(timeout=15.0)
         health.report("chroma", bool(stats))
         if not stats:
             return False

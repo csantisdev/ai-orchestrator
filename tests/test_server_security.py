@@ -5,6 +5,7 @@ import re
 import socket
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -114,7 +115,7 @@ def test_i4_get_picker_does_not_launch(dashboard_server, monkeypatch):
 
 def test_i5_gets_are_cache_only(dashboard_server, monkeypatch):
     import orchestrator.rag as rag
-    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda: pytest.fail("GET started chroma"))
+    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda **_: pytest.fail("GET started chroma"))
     for route in ("/rates", "/inspect", "/metrics", "/integrations/status", "/pricing", "/clean-preview"):
         assert dashboard_server[1]("GET", route)[0].status == 200
 
@@ -193,7 +194,7 @@ def test_session_expired_rejects_the_promise_and_refresh_checks_status():
 
 def test_i4_chroma_stats_failure_is_json_500(dashboard_server, monkeypatch):
     import orchestrator.rag as rag
-    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda: (_ for _ in ()).throw(RuntimeError("chroma failed")))
+    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda **_: (_ for _ in ()).throw(RuntimeError("chroma failed")))
     _, request, token = dashboard_server
     response, body = request("POST", "/chroma-stats/refresh", b"{}", _headers(token))
     assert response.status == 500
@@ -203,12 +204,30 @@ def test_i4_chroma_stats_failure_is_json_500(dashboard_server, monkeypatch):
 def test_failed_chroma_probe_keeps_the_last_valid_snapshot(dashboard_server, monkeypatch):
     import orchestrator.rag as rag
     _, request, token = dashboard_server
-    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda: {"docs": 3})
+    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda **_: {"docs": 3})
     assert request("POST", "/chroma-stats/refresh", b"{}", _headers(token))[0].status == 200
-    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda: {})
+    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda **_: {})
     assert request("POST", "/chroma-stats/refresh", b"{}", _headers(token))[0].status == 500
     _, body = request("GET", "/inspect")
     assert json.loads(body)["chroma"] == {"docs": 3}
+
+
+def test_chroma_refresh_reloads_the_degraded_pill():
+    from orchestrator.dashboard_js import _build_js
+    shell = (Path(__file__).parent.parent / "orchestrator" / "static" / "dashboard" / "shell.js").read_text(encoding="utf-8")
+    refresh = _js_function(_build_js(), "refreshChromaStats")
+    finally_block = refresh[refresh.index(".finally("):]
+    assert 'window.dispatchEvent(new Event("orchestrator:health-changed"))' in finally_block
+    assert 'window.addEventListener("orchestrator:health-changed", loadHealth)' in shell
+
+
+def test_chroma_probe_timeout_covers_a_cold_subprocess_start(dashboard_server, monkeypatch):
+    import orchestrator.rag as rag
+    calls = []
+    monkeypatch.setattr(rag, "chroma_stats_isolated", lambda **kwargs: calls.append(kwargs) or {"docs": 1})
+    _, request, token = dashboard_server
+    assert request("POST", "/chroma-stats/refresh", b"{}", _headers(token))[0].status == 200
+    assert calls[-1] == {"timeout": 15.0}
 
 
 def test_i9_security_headers_and_414(dashboard_server):
