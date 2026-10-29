@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instrucciones para agentes de código (Claude Code, Codex, Copilot, Gemini) que trabajan en este repositorio.
+Instrucciones para agentes de código (Claude Code, Codex, Copilot, Antigravity) que trabajan en este repositorio.
 
 ## Identidad en el orquestador
 
@@ -26,7 +26,24 @@ Plantillas: `.mcp.json.example` y `.codex/config.toml.example`. `ai-orchestrator
 - Rama principal: `production`. Nunca se commitea directo: todo entra por PR.
 - El ruleset exige CI verde, rama al día con `production` y todos los hilos de revisión resueltos. No hay review automático de Copilot: consume créditos del plan del dueño y se quitó del ruleset. Pedilo a mano (`gh pr edit <n> --add-reviewer "@copilot"`) solo en cambios de seguridad o si el dueño lo indica; si se pidió, leé el cuerpo completo de cada review (los hallazgos de "Previously missed" no crean hilos) antes de mergear.
 - Commits en inglés con prefijo convencional: `feat:`, `fix:`, `docs:` (scope opcional, p. ej. `fix(ingest):`).
-- Cambios no triviales: auditoría cruzada con Codex, corrección y una segunda ronda sobre lo corregido (protocolo en `docs/decisions/analyses/ANL-003-per-change-cross-audit.md`; ANL-002 es la auditoría puntual del repositorio completo). El auditor es distinto del implementador: si implementa Codex, audita Claude. Copilot CLI también consume créditos de Copilot; usalo como auditor solo en cambios de seguridad o a pedido.
+- Cambios no triviales: auditoría cruzada en dos rondas según `docs/decisions/analyses/ANL-003-per-change-cross-audit.md` (ANL-002 es la auditoría puntual del repositorio completo). Quién audita y con qué está en "Política de modelos".
+
+## Política de modelos
+
+El auditor siempre es distinto del implementador. La invocación completa de cada auditor está en ANL-003.
+
+| Rol | Herramienta y configuración | Cuándo |
+|---|---|---|
+| Implementación y arquitectura | Claude Code | Por defecto |
+| Auditor principal (rondas 1 y 2) | `codex exec --sandbox read-only -c model_reasoning_effort=high` | Todo cambio no trivial |
+| Implementación delegada | `codex exec --sandbox workspace-write -c model_reasoning_effort=medium` | Cuando se delega; entonces audita Claude |
+| Segundo auditor | Antigravity CLI: `agy --mode plan --model gemini-3.8-flash-high` | Ronda 1 de RFCs y de cambios de diseño o de seguridad; las dos rondas si reemplaza a Codex no disponible |
+| Copilot CLI y review de Copilot en PR | `copilot` | Solo en cambios de seguridad o a pedido: consume créditos del plan del dueño |
+
+- El implementador (Claude, o Codex cuando se le delega) registra su avance en el tracking; los auditores trabajan en solo lectura y nunca llaman tools MCP que escriban.
+- Fijá siempre el modelo del segundo auditor: Antigravity también ofrece modelos de Claude y GPT, y sin `--model` dejaría de ser un auditor independiente. Gemini CLI ya no se usa: no admite la autenticación disponible.
+- Si los auditores discrepan, el implementador verifica cada hallazgo contra el código; lo que siga en disputa lo decide el dueño.
+- El router por API (`ai-orchestrator run`, con `preferred_models` y `keyword_hints` de `context.yaml`) no forma parte de este flujo y está inactivo desde 2026-06. Si se reactiva, actualizá antes sus modelos contra `docs/pricing/models.json`.
 
 ## Verificación antes de abrir un PR
 
