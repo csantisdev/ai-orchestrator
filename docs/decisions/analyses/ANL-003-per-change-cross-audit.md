@@ -4,7 +4,7 @@ type: analysis
 title: Auditoria cruzada por cambio en dos rondas
 status: active
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-10-29
 related: [ANL-002]
 ---
 
@@ -26,8 +26,9 @@ aplica a un diff concreto dentro de su PR.
 | Rol | Quién | Restricción |
 |---|---|---|
 | Implementador | Codex (delegado en un worktree) o Claude | Trabaja en una rama desde `production`, nunca en `production`. |
-| Auditor de ronda 1 y 2 | Un agente distinto del implementador: Claude, Codex o Copilot CLI | Solo lectura; no modifica archivos ni ejecuta ANL-002. |
-| Revisor del PR | Copilot (`copilot-pull-request-reviewer`), automático | Sus hilos deben quedar resueltos antes del merge. |
+| Auditor de ronda 1 y 2 | Un agente distinto del implementador: Codex por defecto, Claude cuando implementa Codex | Solo lectura; no modifica archivos, no escribe en el tracking ni ejecuta ANL-002. |
+| Segundo auditor | Gemini vía Antigravity CLI, en ronda 1 de RFCs y de cambios de diseño o de seguridad, o en las dos rondas si reemplaza a Codex | Las mismas que el auditor. |
+| Revisor del PR | Copilot (`copilot-pull-request-reviewer`), a pedido en cambios de seguridad o si el responsable lo indica | Si se pidió, sus hilos deben quedar resueltos antes del merge. |
 | Responsable | Usuario | Autoriza el merge. |
 
 ## Flujo
@@ -43,16 +44,24 @@ aplica a un diff concreto dentro de su PR.
 4. Cada hallazgo aceptado se corrige, con un test de regresión cuando aplica.
 5. **Ronda 2:** el auditor revisa solo lo corregido y confirma que las
    correcciones no introducen defectos nuevos. Si aparecen, se repite el ciclo.
-6. PR a `production`: CI verde, rama al día y todos los hilos resueltos. Antes
-   de mergear se espera a que exista la review de Copilot (tarda unos minutos) y
-   se leen sus hilos y el cuerpo de la review; el ruleset no bloquea hilos que
+6. Si hay dos auditores y discrepan, el implementador verifica cada hallazgo
+   contra el código; lo que siga en disputa lo decide el responsable.
+7. PR a `production`: CI verde, rama al día y todos los hilos resueltos. Si se
+   pidió la review de Copilot, se espera a que exista (tarda unos minutos) y se
+   leen sus hilos y el cuerpo de la review; el ruleset no bloquea hilos que
    todavía no existen.
 
 ## Invocación de auditores en solo lectura
 
-- Codex: `codex exec --sandbox read-only --cd <repo> -o <salida> -`, con el
-  prompt por stdin. En bash: `... - < prompt.md`; en PowerShell:
+- Codex: `codex exec --sandbox read-only -c model_reasoning_effort=high --cd <repo> -o <salida> -`,
+  con el prompt por stdin. En bash: `... - < prompt.md`; en PowerShell:
   `Get-Content prompt.md -Raw | codex exec ... -`.
+- Antigravity CLI, desde la raíz del repo, con `--mode plan --model gemini-3.8-flash-high --effort high --print-timeout 900s`.
+  En bash: `agy -p "$(cat prompt.md)" ... > <salida>`; en PowerShell:
+  `agy -p (Get-Content prompt.md -Raw) ... > <salida>`. En modo no
+  interactivo no puede pedir permiso para ejecutar comandos: si intenta uno,
+  se le deniega y termina sin salida. Por eso el prompt le prohíbe ejecutar
+  comandos, incluye el diff y el estado ya verificado, y no le pide correr nada.
 - Copilot CLI: modo no interactivo con `--deny-tool=write`, prompt por stdin.
 - El prompt fija la rama o SHA auditado, pide la tabla de hallazgos de ANL-002
   y aclara que no se debe ejecutar el protocolo completo de ANL-002.
@@ -78,5 +87,5 @@ reales.
 - Ronda 2 sin hallazgos abiertos.
 - `python -m pytest tests/ -v` completo en verde, y los validadores que
   correspondan (`validate_decision_docs.py`, `validate_pricing_catalog.py`).
-- CI verde, review de Copilot recibida y todos sus hilos resueltos.
+- CI verde y todos los hilos resueltos, incluidos los de Copilot si se pidió su review.
 - Merge autorizado por el responsable.
