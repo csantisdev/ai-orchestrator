@@ -17,7 +17,10 @@ function refreshChromaStats(btn) {
     .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(() => { _datosLoaded = false; loadDatos(); })
     .catch(() => showToast("No se pudieron actualizar las estadísticas de ChromaDB.", true))
-    .finally(() => { if (btn) btn.disabled = false; });
+    .finally(() => {
+      if (btn) btn.disabled = false;
+      window.dispatchEvent(new Event("orchestrator:health-changed"));
+    });
 }
 
 // Providers que son auto-recuperables
