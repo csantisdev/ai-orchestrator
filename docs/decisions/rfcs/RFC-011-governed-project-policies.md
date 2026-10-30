@@ -2,7 +2,7 @@
 id: RFC-011
 type: rfc
 title: Políticas gobernadas de proyecto, invariantes de dominio y límites de desarrollo
-status: draft
+status: accepted
 created: 2026-10-27
 updated: 2026-10-29
 supersedes: []
@@ -12,8 +12,8 @@ related: [RFC-007, RFC-008, RFC-009, RFC-010, RFC-012]
 
 # RFC-011 — Políticas gobernadas de proyecto, invariantes de dominio y límites de desarrollo
 
-**Estado:** Draft  
-**Versión:** 0.4  
+**Estado:** Aceptado (2026-10-29; preguntas P1-P5 decididas por el responsable en el paso 674 del ctx #148, tras el PR #60)  
+**Versión:** 0.5  
 **Fecha:** 2026-10-29  
 **Repo de referencia:** `csantisdev/ai-orchestrator@production` = `a9fc28edced0d5e3ee8e9bb3116bb6343a7c1171` (verificado 2026-10-29)  
 **Relación con la serie:** Complementa RFC-007 (AI Control Plane), RFC-008 (acceso MCP gobernado), RFC-009 (seguridad local del dashboard) y RFC-010 (comandos gobernados desde la UI e identidad de proyectos). Si RFC-008 gobernó las capacidades de las herramientas y RFC-010 los comandos con efectos del dashboard, RFC-011 gobierna las **fronteras operativas del código y las reglas de dominio** sobre las cuales operan agentes y usuarios. No cambia ninguna decisión de RFC-008, RFC-009 ni RFC-010; la relación con cada uno está en §2.1.
@@ -37,6 +37,7 @@ related: [RFC-007, RFC-008, RFC-009, RFC-010, RFC-012]
 | I1 (v0.3) | Advertencia condicionada a que los pasos declaren archivos | I1 cubre la consulta de rutas protegidas con semántica definida; la advertencia al ejecutar queda en P3 | Un invariante no puede depender de una pregunta abierta (ambas auditorías) |
 | Aprobación con evidencia (v0.3) | Confirmación manual con `preconditions` declarativas | RFC-011 define el gate y su bloqueo; cómo se aprueba (gates de entrada y salida, evidencia observada, modos `auto`/`manual`/`auto_then_manual`) pasa a RFC-012 | Decisión del dueño 2026-10-29: aprobar con evidencia empírica del flujo, no con análisis volátil |
 | Contrato de aprobación (v0.4) | Aprobación atada solo a `step.id` y `step.version` | Contrato mínimo: `step_id`, `step_version`, `project`, `gate_name`, `policy_hash` y estado; se invalida si cambia cualquiera; validación y activación en la misma transacción (§3.4) | Un cambio de `release_gates` o un `move_context` dejaban viva una aprobación (Codex, ronda 2); permite aceptar RFC-011 sin RFC-012 |
+| Decisiones del dueño (v0.5) | Preguntas abiertas P1-P5 | P1 (a), P2 (a), P3 diferida, P4 `context.yaml` con reflejo en SQLite (§3.5, I2, I8), P5 sin herencia implícita (§9) | Decisión del dueño 2026-10-29, paso 674 del ctx #148 |
 | Forma (v0.3) | Tabla de §2 libre; §8 único; sin apéndice | Columnas de la plantilla, §8 separado y Apéndice A | `templates/RFC-TEMPLATE.md` |
 
 ---
@@ -179,7 +180,7 @@ Semántica de `protected_paths.pattern`: glob relativo a la raíz del proyecto, 
 
 ### 3.2 Tools MCP de consulta (categoría `read`)
 
-1. **`get_project_policies(project)`**: `development_rules`, `release_gates` y `conventions` del proyecto, leídas del `context.yaml` en el momento de la llamada (P4). Responde siempre que el proyecto esté en `ORCHESTRATOR_MCP_PROJECTS`, haya o no contexto activo.
+1. **`get_project_policies(project)`**: `development_rules`, `release_gates` y `conventions` del proyecto, leídas del `context.yaml` en el momento de la llamada (§3.5). Responde siempre que el proyecto esté en `ORCHESTRATOR_MCP_PROJECTS`, haya o no contexto activo.
 2. **`get_domain_rules(project, category?)`**: `terminology` e `invariants` **del proyecto consultado**, tal como están en su `context.yaml`. La respuesta nunca incluye `inherits_from` ni ningún alias, regla o relación de otro proyecto (RFC-008 §14, "Datos y egress"). Para heredar, el agente lee `inherits_from` del `context.yaml` de su repositorio y llama a `get_domain_rules` por cada alias; cada llamada se autoriza por separado según `ORCHESTRATOR_MCP_PROJECTS`, y las que caen fuera de scope responden `denied` como cualquier otra.
 
 Solo `domain_rules` se hereda, y solo por declaración explícita. `protected_paths`, `prohibited_modifications` y `release_gates` son locales a cada proyecto: un hijo que quiera las mismas reglas las declara.
@@ -189,6 +190,14 @@ Ambas tools son de solo lectura, sin efectos ni llamadas de red, y se registran 
 ### 3.3 Políticas visibles aunque el contexto se cierre
 
 Las políticas viven en `context.yaml`, no en la descripción de un contexto, así que `get_project_policies` no depende del estado de ningún contexto. El cierre automático de `advance_step` y `skip_step` se mantiene (P2, propuesta base). Esto no resuelve el X5 del ctx #51.
+
+### 3.5 Fuente de verdad y reflejo en SQLite
+
+- **Fuente de verdad:** el `context.yaml` del proyecto. Cuando el archivo se puede leer, toda respuesta MCP se arma con el archivo leído en esa llamada; la única excepción es el reflejo `stale` descrito abajo.
+- **Reflejo:** una tabla `project_policies` (`project`, `file_hash`, `policies` en JSON canónico, `refreshed_at`) guarda la última lectura válida de cada proyecto. Se actualiza cada vez que una lectura del archivo tiene éxito (tools de §3.2, arranque del servidor y `ai-orchestrator doctor`): si el `file_hash` cambió, el reflejo se reemplaza entero.
+- **Si el archivo no se puede leer** (no existe, YAML inválido o sin permisos): `get_project_policies` y `get_domain_rules` devuelven el reflejo del **mismo** proyecto marcado `stale: true`, con su `file_hash` y `refreshed_at`; si no hay reflejo, responden `denied` con `reason_code: "policy_unavailable"`.
+- **Para qué sirve el reflejo:** disponibilidad (I2), las vistas del dashboard y `doctor` (fuera de MCP), y detectar cambios de política entre lecturas. El `policy_hash` de un gate (§3.4) se calcula siempre sobre el archivo vigente: si el archivo no se puede leer, ningún paso con gate se activa.
+- **Límite de RFC-008:** el reflejo guarda varios proyectos, pero ninguna respuesta MCP incluye el reflejo de un proyecto distinto del consultado.
 
 ### 3.4 Release gates en pasos
 
@@ -206,11 +215,12 @@ RFC-011 define **qué** es un gate y **dónde** bloquea; **cómo** se aprueba lo
 ## 4. Invariantes falsables
 
 - **I1 (Rutas protegidas consultables):** `get_project_policies(project)` devuelve cada entrada de `development_rules.protected_paths` con su `pattern` y su `reason`, y una ruta coincide con un patrón exactamente según la semántica de §3.1 (glob relativo a la raíz, `/`, `**`, normalización, sin resolver enlaces). La advertencia al registrar o ejecutar un paso queda sujeta a P3.
-- **I2 (Políticas siempre disponibles, condicional a P4):** con la propuesta base de P4 (`context.yaml` como fuente de verdad), `get_project_policies(project)` devuelve el contenido actual de `context.yaml` aunque todos los contextos del proyecto estén `completed`, `abandoned` o `programado`, o no exista ninguno. Si P4 se resuelve de otra forma, I2 se reescribe antes de implementar la fase 2.
+- **I2 (Políticas siempre disponibles):** `get_project_policies(project)` devuelve el contenido actual del `context.yaml` de `project` aunque todos sus contextos estén `completed`, `abandoned` o `programado`, o no exista ninguno; si el archivo no se puede leer, devuelve el último reflejo de ese proyecto con `stale: true`, y si no hay reflejo responde `policy_unavailable` (§3.5).
 - **I3 (Herencia declarada, sin datos de otro proyecto):** la respuesta de `get_domain_rules(project)` contiene solo `terminology` e `invariants` del `context.yaml` de `project`; nunca contiene `inherits_from` ni reglas, alias o relaciones de otro proyecto. La precedencia documentada para el agente es: ante un `term` o un `name` de invariante repetido, gana la regla del proyecto consultado sobre la heredada y, entre heredadas, la del primer alias de `inherits_from`. Esto resuelve solo colisiones de nombre; dos invariantes con nombres distintos y contenido incompatible no se detectan.
 - **I4 (Gate bloqueante en toda activación):** ningún paso con gate pasa a `in_progress` sin una aprobación vigente según el contrato de §3.4 (paso, versión, proyecto, gate y `policy_hash`), verificada en la misma transacción que la activación, sea por `start_step`, al crear el contexto, por `advance_step` o por `skip_step`, desde MCP, CLI o dashboard.
 - **I5 (Aprobación fuera de MCP):** ninguna tool MCP registra ni revoca la aprobación de un gate; un intento responde `denied`.
 - **I6 (Determinismo local):** la carga y evaluación de políticas usa solo archivos locales y SQLite, sin llamadas de red.
+- **I8 (Reflejo coherente):** después de una lectura exitosa del `context.yaml`, el `file_hash` del reflejo de ese proyecto es el hash del archivo leído; ninguna respuesta MCP contiene el reflejo de otro proyecto; y con el archivo ilegible, ningún paso con gate de ese proyecto se activa.
 - **I7 (Compatibilidad):** con un `context.yaml` sin las secciones nuevas y pasos sin gate, las tools MCP existentes devuelven los mismos campos y las mismas transiciones de estado que hoy, `load_context` carga los mismos valores y ninguna llamada responde `approval_required`. El perfil MCP (RFC-008) sigue gobernando qué tools se pueden llamar.
 
 ---
@@ -220,6 +230,7 @@ RFC-011 define **qué** es un gate y **dónde** bloquea; **cómo** se aprueba lo
 ### 5.1 Incluido
 - Esquema ampliado de `context.yaml` (`development_rules`, `domain_rules`, `release_gates`) y su validación en `orchestrator/context.py`.
 - Tools MCP de solo lectura `get_project_policies` y `get_domain_rules`.
+- Tabla `project_policies` como reflejo de `context.yaml` (§3.5).
 - Columna `steps.gate` y verificación en las cuatro activaciones (I4), consumiendo las aprobaciones de RFC-012.
 - Comprobaciones en `ai-orchestrator doctor` para políticas mal formadas y gates inexistentes.
 
@@ -251,7 +262,7 @@ RFC-011 define **qué** es un gate y **dónde** bloquea; **cómo** se aprueba lo
 ## 7. Plan de implementación (tentativo, sujeto a la validación del RFC)
 
 1. **Esquema y parser:** extender `ProjectContext` y validar las secciones nuevas, en un `tests/test_context.py` nuevo (hoy no existe; los tests de `context.py` están repartidos en otros archivos).
-2. **Tools MCP de políticas:** `get_project_policies` (I1, I2) y `get_domain_rules` (I3).
+2. **Tools MCP de políticas y reflejo:** `get_project_policies` (I1, I2), `get_domain_rules` (I3) y la tabla `project_policies` con su actualización (I8).
 3. **Release gates:** migración de `steps.gate` y de la tabla de aprobaciones con el contrato de §3.4, invalidación ante cambio de versión, proyecto o `policy_hash`, verificación atómica en las cuatro activaciones (I4) y rechazo por MCP (I5). Se puede implementar antes de RFC-012: sin un productor de aprobaciones, los pasos con gate no se activan.
 4. **Diagnóstico:** comprobaciones en `ai-orchestrator doctor`.
 
@@ -262,25 +273,25 @@ Cada fase es un PR con la auditoría de ANL-003 y sus invariantes con tests.
 ## 8. Criterios de merge
 
 **De este RFC a `accepted`:**
-- [ ] Front matter validado por `scripts/validate_decision_docs.py`.
-- [ ] Regla de anonimización verificada: ningún identificador, dominio ni combinación de rasgos de un proyecto real, en el documento ni en fixtures.
-- [ ] Auditoría de ANL-003 en dos rondas sin hallazgos abiertos.
-- [ ] Preguntas abiertas de §9 resueltas o diferidas explícitamente por el dueño.
+- [x] Front matter validado por `scripts/validate_decision_docs.py`.
+- [x] Regla de anonimización verificada: ningún identificador, dominio ni combinación de rasgos de un proyecto real, en el documento ni en fixtures (rondas 1 y 2).
+- [x] Auditoría de ANL-003 en dos rondas sin hallazgos abiertos (PR #60: ronda 1 Codex y Gemini, ronda 2 Codex con tres confirmaciones, y confirmación de la v0.5).
+- [x] Preguntas abiertas de §9 resueltas o diferidas explícitamente por el dueño (2026-10-29).
 
 **De cada PR de implementación:**
-- [ ] Tests de los invariantes que cubre la fase (I1-I7).
+- [ ] Tests de los invariantes que cubre la fase (I1-I8).
 - [ ] Tests de pureza STDIO en `tests/test_mcp.py` para las tools nuevas.
 - [ ] `python -m pytest tests/` completo en verde y validadores que correspondan.
 
 ---
 
-## 9. Preguntas abiertas
+## 9. Decisiones del dueño sobre las preguntas abiertas (2026-10-29)
 
-- **P1. Atribución humana de la aprobación manual.** Con el modelo actual (RFC-008 y RFC-009), ningún canal local acredita que quien confirma es una persona: un perfil MCP lo fija quien lanza el proceso, el token del dashboard lo puede leer cualquier proceso local y la CLI la puede correr un agente con terminal. Opciones: (a) aceptar "aprobación registrada desde la UI local" como garantía suficiente, apoyada en la evidencia observada de RFC-012 (frena al agente que avanza por inercia, no a uno que arma pedidos al dashboard); (b) agregar un factor que un agente no tenga (un secreto que solo tipea la persona, o un factor fuera de la máquina), con su propio RFC. Propuesta base: (a), dejando (b) para cuando se pida atribución fuerte.
-- **P2. Cierre automático.** Opciones: (a) mantenerlo, ya que las políticas dejan de depender del contexto (§3.3); (b) un estado nuevo (`idle`), que afecta al dashboard, a las proyecciones y a `tracking_health`; (c) un aviso en `workflow_state`. Propuesta base: (a).
-- **P3. Declaración de archivos de un paso.** Para advertir al registrar o ejecutar un paso que toca rutas protegidas, el paso tiene que declarar sus rutas (campo nuevo o parte de su especificación) y una tool tiene que evaluarlas. Hasta decidirlo, I1 cubre solo la consulta.
-- **P4. Fuente de verdad de las políticas.** Propuesta base: `context.yaml` leído en cada llamada (I2). Un reflejo en SQLite para consultas entre proyectos queda para cuando haga falta. Nota: en este repo `.orchestrator/` está en `.gitignore`, así que sus políticas no se versionan.
-- **P5. Herencia implícita por jerarquía.** Derivar la herencia de `projects.parent_alias` en el servidor exige devolver datos de otro proyecto y, por lo tanto, una enmienda explícita a RFC-008. Lo mismo vale para devolver `inherits_from` por MCP. Propuesta base: no hacerlo; la herencia se declara en `inherits_from` y el agente la lee del repositorio.
+- **P1. Atribución humana de la aprobación manual: (a).** Con el modelo actual (RFC-008 y RFC-009) ningún canal local acredita que quien aprueba es una persona: un perfil MCP lo fija quien lanza el proceso, el token del dashboard lo puede leer cualquier proceso local y la CLI la puede correr un agente con terminal. Se acepta "aprobación registrada desde la UI local", apoyada en la evidencia observada de RFC-012: frena al agente que avanza por inercia, no a uno que arma pedidos al dashboard a propósito. Un factor que un agente no tenga (un secreto que solo tipea la persona, o un factor fuera de la máquina) queda para un RFC propio cuando se pida atribución fuerte.
+- **P2. Cierre automático: (a), se mantiene.** Las políticas ya no dependen del contexto (§3.3), así que cerrarlo no oculta nada. No se agrega el estado `idle`. No resuelve el X5 del ctx #51.
+- **P3. Declaración de archivos de un paso: diferida.** I1 cubre la consulta; advertir al registrar o ejecutar un paso que toca rutas protegidas necesita que el paso declare sus rutas y queda para un RFC o una enmienda posterior.
+- **P4. Fuente de verdad: `context.yaml` con reflejo en SQLite** (§3.5, I2, I8). Nota: en este repo `.orchestrator/` está en `.gitignore`, así que sus políticas no se versionan.
+- **P5. Herencia implícita por jerarquía: no.** Derivarla de `projects.parent_alias` en el servidor, o devolver `inherits_from` por MCP, exigiría enmendar RFC-008. La herencia se declara en `inherits_from` y el agente la lee del repositorio.
 
 ---
 
